@@ -15,6 +15,7 @@ export interface Database {
           name: string
           description: string | null
           thumbnail_url: string | null
+          user_id: string | null
           created_at: string
           updated_at: string
         }
@@ -23,6 +24,7 @@ export interface Database {
           name: string
           description?: string | null
           thumbnail_url?: string | null
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -31,6 +33,7 @@ export interface Database {
           name?: string
           description?: string | null
           thumbnail_url?: string | null
+          user_id?: string | null
           updated_at?: string
         }
       }

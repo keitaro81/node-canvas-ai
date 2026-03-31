@@ -29,10 +29,12 @@ export async function getProject(id: string): Promise<ProjectRow> {
 }
 
 export async function createProject(data: ProjectInsert): Promise<ProjectRow> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('ログインが必要です')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = supabase.from('projects') as any
   const { data: project, error } = await table
-    .insert(data)
+    .insert({ ...data, user_id: user.id })
     .select()
     .single()
   if (error) throw error
