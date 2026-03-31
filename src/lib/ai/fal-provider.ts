@@ -1,73 +1,45 @@
+import { fal } from './fal-client'
 import type { AIProvider, GenerationRequest, GenerationResult } from './types'
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
-
-interface FalEdgeFunctionResponse {
-  status: string
-  outputUrl?: string
-  seed?: number
-  inference_time?: number
-  error?: string
-}
 
 export const falProvider: AIProvider = {
   name: 'fal',
 
   async generateImage(req: GenerationRequest): Promise<GenerationResult> {
-    let res: FalEdgeFunctionResponse
-
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-image`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          prompt: req.prompt,
-          negativePrompt: req.negativePrompt,
-          aspectRatio: req.aspectRatio ?? '1:1',
-          model: req.model,
-          seed: req.seed,
-        }),
+      const input: Record<string, unknown> = {
+        prompt: req.prompt,
+        image_size: req.aspectRatio ?? '1:1',
+      }
+      if (req.negativePrompt) input.negative_prompt = req.negativePrompt
+      if (req.seed != null) input.seed = req.seed
+
+      type FalImageOutput = { images?: { url: string }[]; seed?: number; inference_time?: number }
+      const result = await fal.subscribe(req.model, {
+        input,
+        logs: false,
       })
 
-      if (!response.ok) {
-        const text = await response.text()
-        return {
-          id: '',
-          status: 'failed',
-          error: `Edge Function error ${response.status}: ${text}`,
-        }
+      const data = (result as unknown as { data?: FalImageOutput }).data
+      const imageUrl = data?.images?.[0]?.url
+      if (!imageUrl) {
+        return { id: '', status: 'failed', error: 'No image URL in response' }
       }
 
-      res = await response.json() as FalEdgeFunctionResponse
+      return {
+        id: String(data?.seed ?? Date.now()),
+        status: 'completed',
+        outputUrl: imageUrl,
+        metadata: {
+          seed: data?.seed,
+          inference_time: data?.inference_time,
+        },
+      }
     } catch (err) {
       return {
         id: '',
         status: 'failed',
         error: (err as Error).message,
       }
-    }
-
-    if (res.status !== 'completed' || !res.outputUrl) {
-      return {
-        id: '',
-        status: 'failed',
-        error: res.error ?? 'Unexpected response from generate-image',
-      }
-    }
-
-    return {
-      id: String(res.seed ?? Date.now()),
-      status: 'completed',
-      outputUrl: res.outputUrl,
-      metadata: {
-        seed: res.seed,
-        inference_time: res.inference_time,
-      },
     }
   },
 
