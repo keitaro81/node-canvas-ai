@@ -80,13 +80,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const canvasData = workflow.canvas_data as { nodes?: AppNode[]; edges?: Edge[] } | null
 
       // 保存済みデータに blob: URL が残っていれば除去する
+      // generating 状態のまま保存されたノードは error にリセット（リロード後に永遠に生成中にならないよう）
       const restoredNodes = (canvasData?.nodes ?? []).map((node) => {
         const d = node.data as Record<string, unknown>
+        let data = d
         if (typeof d.uploadedImagePreview === 'string' && d.uploadedImagePreview.startsWith('blob:')) {
           const { uploadedImagePreview: _, ...rest } = d
-          return { ...node, data: rest }
+          data = rest
         }
-        return node
+        if (data.status === 'generating') {
+          data = { ...data, status: 'error', errorMessage: 'ページの再読み込みにより生成が中断されました' }
+        }
+        return { ...node, data }
       })
       setNodes(restoredNodes as AppNode[])
       setEdges(canvasData?.edges ?? [])
