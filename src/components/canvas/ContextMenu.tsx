@@ -1,0 +1,109 @@
+import { useEffect, useRef } from 'react'
+import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2 } from 'lucide-react'
+import type { NodeType } from '../../types/nodes'
+
+interface MenuItem {
+  type: NodeType
+  label: string
+  icon: React.ReactNode
+  color: string
+}
+
+const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
+  {
+    category: 'Text',
+    items: [
+      { type: 'textPrompt',     label: 'Text Prompt',      icon: <Type size={14} />,     color: '#6366F1' },
+      { type: 'promptEnhancer', label: 'Prompt Enhancer',  icon: <Wand2 size={14} />,    color: '#6366F1' },
+    ],
+  },
+  {
+    category: 'Image',
+    items: [
+      { type: 'imageGen',       label: 'Image Generation', icon: <Sparkles size={14} />,  color: '#8B5CF6' },
+      { type: 'referenceImage', label: 'Reference Image',  icon: <ImagePlus size={14} />, color: '#8B5CF6' },
+    ],
+  },
+  {
+    category: 'Video',
+    items: [
+      { type: 'videoGen', label: 'Video Generation', icon: <Film size={14} />, color: '#EC4899' },
+    ],
+  },
+  {
+    category: 'Utility',
+    items: [
+      { type: 'note',    label: 'Note',    icon: <StickyNote size={14} />, color: '#F59E0B' },
+      { type: 'utility', label: 'Utility', icon: <Wrench size={14} />,    color: '#6B7280' },
+    ],
+  },
+]
+
+
+interface ContextMenuProps {
+  x: number
+  y: number
+  onSelect: (type: NodeType, label: string) => void
+  onClose: () => void
+}
+
+export function ContextMenu({ x, y, onSelect, onClose }: ContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  // Adjust position so menu doesn't go off-screen
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    left: x,
+    top: y,
+    zIndex: 9999,
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      style={style}
+      className="min-w-[180px] rounded-lg border border-[#27272A] bg-[#18181B] shadow-[0_4px_16px_rgba(0,0,0,0.4)] py-1 overflow-hidden"
+    >
+      <div className="px-3 py-1.5 text-[11px] font-medium text-[#71717A] uppercase tracking-wider">
+        ノードを追加
+      </div>
+      {MENU_ITEMS.map((group) => (
+        <div key={group.category}>
+          <div className="px-3 py-1 text-[10px] text-[#71717A] uppercase tracking-wider mt-1">
+            {group.category}
+          </div>
+          {group.items.map((item) => (
+            <button
+              key={item.label}
+              className="w-full flex items-center gap-2.5 px-3 h-8 text-[13px] text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-100 text-left"
+              onClick={() => {
+                onSelect(item.type, item.label)
+                onClose()
+              }}
+            >
+              <span style={{ color: item.color }}>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}

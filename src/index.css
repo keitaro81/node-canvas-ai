@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Flora AI color system */
+  --color-canvas-bg: #0A0A0B;
+  --color-canvas-dots: #1A1A1E;
+  --color-surface-primary: #111113;
+  --color-surface-secondary: #18181B;
+  --color-surface-elevated: #1E1E22;
+  --color-border-default: #27272A;
+  --color-border-active: #3F3F46;
+
+  --color-text-primary: #FAFAFA;
+  --color-text-secondary: #A1A1AA;
+  --color-text-tertiary: #71717A;
+
+  --color-node-text: #6366F1;
+  --color-node-image: #8B5CF6;
+  --color-node-video: #EC4899;
+  --color-node-utility: #6B7280;
+
+  --color-accent-primary: #8B5CF6;
+  --color-accent-success: #22C55E;
+  --color-accent-warning: #F59E0B;
+  --color-accent-error: #EF4444;
+
+  --color-edge-text: #6366F1;
+  --color-edge-image: #8B5CF6;
+  --color-edge-video: #EC4899;
+  --color-edge-inactive: #3F3F46;
+
+  /* shadcn/ui compat */
+  --color-background: #0A0A0B;
+  --color-foreground: #FAFAFA;
+  --color-card: #111113;
+  --color-card-foreground: #FAFAFA;
+  --color-popover: #18181B;
+  --color-popover-foreground: #FAFAFA;
+  --color-primary: #8B5CF6;
+  --color-primary-foreground: #FAFAFA;
+  --color-secondary: #18181B;
+  --color-secondary-foreground: #FAFAFA;
+  --color-muted: #18181B;
+  --color-muted-foreground: #A1A1AA;
+  --color-accent: #1E1E22;
+  --color-accent-foreground: #FAFAFA;
+  --color-destructive: #EF4444;
+  --color-border: #27272A;
+  --color-input: #0A0A0B;
+  --color-ring: #8B5CF6;
+
+  --radius: 0.75rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--color-border-default);
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: var(--color-canvas-bg);
+    color: var(--color-text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* React Flow overrides */
+.react-flow__renderer {
+  background: var(--color-canvas-bg);
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+/* Layer ordering: connection line (drag) below nodes */
+svg.react-flow__connectionline {
+  z-index: 2 !important;
+}
+.react-flow__nodes {
+  z-index: 10 !important;
+}
+
+.react-flow__handle {
+  transition: box-shadow 150ms ease-out;
+}
+
+/* Node pop-in animation */
+@keyframes nodePopIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.node-popin {
+  animation: nodePopIn 150ms ease-out;
+}
+
+/* Generating pulse animation */
+@keyframes borderPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+  50%       { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0); }
+}
+
+.node-generating {
+  animation: borderPulse 2s ease-in-out infinite;
+}
+
+/* Animated edge (data flow) */
+@keyframes dashFlow {
+  to { stroke-dashoffset: -20; }
+}
+
+.animated-edge {
+  stroke-dasharray: 10 5;
+  animation: dashFlow 1s linear infinite;
+}
+
+/* Canvas pane cursor: default arrow */
+.react-flow__pane {
+  cursor: default !important;
+}
+
+/* Marquee selection box */
+.react-flow__selection {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1.5px dashed #6366F1;
+  border-radius: 4px;
+}
+
+/* Selected nodes bounding box */
+.react-flow__nodesselection-rect {
+  background: transparent;
+  border: 1.5px dashed #6366F1;
+  border-radius: 4px;
+}
