@@ -159,7 +159,6 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
   updateNode: Upd
 }) {
   const edges = useCanvasStore((s) => s.edges)
-  const nodes = useCanvasStore((s) => s.nodes)
 
   const params = (data.params ?? {}) as Record<string, unknown>
   const model = (params.model as string) ?? 'black-forest-labs/flux-schnell'
@@ -177,17 +176,6 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
         e.targetHandle === 'in-image-2')
   )
   const isOmniGen = imageEdges.length > 0
-
-  // 接続された画像URLを取得（プレビュー表示用）
-  const connectedImageUrls = imageEdges.map((e) => {
-    const n = nodes.find((n) => n.id === e.source)
-    if (!n) return null
-    const d = n.data as Record<string, unknown>
-    if (typeof d.output === 'string' && d.output) return d.output
-    if (typeof d.imageUrl === 'string' && d.imageUrl) return d.imageUrl
-    if (typeof d.uploadedImagePreview === 'string' && d.uploadedImagePreview) return d.uploadedImagePreview
-    return null
-  }).filter(Boolean) as string[]
 
   const set = (key: string, val: unknown) =>
     updateNode(nodeId, { params: { ...params, [key]: val } })
@@ -207,55 +195,31 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
                 : { background: 'rgba(99,102,241,0.15)', color: '#6366F1' }
               }
             >
-              {isOmniGen ? 'OmniGen（画像合成）' : 'FLUX（テキスト生成）'}
+              {isOmniGen ? 'NB2 Edit' : 'T2I'}
             </span>
           </div>
 
-          {!isOmniGen ? (
-            // FLUX モード: Model / Aspect Ratio / Seed
-            <>
-              <SelectField
-                label="Model"
-                value={model}
-                options={IMAGE_MODELS}
-                onChange={(v) => set('model', v)}
-              />
-              <ButtonGroupField
-                label="Aspect Ratio"
-                value={aspectRatio}
-                options={[...IMAGE_ASPECT_RATIOS]}
-                onChange={(v) => set('aspectRatio', v)}
-              />
-              <NumberField
-                label="Seed"
-                value={seed}
-                onChange={(v) => set('seed', v)}
-                placeholder="空欄 = ランダム"
-              />
-            </>
-          ) : (
-            // OmniGen モード: 接続画像プレビュー
-            <div className="flex flex-col gap-2">
-              <FieldLabel>接続中の画像（{connectedImageUrls.length}枚）</FieldLabel>
-              {connectedImageUrls.length === 0 ? (
-                <span className="text-[11px] text-[#71717A]">画像ノードを接続してください</span>
-              ) : (
-                connectedImageUrls.map((url, i) => (
-                  <div key={i} className="flex flex-col gap-1">
-                    <span className="text-[10px] text-[#71717A]">Image {i + 1}</span>
-                    <img
-                      src={url}
-                      alt={`Input ${i + 1}`}
-                      className="w-full h-auto rounded-md"
-                      style={{ border: '1px solid #27272A', maxHeight: 120, objectFit: 'cover' }}
-                    />
-                  </div>
-                ))
-              )}
-              <p className="text-[10px] text-[#71717A] leading-relaxed">
-                💡 画像トークン（&lt;img&gt;）はプロンプトに自動付与されます。TextPromptノードに指示を書いてください。
-              </p>
-            </div>
+          {!isOmniGen && (
+            <SelectField
+              label="Model"
+              value={model}
+              options={IMAGE_MODELS}
+              onChange={(v) => set('model', v)}
+            />
+          )}
+          <ButtonGroupField
+            label="Aspect Ratio"
+            value={aspectRatio}
+            options={[...IMAGE_ASPECT_RATIOS]}
+            onChange={(v) => set('aspectRatio', v)}
+          />
+          {!isOmniGen && (
+            <NumberField
+              label="Seed"
+              value={seed}
+              onChange={(v) => set('seed', v)}
+              placeholder="空欄 = ランダム"
+            />
           )}
         </div>
       </section>
