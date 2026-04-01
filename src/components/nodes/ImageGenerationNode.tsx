@@ -66,19 +66,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         e.targetHandle === 'in-image-reference' ||
         e.targetHandle === 'in-image-2')
   )
-  const imageUrl1 = (() => {
-    const edge = imageEdges[0]
-    if (!edge) return null
-    const sourceNode = storeNodes.find((n) => n.id === edge.source)
-    return sourceNode ? getImageUrlFromNode(sourceNode) : null
-  })()
-  const imageUrl2 = (() => {
-    const edge = imageEdges[1]
-    if (!edge) return null
-    const sourceNode = storeNodes.find((n) => n.id === edge.source)
-    return sourceNode ? getImageUrlFromNode(sourceNode) : null
-  })()
-
   // 画像接続あり = NB2 Edit、なし = text-to-image
   const hasImages = imageEdges.length > 0
 
@@ -284,31 +271,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               {!hasImages ? 'T2I' : 'NB2 Edit'}
             </span>
           </div>
-
-          {/* 接続画像プレビュー（1枚以上あるとき表示） */}
-          {imageEdges.length > 0 && (
-            <div className="flex gap-2">
-              {[imageUrl1, imageUrl2].slice(0, imageEdges.length).map((url, i) => (
-                <div key={i} className="flex-1 flex flex-col gap-1">
-                  <span className="text-[10px] font-medium text-[#A1A1AA]">Image {i + 1}</span>
-                  <div
-                    className="rounded-lg overflow-hidden flex items-center justify-center"
-                    style={{
-                      height: 80,
-                      background: '#0A0A0B',
-                      border: url ? '1px solid #27272A' : '1px dashed #27272A',
-                    }}
-                  >
-                    {url ? (
-                      <img src={url} alt={`Input ${i + 1}`} className="w-full h-full" style={{ objectFit: 'cover' }} />
-                    ) : (
-                      <span className="text-[10px]" style={{ color: '#71717A' }}>Image {i + 1}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* 画像なし: T2Iモデル設定（画像あり時は自動でNB2 Edit） */}
           {!hasImages && (
