@@ -152,8 +152,16 @@ export function Canvas() {
     style.id = 'space-pan-cursor'
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) {
-        style.textContent = '.react-flow__pane { cursor: grab !important; } .react-flow__pane:active { cursor: grabbing !important; }'
+        style.textContent = [
+          '.react-flow__pane { cursor: grab !important; }',
+          '.react-flow__pane:active { cursor: grabbing !important; }',
+          '.react-flow__node { pointer-events: none !important; cursor: grab !important; }',
+        ].join(' ')
         document.head.appendChild(style)
+      }
+      if (e.code === 'Digit0' && e.metaKey && e.altKey) {
+        e.preventDefault()
+        rfInstance.current?.fitView({ padding: 0.15, duration: 400 })
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {

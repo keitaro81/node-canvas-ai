@@ -112,7 +112,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       if (connectedImageUrls.length === 0 && model === 'fal-ai/nano-banana-2') {
         // Nano Banana 2 T2I（Edge Functionを経由せず直接呼び出し）
         usedModel = model
-        const nb2Input: Record<string, unknown> = { prompt }
+        const nb2Input: Record<string, unknown> = { prompt, aspect_ratio: aspectRatio }
         if (seed) nb2Input.seed = Number(seed)
         const result = await fal.subscribe('fal-ai/nano-banana-2', {
           input: nb2Input,

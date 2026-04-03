@@ -1,6 +1,28 @@
 import { fal } from './fal-client'
 import type { AIProvider, GenerationRequest, GenerationResult } from './types'
 
+// flux-schnell / flux-dev は image_size プリセット名を使う
+const RATIO_TO_IMAGE_SIZE: Record<string, string> = {
+  '1:1':  'square_hd',
+  '16:9': 'landscape_16_9',
+  '9:16': 'portrait_16_9',
+  '4:3':  'landscape_4_3',
+  '3:4':  'portrait_4_3',
+}
+
+// flux-1.1-pro / flux-2 は aspect_ratio パラメータでそのまま受け取る
+const MODELS_WITH_ASPECT_RATIO = [
+  'black-forest-labs/flux-1.1-pro',
+  'fal-ai/flux-2',
+]
+
+function buildSizeParam(model: string, ratio: string): Record<string, unknown> {
+  if (MODELS_WITH_ASPECT_RATIO.includes(model)) {
+    return { aspect_ratio: ratio }
+  }
+  return { image_size: RATIO_TO_IMAGE_SIZE[ratio] ?? 'square_hd' }
+}
+
 export const falProvider: AIProvider = {
   name: 'fal',
 
@@ -8,7 +30,7 @@ export const falProvider: AIProvider = {
     try {
       const input: Record<string, unknown> = {
         prompt: req.prompt,
-        image_size: req.aspectRatio ?? '1:1',
+        ...buildSizeParam(req.model, req.aspectRatio ?? '1:1'),
       }
       if (req.negativePrompt) input.negative_prompt = req.negativePrompt
       if (req.seed != null) input.seed = req.seed
