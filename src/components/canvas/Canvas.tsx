@@ -311,48 +311,57 @@ export function Canvas() {
       e.preventDefault()
 
       // 画像ファイルのドラッグ&ドロップ
-      const imageFile = Array.from(e.dataTransfer.files).find((f) =>
-        f.type.startsWith('image/')
-      )
-      if (imageFile) {
-        // ドロップ先が既存の referenceImageNode か判定
-        const targetEl = e.target as Element
-        const nodeEl = targetEl.closest('.react-flow__node') as HTMLElement | null
-        const targetNodeId = nodeEl?.getAttribute('data-id') ?? null
-        const targetNode = targetNodeId ? nodes.find((n) => n.id === targetNodeId) : null
+      const imageFiles = Array.from(e.dataTransfer.files)
+        .filter((f) => f.type.startsWith('image/'))
+        .slice(0, 10)
 
-        if (targetNode?.type === 'referenceImageNode') {
-          // 既存ノードの画像を入れ替え
-          const previewUrl = URL.createObjectURL(imageFile)
-          updateNode(targetNodeId!, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
-          fal.storage.upload(imageFile).then((uploadedUrl: string) => {
-            updateNode(targetNodeId!, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
-          }).catch(() => {
-            updateNode(targetNodeId!, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
-          })
-          return
+      if (imageFiles.length > 0) {
+        // 単一ファイルかつ既存の referenceImageNode へのドロップ → 画像を入れ替え
+        if (imageFiles.length === 1) {
+          const targetEl = e.target as Element
+          const nodeEl = targetEl.closest('.react-flow__node') as HTMLElement | null
+          const targetNodeId = nodeEl?.getAttribute('data-id') ?? null
+          const targetNode = targetNodeId ? nodes.find((n) => n.id === targetNodeId) : null
+
+          if (targetNode?.type === 'referenceImageNode') {
+            const previewUrl = URL.createObjectURL(imageFiles[0])
+            updateNode(targetNodeId!, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+            fal.storage.upload(imageFiles[0]).then((uploadedUrl: string) => {
+              updateNode(targetNodeId!, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+            }).catch(() => {
+              updateNode(targetNodeId!, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
+            })
+            return
+          }
         }
 
-        // それ以外 → 新規 ReferenceImageNode を生成
-        const flowPos = rfInstance.current?.screenToFlowPosition({
+        // 新規 ReferenceImageNode を整列して生成（横一列、300px間隔）
+        const basePos = rfInstance.current?.screenToFlowPosition({
           x: e.clientX,
           y: e.clientY,
         }) ?? { x: e.clientX, y: e.clientY }
-        const nodeId = `node-${Date.now()}-${nodeIdCounter++}`
-        const previewUrl = URL.createObjectURL(imageFile)
-        addNode({
-          id: nodeId,
-          type: 'referenceImageNode',
-          position: flowPos,
-          data: {
-            ...REFERENCE_IMAGE_DEFAULT_DATA,
-            label: 'Reference Image',
-            uploadedImagePreview: previewUrl,
-          } as unknown as NodeData,
+
+        const NODE_SPACING = 300
+        const totalWidth = NODE_SPACING * (imageFiles.length - 1)
+        const startX = basePos.x - totalWidth / 2
+
+        imageFiles.forEach((file, index) => {
+          const nodeId = `node-${Date.now()}-${nodeIdCounter++}`
+          const previewUrl = URL.createObjectURL(file)
+          addNode({
+            id: nodeId,
+            type: 'referenceImageNode',
+            position: { x: startX + index * NODE_SPACING, y: basePos.y },
+            data: {
+              ...REFERENCE_IMAGE_DEFAULT_DATA,
+              label: 'Reference Image',
+              uploadedImagePreview: previewUrl,
+            } as unknown as NodeData,
+          })
+          fal.storage.upload(file).then((uploadedUrl: string) => {
+            updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+          }).catch(() => {})
         })
-        fal.storage.upload(imageFile).then((uploadedUrl: string) => {
-          updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
-        }).catch(() => {})
         return
       }
 

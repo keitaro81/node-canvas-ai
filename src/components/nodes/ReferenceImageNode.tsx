@@ -49,6 +49,11 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('Files')) {
+      const imageItemCount = Array.from(e.dataTransfer.items).filter(
+        (item) => item.kind === 'file' && item.type.startsWith('image/')
+      ).length
+      // 複数ファイルの場合はキャンバスに委譲（ハイライトしない）
+      if (imageItemCount > 1) return
       e.preventDefault()
       e.stopPropagation()
       e.dataTransfer.dropEffect = 'copy'
@@ -64,13 +69,20 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
+      const imageFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+      if (imageFiles.length === 0) return
+
+      // 複数ファイルの場合はキャンバスに委譲して新規ノード生成
+      if (imageFiles.length > 1) {
+        setIsDragOver(false)
+        return
+      }
+
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
 
-      const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'))
-      if (!file) return
-      await uploadFile(file)
+      await uploadFile(imageFiles[0])
     },
     [uploadFile]
   )
