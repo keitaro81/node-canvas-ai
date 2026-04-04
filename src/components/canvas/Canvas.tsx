@@ -146,7 +146,7 @@ function isCompatiblePorts(sourceType: string, targetType: string): boolean {
 }
 
 export function Canvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom, setNodes, setEdges } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom } =
     useCanvasStore()
 
   const isLoadingWorkflow = useWorkflowStore((s) => s.isLoadingWorkflow)
