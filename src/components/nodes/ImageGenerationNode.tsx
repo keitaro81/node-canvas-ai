@@ -37,7 +37,8 @@ const FLUX_MODELS = [
 ]
 
 
-const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const
+const ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
+
 
 
 function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
@@ -109,10 +110,13 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       let outputImageUrl: string | undefined
       let usedModel: string
 
+      // auto + 画像なし → 1:1 フォールバック
+      const resolvedAspectRatio = aspectRatio === 'auto' ? '1:1' : aspectRatio
+
       if (connectedImageUrls.length === 0 && model === 'fal-ai/nano-banana-2') {
         // Nano Banana 2 T2I（Edge Functionを経由せず直接呼び出し）
         usedModel = model
-        const nb2Input: Record<string, unknown> = { prompt, aspect_ratio: aspectRatio }
+        const nb2Input: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio }
         if (seed) nb2Input.seed = Number(seed)
         const result = await fal.subscribe('fal-ai/nano-banana-2', {
           input: nb2Input,
@@ -126,7 +130,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         const provider = getDefaultProvider()
         const result = await provider.generateImage({
           prompt,
-          aspectRatio: aspectRatio as '1:1' | '16:9' | '9:16' | '4:3' | '3:4',
+          aspectRatio: resolvedAspectRatio as '1:1' | '16:9' | '9:16' | '4:3' | '3:4',
           model,
           seed: seed ? Number(seed) : undefined,
         })
@@ -137,11 +141,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         }
       } else {
         // 画像あり → Nano Banana 2 Edit
+        // auto の場合は aspect_ratio を省略して API に参照画像の寸法を使わせる
         usedModel = 'fal-ai/nano-banana-2/edit'
         const nb2EditInput: Record<string, unknown> = {
           prompt,
           image_urls: connectedImageUrls,
-          aspect_ratio: aspectRatio,
+          ...(aspectRatio !== 'auto' && { aspect_ratio: aspectRatio }),
         }
         const result = await fal.subscribe('fal-ai/nano-banana-2/edit', {
           input: nb2EditInput,
@@ -300,22 +305,27 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Aspect Ratio: T2I・Editモード共通 */}
           <div>
             <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">Aspect Ratio</label>
-            <div className="flex gap-1">
+            <div className="flex gap-1 flex-wrap">
               {ASPECT_RATIOS.map((ratio) => {
                 const active = aspectRatio === ratio
+                const isAutoDisabled = ratio === 'auto' && !hasImages
                 return (
                   <button
                     key={ratio}
                     className="flex-1 py-1 rounded text-[11px] font-medium transition-colors nodrag"
                     style={{
                       background: active ? '#8B5CF6' : '#1E1E22',
-                      color: active ? '#FAFAFA' : '#A1A1AA',
+                      color: active ? '#FAFAFA' : isAutoDisabled ? '#3F3F46' : '#A1A1AA',
                       border: `1px solid ${active ? '#8B5CF6' : '#27272A'}`,
+                      cursor: isAutoDisabled ? 'not-allowed' : 'pointer',
+                      minWidth: 0,
                     }}
-                    onClick={() =>
+                    onClick={() => {
+                      if (isAutoDisabled) return
                       updateNode(id, { params: { ...nodeData.params, aspectRatio: ratio } })
-                    }
-                    disabled={isGenerating}
+                    }}
+                    disabled={isGenerating || isAutoDisabled}
+                    title={ratio === 'auto' ? '参照画像のアスペクト比を自動検出' : undefined}
                   >
                     {ratio}
                   </button>
