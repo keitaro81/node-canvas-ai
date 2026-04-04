@@ -1,12 +1,23 @@
 import { useEffect, useRef } from 'react'
 import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2 } from 'lucide-react'
-import type { NodeType } from '../../types/nodes'
+import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
   type: NodeType
   label: string
   icon: React.ReactNode
   color: string
+}
+
+// ノードタイプが受け付けるポートタイプ（空配列 = 入力なし）
+const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
+  textPrompt:     [],
+  referenceImage: [],
+  promptEnhancer: ['text'],
+  imageGen:       ['text', 'image'],
+  videoGen:       ['text', 'image'],
+  note:           [],
+  utility:        ['text'],
 }
 
 const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
@@ -45,9 +56,10 @@ interface ContextMenuProps {
   y: number
   onSelect: (type: NodeType, label: string) => void
   onClose: () => void
+  sourcePortType?: PortType
 }
 
-export function ContextMenu({ x, y, onSelect, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, onSelect, onClose, sourcePortType }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -67,6 +79,16 @@ export function ContextMenu({ x, y, onSelect, onClose }: ContextMenuProps) {
     }
   }, [onClose])
 
+  const filteredGroups = sourcePortType
+    ? MENU_ITEMS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          const accepts = NODE_ACCEPTS[item.type]
+          return accepts && accepts.includes(sourcePortType)
+        }),
+      })).filter((group) => group.items.length > 0)
+    : MENU_ITEMS
+
   // Adjust position so menu doesn't go off-screen
   const style: React.CSSProperties = {
     position: 'fixed',
@@ -82,9 +104,9 @@ export function ContextMenu({ x, y, onSelect, onClose }: ContextMenuProps) {
       className="min-w-[180px] rounded-lg border border-[#27272A] bg-[#18181B] shadow-[0_4px_16px_rgba(0,0,0,0.4)] py-1 overflow-hidden"
     >
       <div className="px-3 py-1.5 text-[11px] font-medium text-[#71717A] uppercase tracking-wider">
-        ノードを追加
+        {sourcePortType ? '接続先を選択' : 'ノードを追加'}
       </div>
-      {MENU_ITEMS.map((group) => (
+      {filteredGroups.map((group) => (
         <div key={group.category}>
           <div className="px-3 py-1 text-[10px] text-[#71717A] uppercase tracking-wider mt-1">
             {group.category}

@@ -31,7 +31,7 @@ import { VideoGenerationNode } from '../nodes/VideoGenerationNode'
 import { VideoDisplayNode } from '../nodes/VideoDisplayNode'
 import { ReferenceImageNode } from '../nodes/ReferenceImageNode'
 import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
-import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData } from '../../types/nodes'
+import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, PortType } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
 
 const nodeTypes: NodeTypes = {
@@ -114,9 +114,20 @@ interface ContextMenuState {
   y: number
   flowX: number
   flowY: number
+  sourceNodeId?: string
+  sourceHandleId?: string | null
+  sourcePortType?: PortType
 }
 
 let nodeIdCounter = 1
+
+// ノードタイプ別のデフォルト入力ハンドルID（ポートタイプ → ハンドルID）
+const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
+  promptEnhancer: { text: 'in-text-prompt' },
+  imageGen:       { text: 'in-text', image: 'in-image' },
+  videoGen:       { text: 'in-text', image: 'in-image' },
+  utility:        { text: 'in-text-in' },
+}
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
   text:  ['text'],
@@ -229,9 +240,22 @@ export function Canvas() {
         data,
         ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
       })
+
+      if (contextMenu.sourceNodeId && contextMenu.sourcePortType) {
+        const targetHandle = NODE_DEFAULT_INPUT_HANDLE[type]?.[contextMenu.sourcePortType] ?? null
+        if (targetHandle) {
+          onConnect({
+            source: contextMenu.sourceNodeId,
+            sourceHandle: contextMenu.sourceHandleId ?? null,
+            target: id,
+            targetHandle,
+          })
+        }
+      }
+
       setContextMenu(null)
     },
-    [contextMenu, addNode]
+    [contextMenu, addNode, onConnect]
   )
 
   const handleConnectStart = useCallback((_: unknown, params: OnConnectStartParams) => {
@@ -276,9 +300,16 @@ export function Canvas() {
           }
         }
       } else if (!nodeElement && !isOnHandle) {
-        // キャンバス上でドロップ → コンテキストメニュー表示
         const flowPos = rfInstance.current?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: clientX, y: clientY }
-        setContextMenu({ x: clientX, y: clientY, flowX: flowPos.x, flowY: flowPos.y })
+        setContextMenu({
+          x: clientX,
+          y: clientY,
+          flowX: flowPos.x,
+          flowY: flowPos.y,
+          sourceNodeId: connectingNode.current ?? undefined,
+          sourceHandleId: connectingHandle.current,
+          sourcePortType: parsePortType(connectingHandle.current) as PortType,
+        })
       }
     }
     connectingNode.current = null
@@ -474,6 +505,7 @@ export function Canvas() {
           y={contextMenu.y}
           onSelect={handleNodeSelect}
           onClose={() => setContextMenu(null)}
+          sourcePortType={contextMenu.sourcePortType}
         />
       )}
     </div>
