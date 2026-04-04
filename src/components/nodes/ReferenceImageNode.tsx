@@ -9,15 +9,12 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ReferenceImageNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const [isUploading, setIsUploading] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   const displayUrl = nodeData.uploadedImagePreview || nodeData.imageUrl || null
 
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (!file) return
-      e.target.value = ''
-
+  const uploadFile = useCallback(
+    async (file: File) => {
       const previewUrl = URL.createObjectURL(file)
       updateNode(id, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
       setIsUploading(true)
@@ -38,6 +35,44 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
       }
     },
     [id, updateNode]
+  )
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (!file) return
+      e.target.value = ''
+      await uploadFile(file)
+    },
+    [uploadFile]
+  )
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+      setIsDragOver(true)
+    }
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // relatedTarget がノード内なら無視（子要素への移動）
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragOver(false)
+
+      const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'))
+      if (!file) return
+      await uploadFile(file)
+    },
+    [uploadFile]
   )
 
   const handleClear = useCallback(() => {
@@ -62,20 +97,33 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
       </div>
 
       {/* Body */}
-      <div className="px-3 py-3">
+      <div
+        className="px-3 py-3 nodrag"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {displayUrl ? (
-          <div className="relative rounded-lg overflow-hidden" style={{ border: '1px solid #27272A' }}>
+          <div
+            className="relative rounded-lg overflow-hidden transition-all duration-150"
+            style={{ border: isDragOver ? '1px dashed #8B5CF6' : '1px solid #27272A' }}
+          >
             <img
               src={displayUrl}
               alt="Reference"
               className="w-full h-auto block"
             />
+            {isDragOver && !isUploading && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-lg" style={{ background: 'rgba(139,92,246,0.2)', border: '1px dashed #8B5CF6' }}>
+                <span className="text-[12px] font-medium" style={{ color: '#8B5CF6' }}>ここにドロップ</span>
+              </div>
+            )}
             {isUploading && (
               <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
                 <Loader2 size={20} className="animate-spin text-white" />
               </div>
             )}
-            {!isUploading && (
+            {!isUploading && !isDragOver && (
               <button
                 className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center nodrag"
                 style={{ background: 'rgba(0,0,0,0.65)' }}
@@ -90,7 +138,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
           <label
             htmlFor={`ref-image-upload-${id}`}
             className="flex flex-col items-center justify-center gap-2 rounded-lg py-6 cursor-pointer transition-colors nodrag"
-            style={{ border: '1px dashed #27272A', minHeight: 120 }}
+            style={{ border: isDragOver ? '1px dashed #8B5CF6' : '1px dashed #27272A', minHeight: 120, background: isDragOver ? 'rgba(139,92,246,0.08)' : undefined }}
           >
             {isUploading ? (
               <Loader2 size={20} className="animate-spin" style={{ color: '#8B5CF6' }} />

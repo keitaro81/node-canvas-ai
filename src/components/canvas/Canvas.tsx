@@ -135,7 +135,7 @@ function isCompatiblePorts(sourceType: string, targetType: string): boolean {
 }
 
 export function Canvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setSelectedNode, setZoom } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom } =
     useCanvasStore()
 
   const isLoadingWorkflow = useWorkflowStore((s) => s.isLoadingWorkflow)
@@ -156,6 +156,8 @@ export function Canvas() {
           '.react-flow__pane { cursor: grab !important; }',
           '.react-flow__pane:active { cursor: grabbing !important; }',
           '.react-flow__node { pointer-events: none !important; cursor: grab !important; }',
+          '.react-flow__edge { pointer-events: none !important; }',
+          '.react-flow__edges { pointer-events: none !important; }',
         ].join(' ')
         document.head.appendChild(style)
       }
@@ -308,11 +310,30 @@ export function Canvas() {
     async (e: React.DragEvent) => {
       e.preventDefault()
 
-      // 画像ファイルのドラッグ&ドロップ → ReferenceImageNode を自動生成
+      // 画像ファイルのドラッグ&ドロップ
       const imageFile = Array.from(e.dataTransfer.files).find((f) =>
         f.type.startsWith('image/')
       )
       if (imageFile) {
+        // ドロップ先が既存の referenceImageNode か判定
+        const targetEl = e.target as Element
+        const nodeEl = targetEl.closest('.react-flow__node') as HTMLElement | null
+        const targetNodeId = nodeEl?.getAttribute('data-id') ?? null
+        const targetNode = targetNodeId ? nodes.find((n) => n.id === targetNodeId) : null
+
+        if (targetNode?.type === 'referenceImageNode') {
+          // 既存ノードの画像を入れ替え
+          const previewUrl = URL.createObjectURL(imageFile)
+          updateNode(targetNodeId!, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+          fal.storage.upload(imageFile).then((uploadedUrl: string) => {
+            updateNode(targetNodeId!, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+          }).catch(() => {
+            updateNode(targetNodeId!, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
+          })
+          return
+        }
+
+        // それ以外 → 新規 ReferenceImageNode を生成
         const flowPos = rfInstance.current?.screenToFlowPosition({
           x: e.clientX,
           y: e.clientY,
@@ -329,9 +350,7 @@ export function Canvas() {
             uploadedImagePreview: previewUrl,
           } as unknown as NodeData,
         })
-        // バックグラウンドでfal.storageにアップロード
         fal.storage.upload(imageFile).then((uploadedUrl: string) => {
-          const { updateNode } = useCanvasStore.getState()
           updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
         }).catch(() => {})
         return
