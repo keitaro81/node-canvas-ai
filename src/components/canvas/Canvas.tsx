@@ -146,31 +146,31 @@ function isCompatiblePorts(sourceType: string, targetType: string): boolean {
 }
 
 export function Canvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom, setNodes, setEdges } =
     useCanvasStore()
 
   const isLoadingWorkflow = useWorkflowStore((s) => s.isLoadingWorkflow)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [isSpacePressed, setIsSpacePressed] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
   const rfInstance = useRef<ReactFlowInstance<AppNode, Edge> | null>(null)
   const connectingNode = useRef<string | null>(null)
   const connectingHandle = useRef<string | null>(null)
   const lastFitWorkflowId = useRef<string | null>(null)
+  const altDragActiveRef = useRef(false)
+  const dragToBackupIdRef = useRef<Map<string, string>>(new Map())
+  const spacePanRef = useRef<{ startX: number; startY: number; vpX: number; vpY: number; zoom: number } | null>(null)
 
-  // Space キー押下でパン用カーソルに切り替え（react-flow__pane に直接スタイル注入）
+  // Space キー押下管理 + Alt カーソル + ショートカット
   useEffect(() => {
-    const style = document.createElement('style')
-    style.id = 'space-pan-cursor'
+    const altStyle = document.createElement('style')
+    altStyle.id = 'alt-copy-cursor'
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !e.repeat) {
-        style.textContent = [
-          '.react-flow__pane { cursor: grab !important; }',
-          '.react-flow__pane:active { cursor: grabbing !important; }',
-          '.react-flow__node { pointer-events: none !important; cursor: grab !important; }',
-          '.react-flow__edge { pointer-events: none !important; }',
-          '.react-flow__edges { pointer-events: none !important; }',
-        ].join(' ')
-        document.head.appendChild(style)
+      if (e.code === 'Space' && !e.repeat) setIsSpacePressed(true)
+      if (e.key === 'Alt' && !e.repeat) {
+        altStyle.textContent = '.react-flow__node { cursor: copy !important; }'
+        document.head.appendChild(altStyle)
       }
       if (e.code === 'Digit0' && e.metaKey && e.altKey) {
         e.preventDefault()
@@ -178,15 +178,39 @@ export function Canvas() {
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') style.remove()
+      if (e.code === 'Space') {
+        setIsSpacePressed(false)
+        setIsPanning(false)
+        spacePanRef.current = null
+      }
+      if (e.key === 'Alt') altStyle.remove()
     }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
-      style.remove()
+      altStyle.remove()
     }
+  }, [])
+
+  const handleSpaceOverlayMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    const vp = rfInstance.current?.getViewport()
+    if (!vp) return
+    spacePanRef.current = { startX: e.clientX, startY: e.clientY, vpX: vp.x, vpY: vp.y, zoom: vp.zoom }
+    setIsPanning(true)
+  }, [])
+
+  const handleSpaceOverlayMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!spacePanRef.current || !(e.buttons & 1)) return
+    const { startX, startY, vpX, vpY, zoom } = spacePanRef.current
+    rfInstance.current?.setViewport({ x: vpX + (e.clientX - startX), y: vpY + (e.clientY - startY), zoom })
+  }, [])
+
+  const handleSpaceOverlayMouseUp = useCallback(() => {
+    spacePanRef.current = null
+    setIsPanning(false)
   }, [])
 
   // ワークフロー読み込み完了・切り替え後に fitView
@@ -327,6 +351,112 @@ export function Canvas() {
     [setZoom]
   )
 
+  const handleNodeDragStart = useCallback(
+    (event: React.MouseEvent, _node: AppNode, draggedNodes: AppNode[]) => {
+      if (!event.altKey) {
+        altDragActiveRef.current = false
+        return
+      }
+      altDragActiveRef.current = true
+
+      // ドラッグ開始直後にオリジナルをその場に残す（バックアップ作成）
+      const { nodes: currentNodes, setNodes: storeSetNodes } = useCanvasStore.getState()
+      const dragToBackup = new Map<string, string>()
+      const backupNodes: AppNode[] = draggedNodes.map((n) => {
+        const backupId = `node-${Date.now()}-${nodeIdCounter++}`
+        dragToBackup.set(n.id, backupId)
+        // React Flow の内部プロパティ（positionAbsolute, handleBounds 等）を除いた
+        // クリーンなノードオブジェクトを作成する
+        return {
+          id: backupId,
+          type: n.type,
+          position: { x: n.position.x, y: n.position.y },
+          data: n.data,
+          style: n.style,
+          width: n.width,
+          height: n.height,
+          selected: false,
+          dragging: false,
+        } as AppNode
+      })
+      dragToBackupIdRef.current = dragToBackup
+      storeSetNodes([...currentNodes, ...backupNodes])
+    },
+    []
+  )
+
+  const handleNodeDragStop = useCallback(
+    (_event: React.MouseEvent, _node: AppNode, draggedNodes: AppNode[]) => {
+      if (!altDragActiveRef.current) return
+      altDragActiveRef.current = false
+
+      const { edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
+      const dragToBackup = dragToBackupIdRef.current
+      const draggedIds = new Set(draggedNodes.map((n) => n.id))
+
+      const edgesToRemove = new Set<string>()
+      const newEdges: Edge[] = []
+
+      // React Flow が内部的に付与する sourceNode/targetNode 等の参照を除いた
+      // クリーンなエッジオブジェクトを作る（スプレッドすると削除判定が狂う）
+      const safeEdge = (
+        e: Edge,
+        overrides: { id: string; source?: string; target?: string }
+      ): Edge => ({
+        id: overrides.id,
+        source: overrides.source ?? e.source,
+        target: overrides.target ?? e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+        type: e.type,
+        animated: e.animated ?? false,
+        style: e.style,
+        data: e.data,
+        label: e.label,
+        labelStyle: e.labelStyle,
+        labelShowBg: e.labelShowBg,
+        labelBgStyle: e.labelBgStyle,
+        labelBgPadding: e.labelBgPadding,
+        labelBgBorderRadius: e.labelBgBorderRadius,
+        className: e.className,
+        markerStart: e.markerStart,
+        markerEnd: e.markerEnd,
+      })
+
+      for (const e of currentEdges) {
+        const srcInDrag = draggedIds.has(e.source)
+        const tgtInDrag = draggedIds.has(e.target)
+
+        if (srcInDrag && tgtInDrag) {
+          // 内部エッジ: クローン間はそのまま残し、バックアップ（オリジナル）間にも追加
+          newEdges.push(safeEdge(e, {
+            id: `edge-${Date.now()}-${nodeIdCounter++}`,
+            source: dragToBackup.get(e.source)!,
+            target: dragToBackup.get(e.target)!,
+          }))
+        } else if (srcInDrag) {
+          // 外部エッジ（ソース側がクローン）→ バックアップに繋ぎ直す
+          edgesToRemove.add(e.id)
+          newEdges.push(safeEdge(e, {
+            id: `edge-${Date.now()}-${nodeIdCounter++}`,
+            source: dragToBackup.get(e.source)!,
+          }))
+        } else if (tgtInDrag) {
+          // 外部エッジ（ターゲット側がクローン）→ バックアップに繋ぎ直す
+          edgesToRemove.add(e.id)
+          newEdges.push(safeEdge(e, {
+            id: `edge-${Date.now()}-${nodeIdCounter++}`,
+            target: dragToBackup.get(e.target)!,
+          }))
+        }
+      }
+
+      const filteredEdges = currentEdges.filter((e) => !edgesToRemove.has(e.id))
+      storeSetEdges([...filteredEdges, ...newEdges])
+    },
+    []
+  )
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (
       e.dataTransfer.types.includes('application/node-palette') ||
@@ -432,10 +562,24 @@ export function Canvas() {
   return (
     <div
       className="h-full w-full"
-      style={{ background: '#0A0A0B' }}
+      style={{ background: '#0A0A0B', position: 'relative' }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {isSpacePressed && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 9999,
+            cursor: isPanning ? 'grabbing' : 'grab',
+          }}
+          onMouseDown={handleSpaceOverlayMouseDown}
+          onMouseMove={handleSpaceOverlayMouseMove}
+          onMouseUp={handleSpaceOverlayMouseUp}
+          onMouseLeave={handleSpaceOverlayMouseUp}
+        />
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -444,6 +588,8 @@ export function Canvas() {
         onConnect={onConnect}
         onConnectStart={handleConnectStart}
         onConnectEnd={handleConnectEnd}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
         onInit={(instance) => { rfInstance.current = instance }}
         onViewportChange={handleViewportChange}
         nodeTypes={nodeTypes}
@@ -451,7 +597,6 @@ export function Canvas() {
         selectionOnDrag={true}
         selectionMode={SelectionMode.Partial}
         selectionKeyCode={null}
-        panActivationKeyCode="Space"
         panOnScroll={true}
         panOnScrollMode={PanOnScrollMode.Free}
         zoomActivationKeyCode="Meta"
