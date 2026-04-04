@@ -160,6 +160,7 @@ export function Canvas() {
   const lastFitWorkflowId = useRef<string | null>(null)
   const altDragActiveRef = useRef(false)
   const dragToBackupIdRef = useRef<Map<string, string>>(new Map())
+  const originalEdgesRef = useRef<Edge[]>([])
   const spacePanRef = useRef<{ startX: number; startY: number; vpX: number; vpY: number; zoom: number } | null>(null)
 
   // Space キー押下管理 + Alt カーソル + ショートカット
@@ -360,8 +361,9 @@ export function Canvas() {
       altDragActiveRef.current = true
 
       // ドラッグ開始直後にオリジナルをその場に残す（バックアップ作成）
-      const { nodes: currentNodes, setNodes: storeSetNodes } = useCanvasStore.getState()
+      const { nodes: currentNodes, setNodes: storeSetNodes, edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
       const dragToBackup = new Map<string, string>()
+      const draggedIds = new Set(draggedNodes.map((n) => n.id))
       const backupNodes: AppNode[] = draggedNodes.map((n) => {
         const backupId = `node-${Date.now()}-${nodeIdCounter++}`
         dragToBackup.set(n.id, backupId)
@@ -380,32 +382,44 @@ export function Canvas() {
         } as AppNode
       })
       dragToBackupIdRef.current = dragToBackup
+
+      // ドラッグされるノードに繋がっているエッジを記録し、
+      // バックアップノード側に付け替える（ドラッグ中も元位置のエッジが見える）
+      const connectedEdges = currentEdges.filter(
+        (e) => draggedIds.has(e.source) || draggedIds.has(e.target)
+      )
+      originalEdgesRef.current = connectedEdges
+
+      const updatedEdges = currentEdges.map((e) => {
+        const srcInDrag = draggedIds.has(e.source)
+        const tgtInDrag = draggedIds.has(e.target)
+        if (!srcInDrag && !tgtInDrag) return e
+        return {
+          ...e,
+          source: srcInDrag ? dragToBackup.get(e.source)! : e.source,
+          target: tgtInDrag ? dragToBackup.get(e.target)! : e.target,
+        }
+      })
+
       storeSetNodes([...currentNodes, ...backupNodes])
+      storeSetEdges(updatedEdges)
     },
     []
   )
 
   const handleNodeDragStop = useCallback(
-    (_event: React.MouseEvent, _node: AppNode, draggedNodes: AppNode[]) => {
+    (_event: React.MouseEvent, _node: AppNode, _draggedNodes: AppNode[]) => {
       if (!altDragActiveRef.current) return
       altDragActiveRef.current = false
 
       const { edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
-      const dragToBackup = dragToBackupIdRef.current
-      const draggedIds = new Set(draggedNodes.map((n) => n.id))
 
-      const edgesToRemove = new Set<string>()
-      const newEdges: Edge[] = []
-
-      // React Flow が内部的に付与する sourceNode/targetNode 等の参照を除いた
-      // クリーンなエッジオブジェクトを作る（スプレッドすると削除判定が狂う）
-      const safeEdge = (
-        e: Edge,
-        overrides: { id: string; source?: string; target?: string }
-      ): Edge => ({
-        id: overrides.id,
-        source: overrides.source ?? e.source,
-        target: overrides.target ?? e.target,
+      // ドラッグ開始時に記録した元エッジを、コピーノード（ドラッグしたノード）にも追加する
+      // バックアップノード側のエッジはすでに dragStart で付け替え済み
+      const copyEdges: Edge[] = originalEdgesRef.current.map((e) => ({
+        id: `edge-${Date.now()}-${nodeIdCounter++}`,
+        source: e.source,
+        target: e.target,
         sourceHandle: e.sourceHandle ?? null,
         targetHandle: e.targetHandle ?? null,
         type: e.type,
@@ -421,38 +435,10 @@ export function Canvas() {
         className: e.className,
         markerStart: e.markerStart,
         markerEnd: e.markerEnd,
-      })
+      }))
 
-      for (const e of currentEdges) {
-        const srcInDrag = draggedIds.has(e.source)
-        const tgtInDrag = draggedIds.has(e.target)
-
-        if (srcInDrag && tgtInDrag) {
-          // 内部エッジ: クローン間はそのまま残し、バックアップ（オリジナル）間にも追加
-          newEdges.push(safeEdge(e, {
-            id: `edge-${Date.now()}-${nodeIdCounter++}`,
-            source: dragToBackup.get(e.source)!,
-            target: dragToBackup.get(e.target)!,
-          }))
-        } else if (srcInDrag) {
-          // 外部エッジ（ソース側がクローン）→ バックアップに繋ぎ直す
-          edgesToRemove.add(e.id)
-          newEdges.push(safeEdge(e, {
-            id: `edge-${Date.now()}-${nodeIdCounter++}`,
-            source: dragToBackup.get(e.source)!,
-          }))
-        } else if (tgtInDrag) {
-          // 外部エッジ（ターゲット側がクローン）→ バックアップに繋ぎ直す
-          edgesToRemove.add(e.id)
-          newEdges.push(safeEdge(e, {
-            id: `edge-${Date.now()}-${nodeIdCounter++}`,
-            target: dragToBackup.get(e.target)!,
-          }))
-        }
-      }
-
-      const filteredEdges = currentEdges.filter((e) => !edgesToRemove.has(e.id))
-      storeSetEdges([...filteredEdges, ...newEdges])
+      originalEdgesRef.current = []
+      storeSetEdges([...currentEdges, ...copyEdges])
     },
     []
   )
