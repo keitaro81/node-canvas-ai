@@ -94,7 +94,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
 
   const capsuleFields = ((data as unknown as NodeData).capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
   function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
-    return capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+    return capsuleFields[fieldId]?.capsuleVisibility ?? 'visible'
   }
   function handleCapsuleChange(fieldId: string, visibility: CapsuleVisibility) {
     const updated: Record<string, CapsuleFieldDef> = {

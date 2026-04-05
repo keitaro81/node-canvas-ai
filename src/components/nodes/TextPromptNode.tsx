@@ -14,7 +14,7 @@ export const TextPromptNode = memo(function TextPromptNode(props: NodeProps) {
   const capsuleFields = (data.capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
 
   function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
-    return capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+    return capsuleFields[fieldId]?.capsuleVisibility ?? 'visible'
   }
 
   function handleCapsuleChange(fieldId: string, visibility: CapsuleVisibility) {

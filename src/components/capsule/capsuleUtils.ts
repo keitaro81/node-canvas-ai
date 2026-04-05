@@ -2,10 +2,10 @@ import type { Edge } from '@xyflow/react'
 import type { AppNode } from '../../stores/canvasStore'
 import type { CapsuleFieldDef, GroupNodeData } from '../../types/nodes'
 
-// ステージとして扱う生成ノードのみ（TextPrompt・ReferenceImageなど入力系は除外）
-export type GenerationNodeType = 'imageGen' | 'videoGen' | 'promptEnhancer'
+// ステージとして扱う生成ノードのみ（TextPrompt・ReferenceImage・PromptEnhancerは入力系として扱う）
+export type GenerationNodeType = 'imageGen' | 'videoGen'
 
-export type InputNodeType = 'textPrompt' | 'referenceImage'
+export type InputNodeType = 'textPrompt' | 'referenceImage' | 'promptEnhancer'
 
 export interface CapsuleInputInfo {
   nodeId: string
@@ -28,15 +28,15 @@ export interface CapsuleStageInfo {
 const GENERATION_RF_TYPES: Record<string, GenerationNodeType> = {
   imageGenerationNode: 'imageGen',
   videoGenerationNode: 'videoGen',
-  promptEnhancerNode:  'promptEnhancer',
 }
 
 const INPUT_NODE_TYPES: Record<string, InputNodeType> = {
   textPromptNode:     'textPrompt',
   referenceImageNode: 'referenceImage',
+  promptEnhancerNode: 'promptEnhancer',
 }
 
-// 各入力ノードタイプに対応するCapsule表示可否を判定するフィールドID
+// 各入力ノードタイプに対応するCapsule表示可否を判定するフィールドID（promptEnhancerは常時表示）
 const INPUT_CAPSULE_FIELD: Record<string, string> = {
   textPromptNode:     'prompt',
   referenceImageNode: 'imageUrl',
@@ -44,11 +44,13 @@ const INPUT_CAPSULE_FIELD: Record<string, string> = {
 
 /** 入力ノードがAppモードで表示対象かどうかを capsuleFields で判定 */
 function isInputNodeVisible(node: AppNode): boolean {
+  // PromptEnhancerは常にAppパネルに表示
+  if (node.type === 'promptEnhancerNode') return true
   const fieldId = INPUT_CAPSULE_FIELD[node.type ?? '']
   if (!fieldId) return false
   const d = node.data as Record<string, unknown>
   const capsuleFields = ((d.capsuleFields ?? {}) as Record<string, { capsuleVisibility?: string }>)
-  const visibility = capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+  const visibility = capsuleFields[fieldId]?.capsuleVisibility ?? 'visible'
   return visibility !== 'hidden'
 }
 

@@ -182,7 +182,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const capsuleFields = ((data as unknown as NodeData).capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
   function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
-    return capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+    return capsuleFields[fieldId]?.capsuleVisibility ?? 'visible'
   }
   function handleCapsuleChange(fieldId: string, visibility: CapsuleVisibility) {
     const updated: Record<string, CapsuleFieldDef> = {
@@ -316,7 +316,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Aspect Ratio */}
           {currentModel && (
             <div>
-              <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">Aspect Ratio</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[#A1A1AA]">Aspect Ratio</label>
+                <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
+              </div>
               <div className="flex gap-1.5 flex-wrap">
                 {(connectedImageUrl && (currentModel as VideoModelDefinition).i2vSupportedAspectRatios
                   ? (currentModel as VideoModelDefinition).i2vSupportedAspectRatios!

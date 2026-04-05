@@ -1,9 +1,37 @@
-import { useState, useCallback, useRef } from 'react'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { fal } from '../../lib/ai/fal-client'
+import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import type { CapsuleFieldDef } from '../../types/nodes'
+
+const FLUX_MODELS = [
+  { value: 'black-forest-labs/flux-schnell', label: 'FLUX Schnell' },
+  { value: 'black-forest-labs/flux-dev',     label: 'FLUX Dev' },
+  { value: 'black-forest-labs/flux-1.1-pro', label: 'FLUX 1.1 Pro' },
+  { value: 'fal-ai/flux-2',                  label: 'FLUX.2' },
+  { value: 'fal-ai/nano-banana-2',            label: 'Nano Banana 2' },
+]
+
+const IMAGE_ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
+
+const allVideoModels = falVideoProvider.getAvailableVideoModels()
+
+const ENHANCER_MODELS = [
+  { value: 'anthropic/claude-haiku-4.5',  label: 'Claude Haiku 4.5' },
+  { value: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
+  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+  { value: 'anthropic/claude-3-5-haiku',  label: 'Claude 3.5 Haiku' },
+  { value: 'openai/gpt-5-mini',           label: 'GPT-5 Mini' },
+  { value: 'openai/gpt-4o-mini',          label: 'GPT-4o Mini' },
+  { value: 'openai/gpt-4o',               label: 'GPT-4o' },
+  { value: 'google/gemini-2.5-flash',     label: 'Gemini 2.5 Flash' },
+  { value: 'google/gemini-flash-1.5',     label: 'Gemini 1.5 Flash' },
+]
+
+const ENHANCER_SYSTEM_PROMPT = `You are an expert at writing detailed, evocative prompts for AI image and video generation tools. When given a prompt, enhance it to be more detailed, specific, and professionally descriptive. Add cinematography terms, lighting descriptions, mood, camera angles, color grading, and technical details where appropriate. Maintain the core intent of the original prompt. Respond only with the enhanced prompt in the same language as the input—no explanations, no preamble.`
 
 // ────────────────────────────────────────────
 // ステージ状態
@@ -22,6 +50,222 @@ function getStageStatus(nodeId: string, nodes: ReturnType<typeof useCanvasStore.
   const hasOutput = !!(d.output || d.videoUrl)
   if (status === 'done' || status === 'completed' || hasOutput) return 'done'
   return 'active'
+}
+
+// ────────────────────────────────────────────
+// PromptEnhancerField（左パネル用）
+// ────────────────────────────────────────────
+function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string }) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const updateNode = useCanvasStore((s) => s.updateNode)
+  const [tab, setTab] = useState<'input' | 'output'>('input')
+  const [copied, setCopied] = useState(false)
+  const [modelOpen, setModelOpen] = useState(false)
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, openUpward: true })
+  const containerRef = useRef<HTMLDivElement>(null)
+  const modelBtnRef = useRef<HTMLButtonElement>(null)
+
+  const node = nodes.find((n) => n.id === nodeId)
+  const d = (node?.data ?? {}) as Record<string, unknown>
+  const inputText = (d.inputText as string) ?? ''
+  const outputText = (d.outputText as string) ?? ''
+  const model = (d.model as string) ?? 'anthropic/claude-haiku-4.5'
+  const isGenerating = (d.status as string) === 'generating'
+  const selectedModel = ENHANCER_MODELS.find((m) => m.value === model) ?? ENHANCER_MODELS[0]
+
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setModelOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  async function handleRun() {
+    if (!inputText.trim()) return
+    updateNode(nodeId, { status: 'generating' } as never)
+    try {
+      const falKey = import.meta.env.VITE_FAL_KEY as string
+      const response = await fetch('https://fal.run/fal-ai/any-llm', {
+        method: 'POST',
+        headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, system_prompt: ENHANCER_SYSTEM_PROMPT, prompt: inputText }),
+      })
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        const err = JSON.parse(errText || '{}')
+        throw new Error(err.detail ?? err.message ?? `HTTP ${response.status}`)
+      }
+      const json = await response.json()
+      updateNode(nodeId, { outputText: (json.output as string) ?? '', status: 'done' } as never)
+      setTab('output')
+    } catch (err) {
+      updateNode(nodeId, { outputText: (err as Error).message, status: 'error' } as never)
+      setTab('output')
+    }
+  }
+
+  async function handleCopy() {
+    if (!outputText) return
+    await navigator.clipboard.writeText(outputText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div ref={containerRef} className="mb-4">
+      {/* ヘッダー: ラベル + タブ切替 */}
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-[11px] text-[#A1A1AA] font-medium">{label}</div>
+        <div
+          className="flex items-center gap-0.5 rounded-md p-0.5"
+          style={{ background: '#18181B', border: '1px solid #27272A' }}
+        >
+          <button
+            onClick={() => setTab('input')}
+            className="px-2 py-0.5 rounded text-[10px] font-medium transition-all"
+            style={{
+              background: tab === 'input' ? '#1E1E22' : 'transparent',
+              color: tab === 'input' ? '#FAFAFA' : '#71717A',
+            }}
+          >
+            元テキスト
+          </button>
+          <button
+            onClick={() => setTab('output')}
+            className="px-2 py-0.5 rounded text-[10px] font-medium transition-all flex items-center gap-1"
+            style={{
+              background: tab === 'output' ? '#1E1E22' : 'transparent',
+              color: tab === 'output' ? '#6366F1' : '#71717A',
+            }}
+          >
+            <Sparkles size={9} />
+            AI変換後
+          </button>
+        </div>
+      </div>
+
+      {/* コンテンツエリア */}
+      {tab === 'input' ? (
+        <textarea
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none resize-y"
+          style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 80, lineHeight: 1.6 }}
+          placeholder="プロンプトを入力..."
+          value={inputText}
+          onChange={(e) => updateNode(nodeId, { inputText: e.target.value } as never)}
+        />
+      ) : (
+        <div
+          className="w-full rounded-md px-3 py-2 text-[12px] overflow-y-auto"
+          style={{
+            background: '#0A0A0B',
+            border: '1px solid #27272A',
+            minHeight: 80,
+            lineHeight: 1.6,
+            color: outputText ? '#FAFAFA' : '#71717A',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {isGenerating ? (
+            <span className="flex items-center gap-2 text-[#71717A]">
+              <Loader2 size={12} className="animate-spin" />
+              変換中...
+            </span>
+          ) : outputText || 'まだ変換されていません'}
+        </div>
+      )}
+
+      {/* フッター: モデル選択 + コピー + Enhanceボタン */}
+      <div className="flex items-center gap-1.5 mt-2">
+        {/* モデル選択 */}
+        <div className="relative">
+          <button
+            ref={modelBtnRef}
+            className="flex items-center gap-1 h-6 px-2 rounded text-[10px] transition-colors"
+            style={{ background: '#18181B', border: '1px solid #27272A', color: '#A1A1AA' }}
+            onClick={() => {
+              const rect = modelBtnRef.current?.getBoundingClientRect()
+              if (rect) {
+                const dropdownHeight = ENHANCER_MODELS.length * 32 + 8
+                const openUpward = rect.top >= dropdownHeight
+                setDropdownPos({
+                  top: openUpward ? rect.top - 4 : rect.bottom + 4,
+                  left: rect.left,
+                  openUpward,
+                })
+              }
+              setModelOpen((v) => !v)
+            }}
+          >
+            <span className="max-w-[90px] truncate">{selectedModel.label}</span>
+            <ChevronDown size={9} />
+          </button>
+          {modelOpen && createPortal(
+            <div
+              className="rounded-lg overflow-hidden py-1"
+              style={{
+                position: 'fixed',
+                top: dropdownPos.top,
+                left: dropdownPos.left,
+                transform: dropdownPos.openUpward ? 'translateY(-100%)' : 'none',
+                zIndex: 99999,
+                background: '#18181B',
+                border: '1px solid #27272A',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                width: 170,
+              }}
+            >
+              {ENHANCER_MODELS.map((m) => (
+                <button
+                  key={m.value}
+                  className="w-full text-left px-3 h-8 text-[11px] transition-colors"
+                  style={{ color: m.value === model ? '#FAFAFA' : '#A1A1AA', background: m.value === model ? '#1E1E22' : 'transparent' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1E1E22' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = m.value === model ? '#1E1E22' : 'transparent' }}
+                  onClick={() => { updateNode(nodeId, { model: m.value } as never); setModelOpen(false) }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>,
+            document.body
+          )}
+        </div>
+
+        {/* コピーボタン（出力タブのみ） */}
+        {tab === 'output' && outputText && (
+          <button
+            className="w-6 h-6 flex items-center justify-center rounded transition-colors"
+            style={{ background: '#18181B', border: '1px solid #27272A', color: '#71717A' }}
+            onClick={handleCopy}
+            title="コピー"
+          >
+            {copied ? <Check size={11} style={{ color: '#22C55E' }} /> : <Copy size={11} />}
+          </button>
+        )}
+
+        {/* Enhanceボタン */}
+        <button
+          className="ml-auto flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-semibold text-white transition-all"
+          style={{
+            background: isGenerating ? 'rgba(99,102,241,0.25)' : '#6366F1',
+            opacity: isGenerating || !inputText.trim() ? 0.5 : 1,
+            cursor: isGenerating || !inputText.trim() ? 'not-allowed' : 'pointer',
+          }}
+          onClick={handleRun}
+          disabled={isGenerating || !inputText.trim()}
+        >
+          {isGenerating
+            ? <><Loader2 size={11} className="animate-spin" />変換中</>
+            : <><Sparkles size={11} />Enhance</>
+          }
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ────────────────────────────────────────────
@@ -154,6 +398,8 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
         {inputs.map((input) =>
           input.nodeType === 'referenceImage' ? (
             <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+          ) : input.nodeType === 'promptEnhancer' ? (
+            <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : (
             <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           )
@@ -172,8 +418,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   const params = (d.params as Record<string, unknown>) ?? {}
   const label = field.capsuleLabel ?? field.id
 
-  const isEditable = field.capsuleVisibility === 'editable'
+  // visible と editable (後方互換) の両方を編集可能として扱う
+  const isEditable = field.capsuleVisibility !== 'hidden'
   const isVideoGenNode = node.type === 'videoGenerationNode'
+  const isImageGenNode = node.type === 'imageGenerationNode'
 
   // ReferenceImageNode の imageUrl フィールドは専用UIを使う
   if (field.id === 'imageUrl' && node.type === 'referenceImageNode') {
@@ -220,11 +468,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
         <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
         <textarea
           className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none resize-y"
-          style={{
-            background: '#0A0A0B',
-            border: '1px solid #27272A',
-            minHeight: 72,
-          }}
+          style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 72 }}
           value={value}
           onChange={(e) => updateField(e.target.value)}
         />
@@ -232,9 +476,108 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     )
   }
 
-  // duration など数値的なセレクト (VideoGenerationNode)
-  if (field.id === 'duration' && (d.type as string) === 'videoGen') {
-    const durations = ['3', '4', '5', '6', '8', '10']
+  // ImageGenerationNode: モデル選択
+  if (field.id === 'model' && isImageGenNode) {
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <select
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] focus:outline-none appearance-none"
+          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          value={value}
+          onChange={(e) => updateField(e.target.value)}
+        >
+          {FLUX_MODELS.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  // ImageGenerationNode: アスペクト比ボタングループ
+  if (field.id === 'aspectRatio' && isImageGenNode) {
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="flex gap-1 flex-wrap">
+          {IMAGE_ASPECT_RATIOS.map((ratio) => {
+            const active = value === ratio
+            return (
+              <button
+                key={ratio}
+                className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
+                style={{
+                  background: active ? '#8B5CF6' : '#1E1E22',
+                  color: active ? '#FAFAFA' : '#A1A1AA',
+                  border: `1px solid ${active ? '#8B5CF6' : '#27272A'}`,
+                  minWidth: 0,
+                }}
+                onClick={() => updateField(ratio)}
+              >
+                {ratio}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // VideoGenerationNode: モデル選択
+  if (field.id === 'model' && isVideoGenNode) {
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <select
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] focus:outline-none appearance-none"
+          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          value={value}
+          onChange={(e) => updateField(e.target.value)}
+        >
+          {allVideoModels.map((m) => (
+            <option key={m.id} value={m.id}>{m.name} (${m.pricePerSecond}/s)</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  // VideoGenerationNode: アスペクト比ボタングループ
+  if (field.id === 'aspectRatio' && isVideoGenNode) {
+    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    const ratios = currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="flex gap-1.5 flex-wrap">
+          {ratios.map((ar) => {
+            const active = value === ar
+            return (
+              <button
+                key={ar}
+                className="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors"
+                style={{
+                  background: active ? 'rgba(236,72,153,0.2)' : '#1E1E22',
+                  color: active ? '#EC4899' : '#A1A1AA',
+                  border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : '#27272A'}`,
+                  minWidth: '3rem',
+                }}
+                onClick={() => updateField(ar)}
+              >
+                {ar}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // VideoGenerationNode: duration セレクト
+  if (field.id === 'duration' && isVideoGenNode) {
+    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    const durations = currentVideoModel?.supportedDurations ?? ['5', '10']
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
@@ -244,8 +587,8 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
           value={value}
           onChange={(e) => updateField(e.target.value)}
         >
-          {durations.map((d) => (
-            <option key={d} value={d}>{d}秒</option>
+          {durations.map((dur) => (
+            <option key={dur} value={dur}>{dur}秒</option>
           ))}
         </select>
       </div>
@@ -402,6 +745,8 @@ function CapsuleStagePanel({
         {globalInputs.map((input) =>
           input.nodeType === 'referenceImage' ? (
             <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+          ) : input.nodeType === 'promptEnhancer' ? (
+            <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : (
             <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           )
@@ -411,6 +756,8 @@ function CapsuleStagePanel({
         {stage.stageInputs.map((input) =>
           input.nodeType === 'referenceImage' ? (
             <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+          ) : input.nodeType === 'promptEnhancer' ? (
+            <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : (
             <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           )
