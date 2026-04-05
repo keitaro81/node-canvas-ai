@@ -173,6 +173,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   const label = field.capsuleLabel ?? field.id
 
   const isEditable = field.capsuleVisibility === 'editable'
+  const isVideoGenNode = node.type === 'videoGenerationNode'
 
   // ReferenceImageNode の imageUrl フィールドは専用UIを使う
   if (field.id === 'imageUrl' && node.type === 'referenceImageNode') {
@@ -181,7 +182,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   function updateField(value: unknown) {
     const videoFields = ['model', 'duration', 'aspectRatio', 'fps', 'audioEnabled', 'seed']
-    if (videoFields.includes(field.id) && (d.type as string) === 'videoGen') {
+    if (videoFields.includes(field.id) && isVideoGenNode) {
       updateNode(nodeId, { [field.id]: value } as never)
     } else {
       updateNode(nodeId, { params: { ...params, [field.id]: value } } as never)
@@ -190,7 +191,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   function getValue(): string {
     const videoFields = ['model', 'duration', 'aspectRatio']
-    if (videoFields.includes(field.id) && (d.type as string) === 'videoGen') {
+    if (videoFields.includes(field.id) && isVideoGenNode) {
       return String(d[field.id] ?? '')
     }
     return String(params[field.id] ?? '')
@@ -534,9 +535,18 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
   const d = (node?.data ?? {}) as Record<string, unknown>
   const status = (d.status as string) ?? 'idle'
   const isGenerating = status === 'generating' || status === 'queued' || status === 'processing'
-  const outputUrl = (d.output as string | undefined)
-    || (d.videoUrl as string | undefined)
-    || ((stage.nodeType as string) === 'referenceImage' ? ((d.uploadedImagePreview as string | undefined) || (d.imageUrl as string | undefined)) : undefined)
+
+  // 出力URLをノードタイプ別に解決
+  // videoGen は d.videoUrl を使う（d.output には上流 imageGen の画像URLが伝播している場合があるため）
+  // imageGen は d.output を使う
+  const outputUrl = stage.nodeType === 'videoGen'
+    ? ((d.videoUrl as string | null | undefined) || undefined)
+    : ((d.output as string | undefined) || undefined)
+
+  // promptEnhancer の出力テキスト
+  const outputText = stage.nodeType === 'promptEnhancer'
+    ? (d.outputText as string | undefined)
+    : undefined
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">
@@ -556,10 +566,17 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
         ) : (
           <ImagePreview src={outputUrl} />
         )
+      ) : outputText ? (
+        <div
+          className="w-full max-w-lg rounded-xl p-5 text-[13px] leading-relaxed whitespace-pre-wrap"
+          style={{ background: '#111113', border: '1px solid #27272A', color: '#FAFAFA' }}
+        >
+          {outputText}
+        </div>
       ) : (
         <div className="flex flex-col items-center gap-2 text-[#3F3F46]">
           <div className="text-4xl opacity-30">
-            {stage.nodeType === 'videoGen' ? '🎬' : '🖼'}
+            {stage.nodeType === 'videoGen' ? '🎬' : stage.nodeType === 'promptEnhancer' ? '✨' : '🖼'}
           </div>
           <div className="text-[12px]">まだ生成されていません</div>
         </div>

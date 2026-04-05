@@ -90,7 +90,14 @@
   stroke-width: 2;
 }
 
-/* Layer ordering: connection line (drag) below nodes */
+/* Layer ordering: edges below nodes.
+ * .react-flow__edges needs z-index so it forms its own stacking context,
+ * trapping child edge SVGs (which get z-index ~1001 when group is selected).
+ * Without this, those SVGs escape into the viewport context (z-index 1001)
+ * and paint above .react-flow__nodes (z-index 10). */
+.react-flow__edges {
+  z-index: 0 !important;
+}
 svg.react-flow__connectionline {
   z-index: 2 !important;
 }

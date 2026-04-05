@@ -41,6 +41,8 @@ interface CanvasState {
   setAppMode: (mode: AppMode) => void
   setCapsuleGroupId: (id: string | null) => void
   ungroupNodes: (groupId: string) => void
+  /** ノードをグループに追加し、必要に応じてグループを拡張する */
+  addNodeToGroup: (nodeId: string, groupId: string) => void
 }
 
 const COMPATIBLE: Record<PortType, PortType[]> = {
@@ -203,6 +205,55 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const newCapsuleGroupId = state.capsuleGroupId === groupId ? null : state.capsuleGroupId
 
       return { nodes: updatedNodes, capsuleGroupId: newCapsuleGroupId }
+    })
+  },
+
+  addNodeToGroup: (nodeId, groupId) => {
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId)
+      const group = state.nodes.find((n) => n.id === groupId)
+      if (!node || !group) return state
+
+      const padding = 40
+      const headerHeight = 28
+
+      const groupWidth = (group.style?.width as number | undefined) ?? (group.measured?.width ?? 400)
+      const groupHeight = (group.style?.height as number | undefined) ?? (group.measured?.height ?? 300)
+
+      // ノードの絶対座標をグループ相対座標に変換
+      const relX = node.position.x - group.position.x
+      const relY = node.position.y - group.position.y
+
+      const nodeWidth = (node.measured?.width ?? (node.width as number | undefined) ?? 280)
+      const nodeHeight = (node.measured?.height ?? (node.height as number | undefined) ?? 160)
+
+      // パディング範囲内にクランプ
+      const clampedX = Math.max(padding, relX)
+      const clampedY = Math.max(headerHeight + padding, relY)
+
+      // グループの必要サイズを計算
+      const requiredWidth = Math.max(groupWidth, clampedX + nodeWidth + padding)
+      const requiredHeight = Math.max(groupHeight, clampedY + nodeHeight + padding)
+
+      return {
+        nodes: state.nodes.map((n) => {
+          if (n.id === nodeId) {
+            return {
+              ...n,
+              parentId: groupId,
+              extent: 'parent' as const,
+              position: { x: clampedX, y: clampedY },
+            }
+          }
+          if (n.id === groupId && (requiredWidth > groupWidth || requiredHeight > groupHeight)) {
+            return {
+              ...n,
+              style: { ...n.style, width: requiredWidth, height: requiredHeight },
+            }
+          }
+          return n
+        }),
+      }
     })
   },
 }))

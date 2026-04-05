@@ -34,6 +34,7 @@ import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, PortType, GroupNodeData } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
+import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
 
 const nodeTypes: NodeTypes = {
   baseNode: TextNode, // fallback
@@ -120,10 +121,68 @@ interface ContextMenuState {
   sourceNodeId?: string
   sourceHandleId?: string | null
   sourcePortType?: PortType
-  groupNodeId?: string  // グループノード右クリック時
+  groupNodeId?: string      // グループノード右クリック時
+  targetGroupId?: string    // 新規ノードを追加するグループID
 }
 
 let nodeIdCounter = 1
+
+/** フロー座標がグループ内部にあるか判定し、最前面のグループを返す */
+function findGroupAtPosition(x: number, y: number, nodes: AppNode[]): AppNode | null {
+  const headerHeight = 28
+  // 配列末尾（最前面）から探索
+  const groups = [...nodes].filter((n) => n.type === 'groupNode').reverse()
+  for (const group of groups) {
+    const width = (group.style?.width as number | undefined) ?? group.measured?.width ?? 0
+    const height = (group.style?.height as number | undefined) ?? group.measured?.height ?? 0
+    if (width === 0 || height === 0) continue
+    if (
+      x >= group.position.x &&
+      x <= group.position.x + width &&
+      y >= group.position.y + headerHeight &&
+      y <= group.position.y + height
+    ) {
+      return group
+    }
+  }
+  return null
+}
+
+/** グループがApp化済みの場合、並列条件になったらApp化を解除する */
+function checkAndDisableCapsuleIfNeeded(groupId: string) {
+  const { nodes, edges, capsuleGroupId, setCapsuleGroupId } = useCanvasStore.getState()
+  if (capsuleGroupId !== groupId) return
+  if (hasParallelGenerationNodes(groupId, nodes, edges)) {
+    setCapsuleGroupId(null)
+  }
+}
+
+/** グループへのノード追加時にグループを拡張する（context menu / drop 用） */
+function expandGroupIfNeeded(
+  groupId: string,
+  relX: number,
+  relY: number,
+  nodeW: number,
+  nodeH: number,
+  padding: number,
+) {
+  const { nodes, setNodes } = useCanvasStore.getState()
+  const group = nodes.find((n) => n.id === groupId)
+  if (!group) return
+  const groupWidth = (group.style?.width as number | undefined) ?? 400
+  const groupHeight = (group.style?.height as number | undefined) ?? 300
+  const requiredWidth = Math.max(groupWidth, relX + nodeW + padding)
+  const requiredHeight = Math.max(groupHeight, relY + nodeH + padding)
+  if (requiredWidth > groupWidth || requiredHeight > groupHeight) {
+    setNodes(
+      nodes.map((n) =>
+        n.id === groupId
+          ? { ...n, style: { ...n.style, width: requiredWidth, height: requiredHeight } }
+          : n
+      )
+    )
+  }
+}
 
 // ノードタイプ別のデフォルト入力ハンドルID（ポートタイプ → ハンドルID）
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
@@ -298,12 +357,14 @@ export function Canvas() {
     const clientX = 'clientX' in e ? e.clientX : 0
     const clientY = 'clientY' in e ? e.clientY : 0
     const flowPos = rfInstance.current?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: clientX, y: clientY }
+    const targetGroup = findGroupAtPosition(flowPos.x, flowPos.y, useCanvasStore.getState().nodes)
 
     setContextMenu({
       x: clientX,
       y: clientY,
       flowX: flowPos.x,
       flowY: flowPos.y,
+      targetGroupId: targetGroup?.id,
     })
   }, [])
 
@@ -324,6 +385,50 @@ export function Canvas() {
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
+
+      const targetGroupId = contextMenu.targetGroupId
+      const autoConnect = () => {
+        if (contextMenu.sourceNodeId && contextMenu.sourcePortType) {
+          const targetHandle = NODE_DEFAULT_INPUT_HANDLE[type]?.[contextMenu.sourcePortType] ?? null
+          if (targetHandle) {
+            onConnect({
+              source: contextMenu.sourceNodeId,
+              sourceHandle: contextMenu.sourceHandleId ?? null,
+              target: id,
+              targetHandle,
+            })
+          }
+        }
+      }
+
+      if (targetGroupId) {
+        const group = useCanvasStore.getState().nodes.find((n) => n.id === targetGroupId)
+        if (group) {
+          const padding = 40
+          const headerHeight = 28
+          const nodeDefaultWidth = 280
+          const nodeDefaultHeight = type === 'note' ? 160 : 160
+          const relX = Math.max(padding, contextMenu.flowX - group.position.x)
+          const relY = Math.max(headerHeight + padding, contextMenu.flowY - group.position.y)
+
+          expandGroupIfNeeded(targetGroupId, relX, relY, nodeDefaultWidth, nodeDefaultHeight, padding)
+
+          addNode({
+            id,
+            type: NODE_TYPE_MAP[type],
+            position: { x: relX, y: relY },
+            data,
+            parentId: targetGroupId,
+            extent: 'parent' as const,
+            ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+          })
+          autoConnect()
+          checkAndDisableCapsuleIfNeeded(targetGroupId)
+          setContextMenu(null)
+          return
+        }
+      }
+
       addNode({
         id,
         type: NODE_TYPE_MAP[type],
@@ -331,19 +436,7 @@ export function Canvas() {
         data,
         ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
       })
-
-      if (contextMenu.sourceNodeId && contextMenu.sourcePortType) {
-        const targetHandle = NODE_DEFAULT_INPUT_HANDLE[type]?.[contextMenu.sourcePortType] ?? null
-        if (targetHandle) {
-          onConnect({
-            source: contextMenu.sourceNodeId,
-            sourceHandle: contextMenu.sourceHandleId ?? null,
-            target: id,
-            targetHandle,
-          })
-        }
-      }
-
+      autoConnect()
       setContextMenu(null)
     },
     [contextMenu, addNode, onConnect]
@@ -392,6 +485,7 @@ export function Canvas() {
         }
       } else if (!nodeElement && !isOnHandle) {
         const flowPos = rfInstance.current?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: clientX, y: clientY }
+        const targetGroup = findGroupAtPosition(flowPos.x, flowPos.y, useCanvasStore.getState().nodes)
         setContextMenu({
           x: clientX,
           y: clientY,
@@ -400,6 +494,7 @@ export function Canvas() {
           sourceNodeId: connectingNode.current ?? undefined,
           sourceHandleId: connectingHandle.current,
           sourcePortType: parsePortType(connectingHandle.current) as PortType,
+          targetGroupId: targetGroup?.id,
         })
       }
     }
@@ -486,8 +581,31 @@ export function Canvas() {
   )
 
   const handleNodeDragStop = useCallback(
-    (_event: React.MouseEvent, _node: AppNode, _draggedNodes: AppNode[]) => {
-      if (!altDragActiveRef.current) return
+    (_event: React.MouseEvent, _node: AppNode, draggedNodes: AppNode[]) => {
+      if (!altDragActiveRef.current) {
+        // 通常のドラッグ: グループ内に落としたノードを自動でグループに追加
+        const currentState = useCanvasStore.getState()
+        for (const draggedNode of draggedNodes) {
+          if (draggedNode.type === 'groupNode') continue
+          if (draggedNode.parentId) continue  // 既にグループ内
+
+          const nodeInStore = currentState.nodes.find((n) => n.id === draggedNode.id)
+          if (!nodeInStore) continue
+
+          const nodeWidth = (nodeInStore.measured?.width ?? (nodeInStore.width as number | undefined) ?? 280)
+          const nodeHeight = (nodeInStore.measured?.height ?? (nodeInStore.height as number | undefined) ?? 160)
+          const centerX = nodeInStore.position.x + nodeWidth / 2
+          const centerY = nodeInStore.position.y + nodeHeight / 2
+
+          const targetGroup = findGroupAtPosition(centerX, centerY, currentState.nodes)
+          if (!targetGroup) continue
+
+          currentState.addNodeToGroup(nodeInStore.id, targetGroup.id)
+          checkAndDisableCapsuleIfNeeded(targetGroup.id)
+        }
+        return
+      }
+
       altDragActiveRef.current = false
 
       const { edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
@@ -612,13 +730,35 @@ export function Canvas() {
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
-      addNode({
-        id,
-        type: NODE_TYPE_MAP[type],
-        position: flowPos,
-        data,
-        ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
-      })
+
+      const targetGroup = findGroupAtPosition(flowPos.x, flowPos.y, useCanvasStore.getState().nodes)
+      if (targetGroup) {
+        const padding = 40
+        const headerHeight = 28
+        const nodeDefaultWidth = 280
+        const nodeDefaultHeight = type === 'note' ? 160 : 160
+        const relX = Math.max(padding, flowPos.x - targetGroup.position.x)
+        const relY = Math.max(headerHeight + padding, flowPos.y - targetGroup.position.y)
+        expandGroupIfNeeded(targetGroup.id, relX, relY, nodeDefaultWidth, nodeDefaultHeight, padding)
+        addNode({
+          id,
+          type: NODE_TYPE_MAP[type],
+          position: { x: relX, y: relY },
+          data,
+          parentId: targetGroup.id,
+          extent: 'parent' as const,
+          ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+        })
+        checkAndDisableCapsuleIfNeeded(targetGroup.id)
+      } else {
+        addNode({
+          id,
+          type: NODE_TYPE_MAP[type],
+          position: flowPos,
+          data,
+          ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+        })
+      }
     },
     [addNode]
   )
@@ -673,6 +813,7 @@ export function Canvas() {
         minZoom={0.1}
         maxZoom={2.0}
         colorMode="dark"
+        elevateEdgesOnSelect={false}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           style: { stroke: '#3F3F46', strokeWidth: 2 },

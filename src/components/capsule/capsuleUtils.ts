@@ -36,6 +36,22 @@ const INPUT_NODE_TYPES: Record<string, InputNodeType> = {
   referenceImageNode: 'referenceImage',
 }
 
+// 各入力ノードタイプに対応するCapsule表示可否を判定するフィールドID
+const INPUT_CAPSULE_FIELD: Record<string, string> = {
+  textPromptNode:     'prompt',
+  referenceImageNode: 'imageUrl',
+}
+
+/** 入力ノードがAppモードで表示対象かどうかを capsuleFields で判定 */
+function isInputNodeVisible(node: AppNode): boolean {
+  const fieldId = INPUT_CAPSULE_FIELD[node.type ?? '']
+  if (!fieldId) return false
+  const d = node.data as Record<string, unknown>
+  const capsuleFields = ((d.capsuleFields ?? {}) as Record<string, { capsuleVisibility?: string }>)
+  const visibility = capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+  return visibility !== 'hidden'
+}
+
 function isGenerationNode(node: AppNode): boolean {
   return node.type != null && node.type in GENERATION_RF_TYPES
 }
@@ -61,12 +77,13 @@ export function buildCapsuleStages(
 
   const childIds = new Set(children.map((n) => n.id))
 
-  // グループ内エッジのみ
+  // グループ内エッジのみ（両端がグループ内のノード）
   const internalEdges = edges.filter(
     (e) => childIds.has(e.source) && childIds.has(e.target)
   )
 
   // 入次数カウント（生成ノード間の依存）
+  // 内部接続がないgen nodeも対象に含める（外部からの接続で生成済みのケースをカバー）
   const inDegree: Record<string, number> = {}
   const deps: Record<string, string[]> = {}
 
@@ -84,7 +101,7 @@ export function buildCapsuleStages(
     }
   })
 
-  // Kahnのアルゴリズム
+  // Kahnのアルゴリズム（全gen nodeを対象）
   const queue = genNodes.filter((n) => inDegree[n.id] === 0)
   const sorted: AppNode[] = []
   while (queue.length > 0) {
@@ -107,7 +124,7 @@ export function buildCapsuleStages(
       .map((e) => e.source)
       .filter((srcId) => {
         const srcNode = children.find((n) => n.id === srcId)
-        return srcNode != null && isInputNode(srcNode)
+        return srcNode != null && isInputNode(srcNode) && isInputNodeVisible(srcNode)
       })
 
     return inputNodeIds.map((nodeId) => {
@@ -193,10 +210,17 @@ export function hasParallelGenerationNodes(
 export function buildCapsuleInputNodes(
   groupId: string,
   nodes: AppNode[],
-  _edges: Edge[],
+  edges: Edge[],
   stages: CapsuleStageInfo[]
 ): CapsuleInputInfo[] {
   const children = getGroupChildren(groupId, nodes)
+  const childIds = new Set(children.map((n) => n.id))
+
+  // グループ内エッジに1本も繋がっていない入力ノードは除外
+  const internalEdges = edges.filter(
+    (e) => childIds.has(e.source) && childIds.has(e.target)
+  )
+  const connectedNodeIds = new Set(internalEdges.flatMap((e) => [e.source, e.target]))
 
   // ステージに既に割り当て済みの入力ノードID
   const assignedInputIds = new Set(
@@ -204,7 +228,14 @@ export function buildCapsuleInputNodes(
   )
 
   return children
-    .filter((n) => n.type != null && n.type in INPUT_NODE_TYPES && !assignedInputIds.has(n.id))
+    .filter(
+      (n) =>
+        n.type != null &&
+        n.type in INPUT_NODE_TYPES &&
+        !assignedInputIds.has(n.id) &&
+        connectedNodeIds.has(n.id) &&
+        isInputNodeVisible(n)
+    )
     .map((n) => {
       const d = n.data as Record<string, unknown>
       return {
