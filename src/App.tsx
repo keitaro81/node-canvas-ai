@@ -3,7 +3,7 @@ import './index.css'
 import { initFalClient } from './lib/ai/fal-client'
 import { Canvas } from './components/canvas/Canvas'
 import { Header } from './components/layout/Header'
-import { LeftSidebar } from './components/layout/LeftSidebar'
+import { FloatingToolbar } from './components/layout/FloatingToolbar'
 import { RightPanel } from './components/panels/RightPanel'
 import { StatusBar } from './components/layout/StatusBar'
 import { AuthGuard } from './components/auth/AuthGuard'
@@ -12,11 +12,12 @@ import { useAuthStore } from './stores/authStore'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useCanvasStore } from './stores/canvasStore'
 import { useAutoSave } from './hooks/useAutoSave'
+import { useTheme } from './hooks/useTheme'
 
 function AppInner() {
-  const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
+  const { theme, toggle: toggleTheme } = useTheme()
   const { loadWorkflows, createNewWorkflow, loadWorkflow } = useWorkflowStore()
   const appMode = useCanvasStore((s) => s.appMode)
 
@@ -51,8 +52,8 @@ function AppInner() {
   }, [])
 
   return (
-    <div className="flex flex-col h-full w-full" style={{ background: '#0A0A0B' }}>
-      <Header />
+    <div className="flex flex-col h-full w-full" style={{ background: 'var(--bg-canvas)' }}>
+      <Header theme={theme} onToggleTheme={toggleTheme} />
 
       {initError && (
         <div
@@ -62,7 +63,7 @@ function AppInner() {
           <span className="font-medium">DB エラー:</span>
           <span>{initError}</span>
           <button
-            className="ml-auto text-[#71717A] hover:text-[#FAFAFA] underline text-[11px]"
+            className="ml-auto text-[var(--text-tertiary)] hover:text-[var(--text-primary)] underline text-[11px]"
             onClick={() => setInitError(null)}
           >
             閉じる
@@ -76,9 +77,9 @@ function AppInner() {
           className="flex flex-1 min-h-0"
           style={{ display: appMode !== 'graph' ? 'none' : 'flex' }}
         >
-          <LeftSidebar open={leftOpen} onToggle={() => setLeftOpen((v) => !v)} />
-          <main className="flex-1 min-w-0 h-full">
+          <main className="flex-1 min-w-0 h-full relative">
             <Canvas />
+            <FloatingToolbar />
           </main>
           <RightPanel open={rightOpen} onToggle={() => setRightOpen((v) => !v)} />
         </div>

@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { X } from 'lucide-react'
 import type { NodeData, PortType } from '../../types/nodes'
-import { NODE_ACCENT_COLORS, PORT_COLORS } from '../../types/nodes'
+import { NODE_ACCENT_COLORS } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
 
 interface BaseNodeProps extends NodeProps {
@@ -32,24 +32,24 @@ function BaseNodeInner({
         'border transition-all duration-150',
         selected
           ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]'
-          : 'border-[#27272A]',
+          : 'border-[var(--border)]',
         data.status === 'generating' ? 'node-generating' : '',
       ].join(' ')}
-      style={{ background: '#111113' }}
+      style={{ background: 'var(--bg-surface)' }}
     >
       {/* Header */}
       <div
-        className="flex items-center gap-2 px-3 h-9 border-b border-[#27272A]"
+        className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]"
         style={{ minHeight: 36 }}
       >
         <span style={{ color: accentColor }} className="flex-shrink-0">
           {icon}
         </span>
-        <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">
+        <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">
           {data.label}
         </span>
         <button
-          className="opacity-0 group-hover:opacity-100 hover:opacity-100 w-[22px] h-[22px] flex items-center justify-center rounded text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#1E1E22] transition-all duration-150"
+          className="opacity-0 group-hover:opacity-100 hover:opacity-100 w-[22px] h-[22px] flex items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-all duration-150"
           onClick={() => removeNode(id)}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -90,13 +90,11 @@ function BaseNodeInner({
           id={`in-${port.portType}-${port.id}`}
           type="target"
           position={Position.Left}
+          className={`handle-${port.portType}`}
           style={{
             top: `${((i + 1) / (inputs.length + 1)) * 100}%`,
             width: 20,
             height: 20,
-            background: `radial-gradient(circle, ${PORT_COLORS[port.portType]} 3px, #111113 3px 5px, transparent 5px)`,
-            border: 'none',
-            borderRadius: 0,
           }}
         />
       ))}
@@ -108,13 +106,11 @@ function BaseNodeInner({
           id={`out-${port.portType}-${port.id}`}
           type="source"
           position={Position.Right}
+          className={`handle-${port.portType}`}
           style={{
             top: `${((i + 1) / (outputs.length + 1)) * 100}%`,
             width: 20,
             height: 20,
-            background: `radial-gradient(circle, ${PORT_COLORS[port.portType]} 3px, #111113 3px 5px, transparent 5px)`,
-            border: 'none',
-            borderRadius: 0,
           }}
         />
       ))}

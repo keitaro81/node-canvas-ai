@@ -15,7 +15,7 @@ const LABELS: Record<CapsuleVisibility, string> = {
 }
 
 const STYLES: Record<CapsuleVisibility, React.CSSProperties> = {
-  hidden:   { background: '#18181B', color: '#52525B', border: '1px solid #27272A' },
+  hidden:   { background: 'var(--bg-panel)', color: 'var(--text-tertiary)', border: '1px solid var(--border)' },
   visible:  { background: '#4C1D95', color: '#C4B5FD', border: '1px solid #7C3AED' },
   editable: { background: '#4C1D95', color: '#C4B5FD', border: '1px solid #7C3AED' },
 }

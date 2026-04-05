@@ -33,7 +33,7 @@ export const TextPromptNode = memo(function TextPromptNode(props: NodeProps) {
       outputs={[{ id: 'text-out', portType: 'text' }]}
     >
       <div className="flex items-center justify-between">
-        <label className="text-[11px] text-[#A1A1AA] font-medium">プロンプト</label>
+        <label className="text-[11px] text-[var(--text-secondary)] font-medium">プロンプト</label>
         <CapsuleFieldToggle
           fieldId="prompt"
           visibility={getCapsuleVisibility('prompt')}
@@ -41,10 +41,10 @@ export const TextPromptNode = memo(function TextPromptNode(props: NodeProps) {
         />
       </div>
       <textarea
-        className="w-full resize-y rounded-md px-2.5 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none transition-colors duration-150 nodrag"
+        className="w-full resize-y rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag"
         style={{
-          background: '#0A0A0B',
-          border: '1px solid #27272A',
+          background: 'var(--bg-canvas)',
+          border: '1px solid var(--border)',
           minHeight: '72px',
         }}
         rows={3}
@@ -54,7 +54,7 @@ export const TextPromptNode = memo(function TextPromptNode(props: NodeProps) {
           updateNode(props.id, { params: { ...data.params, prompt: e.target.value } })
         }
       />
-      <div className="text-[11px] text-[#71717A] text-right tabular-nums">
+      <div className="text-[11px] text-[var(--text-tertiary)] text-right tabular-nums">
         {prompt.length} 文字
       </div>
     </BaseNode>

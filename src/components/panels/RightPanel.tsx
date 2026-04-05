@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued', processing: 'Processing…', completed: 'Completed', failed: 'Failed',
 }
 const STATUS_COLORS: Record<string, string> = {
-  idle: '#71717A', generating: '#8B5CF6', done: '#22C55E', error: '#EF4444',
+  idle: 'var(--text-tertiary)', generating: '#8B5CF6', done: '#22C55E', error: '#EF4444',
   queued: '#F59E0B', processing: '#8B5CF6', completed: '#22C55E', failed: '#EF4444',
 }
 
@@ -31,7 +31,7 @@ interface RightPanelProps {
 // ===== 共通UIパーツ =====
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">{children}</label>
+  return <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">{children}</label>
 }
 
 function SelectField({ label, value, options, onChange, disabled }: {
@@ -45,8 +45,8 @@ function SelectField({ label, value, options, onChange, disabled }: {
     <div>
       <FieldLabel>{label}</FieldLabel>
       <select
-        className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none appearance-none"
-        style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+        className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
@@ -77,9 +77,9 @@ function ButtonGroupField({ label, value, options, onChange, disabled }: {
               key={opt}
               className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
               style={{
-                background: active ? '#8B5CF6' : '#1E1E22',
-                color: active ? '#FAFAFA' : '#A1A1AA',
-                border: `1px solid ${active ? '#8B5CF6' : '#27272A'}`,
+                background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
                 minWidth: '2.5rem',
               }}
               onClick={() => onChange(opt)}
@@ -105,7 +105,7 @@ function ToggleField({ label, value, onChange, disabled }: {
       <FieldLabel>{label}</FieldLabel>
       <button
         className="relative w-8 h-4 rounded-full transition-colors"
-        style={{ background: value ? '#8B5CF6' : '#3F3F46' }}
+        style={{ background: value ? '#8B5CF6' : 'var(--border-active)' }}
         onClick={() => onChange(!value)}
         disabled={disabled}
       >
@@ -130,8 +130,8 @@ function NumberField({ label, value, onChange, placeholder, disabled }: {
       <FieldLabel>{label}</FieldLabel>
       <input
         type="number"
-        className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none"
-        style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+        className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
         placeholder={placeholder ?? ''}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
@@ -143,7 +143,7 @@ function NumberField({ label, value, onChange, placeholder, disabled }: {
 
 function SectionTitle({ children }: { children: string }) {
   return (
-    <div className="text-[11px] font-medium text-[#71717A] uppercase tracking-wider mb-2">
+    <div className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-2">
       {children}
     </div>
   )
@@ -187,7 +187,7 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
         <div className="flex flex-col gap-3">
           {/* モードバッジ */}
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-[#A1A1AA]">Mode</span>
+            <span className="text-[11px] text-[var(--text-secondary)]">Mode</span>
             <span
               className="text-[10px] rounded-full px-2 py-0.5 font-medium"
               style={isOmniGen
@@ -227,7 +227,7 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
       {output && (
         <section>
           <SectionTitle>Output</SectionTitle>
-          <img src={output} alt="Generated" className="w-full h-auto rounded-md" style={{ border: '1px solid #27272A' }} />
+          <img src={output} alt="Generated" className="w-full h-auto rounded-md" style={{ border: '1px solid var(--border)' }} />
         </section>
       )}
     </>
@@ -303,8 +303,8 @@ function VideoGenProperties({ nodeId, data, updateNode }: {
         <section>
           <SectionTitle>Output URL</SectionTitle>
           <div
-            className="p-2 rounded text-[11px] text-[#A1A1AA] font-mono break-all"
-            style={{ background: '#111113', border: '1px solid #27272A' }}
+            className="p-2 rounded text-[11px] text-[var(--text-secondary)] font-mono break-all"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
             {data.videoUrl}
           </div>
@@ -321,10 +321,10 @@ function ReferenceImageProperties({ data }: { data: ReferenceImageNodeData }) {
       {url ? (
         <>
           <SectionTitle>Preview</SectionTitle>
-          <img src={url} alt="Reference" className="w-full h-auto rounded-md" style={{ border: '1px solid #27272A' }} />
+          <img src={url} alt="Reference" className="w-full h-auto rounded-md" style={{ border: '1px solid var(--border)' }} />
         </>
       ) : (
-        <span className="text-[12px] text-[#71717A]">画像未アップロード</span>
+        <span className="text-[12px] text-[var(--text-tertiary)]">画像未アップロード</span>
       )}
     </section>
   )
@@ -343,35 +343,35 @@ export function RightPanel({ open, onToggle }: RightPanelProps) {
       {/* Toggle button */}
       <button
         onClick={onToggle}
-        className="absolute top-3 flex items-center justify-center w-5 h-8 rounded-l border border-r-0 border-[#27272A] hover:bg-[#1E1E22] transition-colors duration-150"
+        className="absolute top-3 flex items-center justify-center w-5 h-8 rounded-l border border-r-0 border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
         style={{
           right: open ? 300 : 0,
-          background: '#18181B',
+          background: 'var(--bg-panel)',
           transition: 'right 200ms ease-out',
           zIndex: 1,
         }}
         title={open ? 'Close properties' : 'Open properties'}
       >
         {open ? (
-          <ChevronRight size={12} style={{ color: '#71717A' }} />
+          <ChevronRight size={12} style={{ color: 'var(--text-tertiary)' }} />
         ) : (
-          <ChevronLeft size={12} style={{ color: '#71717A' }} />
+          <ChevronLeft size={12} style={{ color: 'var(--text-tertiary)' }} />
         )}
       </button>
 
       {/* Panel */}
       <div
-        className="flex flex-col border-l border-[#27272A] overflow-hidden"
+        className="flex flex-col border-l border-[var(--border)] overflow-hidden"
         style={{
           width: open ? 300 : 0,
-          background: '#18181B',
+          background: 'var(--bg-panel)',
           transition: 'width 200ms ease-out',
         }}
       >
         <div style={{ width: 300 }} className="flex flex-col h-full">
           {/* Panel header */}
-          <div className="px-3 pt-3 pb-2 border-b border-[#27272A]">
-            <span className="text-[11px] font-medium text-[#71717A] uppercase tracking-wider">
+          <div className="px-3 pt-3 pb-2 border-b border-[var(--border)]">
+            <span className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
               Properties
             </span>
           </div>
@@ -382,14 +382,14 @@ export function RightPanel({ open, onToggle }: RightPanelProps) {
               <div className="flex flex-col items-center justify-center h-full gap-2 px-4">
                 <div
                   className="w-10 h-10 rounded-lg flex items-center justify-center"
-                  style={{ background: '#111113', border: '1px solid #27272A' }}
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3F3F46" strokeWidth="2">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--border-active)" strokeWidth="2">
                     <rect x="3" y="3" width="18" height="18" rx="3" />
                     <path d="M9 12h6M12 9v6" />
                   </svg>
                 </div>
-                <p className="text-[12px] text-[#71717A] text-center">
+                <p className="text-[12px] text-[var(--text-tertiary)] text-center">
                   ノードを選択してください
                 </p>
               </div>
@@ -398,17 +398,17 @@ export function RightPanel({ open, onToggle }: RightPanelProps) {
                 {/* Node type header */}
                 <div
                   className="flex items-center gap-2.5 p-3 rounded-lg"
-                  style={{ background: '#111113', border: '1px solid #27272A' }}
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
                 >
                   <div
                     className="w-2 h-8 rounded-full shrink-0"
                     style={{ background: NODE_ACCENT_COLORS[selected.data.type] ?? '#6B7280' }}
                   />
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[13px] font-semibold text-[#FAFAFA] truncate">
+                    <span className="text-[13px] font-semibold text-[var(--text-primary)] truncate">
                       {selected.data.label}
                     </span>
-                    <span className="text-[11px] text-[#71717A] truncate">
+                    <span className="text-[11px] text-[var(--text-tertiary)] truncate">
                       {selected.id}
                     </span>
                   </div>
@@ -420,9 +420,9 @@ export function RightPanel({ open, onToggle }: RightPanelProps) {
                   <div className="flex items-center gap-2">
                     <div
                       className="w-2 h-2 rounded-full"
-                      style={{ background: STATUS_COLORS[selected.data.status] ?? '#71717A' }}
+                      style={{ background: STATUS_COLORS[selected.data.status] ?? 'var(--text-tertiary)' }}
                     />
-                    <span className="text-[12px] text-[#FAFAFA]">
+                    <span className="text-[12px] text-[var(--text-primary)]">
                       {STATUS_LABELS[selected.data.status] ?? selected.data.status}
                     </span>
                   </div>
@@ -468,8 +468,8 @@ export function RightPanel({ open, onToggle }: RightPanelProps) {
                       <section>
                         <SectionTitle>Output</SectionTitle>
                         <div
-                          className="p-2 rounded text-[11px] text-[#A1A1AA] font-mono break-all"
-                          style={{ background: '#111113', border: '1px solid #27272A' }}
+                          className="p-2 rounded text-[11px] text-[var(--text-secondary)] font-mono break-all"
+                          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
                         >
                           {typeof selected.data.output === 'string'
                             ? selected.data.output
@@ -501,13 +501,13 @@ function ParamField({ paramKey, value, onChange }: ParamFieldProps) {
   if (paramKey === 'prompt' || paramKey === 'negativePrompt') {
     return (
       <div className="flex flex-col gap-1">
-        <label className="text-[12px] text-[#A1A1AA]">{label}</label>
+        <label className="text-[12px] text-[var(--text-secondary)]">{label}</label>
         <textarea
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onChange(e.target.value)}
           rows={4}
-          className="w-full px-2.5 py-1.5 text-[12px] text-[#FAFAFA] rounded outline-none resize-y"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 80 }}
+          className="w-full px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] rounded outline-none resize-y"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 80 }}
         />
       </div>
     )
@@ -516,11 +516,11 @@ function ParamField({ paramKey, value, onChange }: ParamFieldProps) {
   if (typeof value === 'boolean') {
     return (
       <div className="flex items-center justify-between">
-        <label className="text-[12px] text-[#A1A1AA]">{label}</label>
+        <label className="text-[12px] text-[var(--text-secondary)]">{label}</label>
         <button
           onClick={() => onChange(!value)}
           className="w-8 h-4 rounded-full relative transition-colors duration-150"
-          style={{ background: value ? '#8B5CF6' : '#27272A' }}
+          style={{ background: value ? '#8B5CF6' : 'var(--border)' }}
         >
           <div
             className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all duration-150"
@@ -535,15 +535,15 @@ function ParamField({ paramKey, value, onChange }: ParamFieldProps) {
     return (
       <div className="flex flex-col gap-1">
         <div className="flex justify-between">
-          <label className="text-[12px] text-[#A1A1AA]">{label}</label>
-          <span className="text-[12px] text-[#FAFAFA]">{value}</span>
+          <label className="text-[12px] text-[var(--text-secondary)]">{label}</label>
+          <span className="text-[12px] text-[var(--text-primary)]">{value}</span>
         </div>
         <input
           type="number"
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full px-2.5 py-1.5 text-[12px] text-[#FAFAFA] rounded outline-none"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          className="w-full px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] rounded outline-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
         />
       </div>
     )
@@ -552,13 +552,13 @@ function ParamField({ paramKey, value, onChange }: ParamFieldProps) {
   if (typeof value === 'string' && value.length > 60) {
     return (
       <div className="flex flex-col gap-1">
-        <label className="text-[12px] text-[#A1A1AA]">{label}</label>
+        <label className="text-[12px] text-[var(--text-secondary)]">{label}</label>
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={3}
-          className="w-full px-2.5 py-1.5 text-[12px] text-[#FAFAFA] rounded outline-none resize-y"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 80 }}
+          className="w-full px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] rounded outline-none resize-y"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 80 }}
         />
       </div>
     )
@@ -566,13 +566,13 @@ function ParamField({ paramKey, value, onChange }: ParamFieldProps) {
 
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[12px] text-[#A1A1AA]">{label}</label>
+      <label className="text-[12px] text-[var(--text-secondary)]">{label}</label>
       <input
         type="text"
         value={typeof value === 'string' ? value : String(value ?? '')}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-2.5 py-1.5 text-[12px] text-[#FAFAFA] rounded outline-none"
-        style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+        className="w-full px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] rounded outline-none"
+        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
       />
     </div>
   )

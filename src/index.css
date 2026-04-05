@@ -2,68 +2,101 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─────────────────────────────────────────
+   テーマ変数（ライト = デフォルト）
+───────────────────────────────────────── */
+:root {
+  /* Canvas */
+  --bg-canvas:   #EDECEA;
+  --bg-dots:     #D8D6D2;
+
+  /* Surfaces */
+  --bg-surface:  #FFFFFF;
+  --bg-panel:    #F5F4F1;
+  --bg-elevated: #EEECE9;
+
+  /* Borders */
+  --border:        #E2DED9;
+  --border-active: #C8C4BE;
+
+  /* Text */
+  --text-primary:   #111111;
+  --text-secondary: #6B7280;
+  --text-tertiary:  #9CA3AF;
+
+  /* Accent (紫はライト/ダーク共通) */
+  --accent:         #8B5CF6;
+  --accent-hover:   #7C3AED;
+  --accent-subtle:  rgba(139, 92, 246, 0.1);
+
+  /* Status */
+  --success: #16A34A;
+  --warning: #D97706;
+  --error:   #DC2626;
+
+  /* Node type accents */
+  --node-text:  #6366F1;
+  --node-image: #8B5CF6;
+  --node-video: #EC4899;
+
+  /* Header */
+  --bg-header: #FFFFFF;
+  --border-header: #E2DED9;
+
+  /* Floating toolbar */
+  --bg-toolbar: #FFFFFF;
+  --shadow-toolbar: 0 2px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.06);
+}
+
+/* ─────────────────────────────────────────
+   ダークテーマ
+───────────────────────────────────────── */
+.dark {
+  --bg-canvas:   #0A0A0B;
+  --bg-dots:     #1A1A1E;
+
+  --bg-surface:  #111113;
+  --bg-panel:    #18181B;
+  --bg-elevated: #1E1E22;
+
+  --border:        #27272A;
+  --border-active: #3F3F46;
+
+  --text-primary:   #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-tertiary:  #71717A;
+
+  --accent:        #8B5CF6;
+  --accent-hover:  #7C3AED;
+  --accent-subtle: rgba(139, 92, 246, 0.15);
+
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --error:   #EF4444;
+
+  --node-text:  #6366F1;
+  --node-image: #8B5CF6;
+  --node-video: #EC4899;
+
+  --bg-header: #111113;
+  --border-header: #27272A;
+
+  --bg-toolbar: #18181B;
+  --shadow-toolbar: 0 2px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06);
+}
+
 @theme {
-  /* Flora AI color system */
-  --color-canvas-bg: #0A0A0B;
-  --color-canvas-dots: #1A1A1E;
-  --color-surface-primary: #111113;
-  --color-surface-secondary: #18181B;
-  --color-surface-elevated: #1E1E22;
-  --color-border-default: #27272A;
-  --color-border-active: #3F3F46;
-
-  --color-text-primary: #FAFAFA;
-  --color-text-secondary: #A1A1AA;
-  --color-text-tertiary: #71717A;
-
-  --color-node-text: #6366F1;
-  --color-node-image: #8B5CF6;
-  --color-node-video: #EC4899;
-  --color-node-utility: #6B7280;
-
-  --color-accent-primary: #8B5CF6;
-  --color-accent-success: #22C55E;
-  --color-accent-warning: #F59E0B;
-  --color-accent-error: #EF4444;
-
-  --color-edge-text: #6366F1;
-  --color-edge-image: #8B5CF6;
-  --color-edge-video: #EC4899;
-  --color-edge-inactive: #3F3F46;
-
-  /* shadcn/ui compat */
-  --color-background: #0A0A0B;
-  --color-foreground: #FAFAFA;
-  --color-card: #111113;
-  --color-card-foreground: #FAFAFA;
-  --color-popover: #18181B;
-  --color-popover-foreground: #FAFAFA;
-  --color-primary: #8B5CF6;
-  --color-primary-foreground: #FAFAFA;
-  --color-secondary: #18181B;
-  --color-secondary-foreground: #FAFAFA;
-  --color-muted: #18181B;
-  --color-muted-foreground: #A1A1AA;
-  --color-accent: #1E1E22;
-  --color-accent-foreground: #FAFAFA;
-  --color-destructive: #EF4444;
-  --color-border: #27272A;
-  --color-input: #0A0A0B;
-  --color-ring: #8B5CF6;
-
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --radius: 0.75rem;
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
-
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 @layer base {
   * {
     box-sizing: border-box;
-    border-color: var(--color-border-default);
   }
 
   html, body, #root {
@@ -73,8 +106,8 @@
   }
 
   body {
-    background-color: var(--color-canvas-bg);
-    color: var(--color-text-primary);
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -83,7 +116,40 @@
 
 /* React Flow overrides */
 .react-flow__renderer {
-  background: var(--color-canvas-bg);
+  background: var(--bg-canvas);
+}
+
+/* Controls — horizontal pill */
+.react-flow__controls {
+  flex-direction: row !important;
+  border-radius: 9999px !important;
+  box-shadow: none !important;
+}
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-right: 1px solid var(--border) !important;
+}
+.react-flow__controls-button:last-child {
+  border-right: none !important;
+}
+.react-flow__controls-button svg {
+  fill: var(--text-secondary) !important;
+}
+.react-flow__controls-button:hover {
+  background: var(--bg-elevated) !important;
+}
+.react-flow__controls-button:first-child {
+  border-radius: 9999px 0 0 9999px !important;
+}
+.react-flow__controls-button:last-child {
+  border-radius: 0 9999px 9999px 0 !important;
+}
+
+/* MiniMap */
+.react-flow__minimap-mask {
+  fill: var(--bg-elevated) !important;
+  opacity: 0.6;
 }
 
 .react-flow__edge-path {
@@ -108,6 +174,11 @@ svg.react-flow__connectionline {
 .react-flow__handle {
   transition: box-shadow 150ms ease-out;
 }
+
+/* Handle port colors — !important to override ReactFlow's JS style injection */
+.handle-text  { background: radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
+.handle-image { background: radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
+.handle-video { background: radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 
 /* Node pop-in animation */
 @keyframes nodePopIn {
@@ -142,6 +213,14 @@ svg.react-flow__connectionline {
 /* Canvas pane cursor: default arrow */
 .react-flow__pane {
   cursor: default !important;
+}
+
+/* Group node cursor: grab (override ReactFlow's crosshair default) */
+.react-flow__node-group {
+  cursor: grab !important;
+}
+.react-flow__node-group:active {
+  cursor: grabbing !important;
 }
 
 /* Marquee selection box */

@@ -131,22 +131,22 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         'border transition-all duration-150',
         selected
           ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]'
-          : 'border-[#27272A]',
+          : 'border-[var(--border)]',
         isGenerating ? 'node-generating' : '',
       ].join(' ')}
-      style={{ background: '#111113', width: 300 }}
+      style={{ background: 'var(--bg-surface)', width: 300 }}
     >
       {/* Header */}
       <div
-        className="flex items-center gap-2 px-3 h-9 border-b border-[#27272A]"
+        className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]"
         style={{ minHeight: 36 }}
       >
         <Sparkles size={14} style={{ color: accentColor }} className="flex-shrink-0" />
-        <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">
+        <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">
           {(nodeData.label as string) ?? 'アシスタント'}
         </span>
         <button
-          className="opacity-0 group-hover:opacity-100 w-[22px] h-[22px] flex items-center justify-center rounded text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#1E1E22] transition-all duration-150"
+          className="opacity-0 group-hover:opacity-100 w-[22px] h-[22px] flex items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-all duration-150"
           onClick={() => removeNode(id)}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -159,9 +159,9 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         <button
           className="w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150"
           style={{
-            background: tab === 'input' ? '#1E1E22' : 'transparent',
-            color: tab === 'input' ? '#FAFAFA' : '#71717A',
-            border: tab === 'input' ? '1px solid #3F3F46' : '1px solid transparent',
+            background: tab === 'input' ? 'var(--bg-elevated)' : 'transparent',
+            color: tab === 'input' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+            border: tab === 'input' ? '1px solid var(--border-active)' : '1px solid transparent',
           }}
           onClick={() => setTab('input')}
           title="入力"
@@ -171,8 +171,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         <button
           className="w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150"
           style={{
-            background: tab === 'output' ? '#1E1E22' : 'transparent',
-            color: tab === 'output' ? accentColor : '#71717A',
+            background: tab === 'output' ? 'var(--bg-elevated)' : 'transparent',
+            color: tab === 'output' ? accentColor : 'var(--text-tertiary)',
             border: tab === 'output' ? `1px solid ${accentColor}44` : '1px solid transparent',
           }}
           onClick={() => setTab('output')}
@@ -185,14 +185,14 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         {tab === 'output' && (
           <div className="flex items-center gap-1 ml-auto">
             <button
-              className="w-7 h-7 flex items-center justify-center rounded-md text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-150"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
               onClick={handleCopy}
               title="コピー"
             >
               {copied ? <Check size={13} style={{ color: '#22C55E' }} /> : <Copy size={13} />}
             </button>
             <button
-              className="w-7 h-7 flex items-center justify-center rounded-md text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-150"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
               onClick={() => updateNode(id, { outputText, status: 'done' } as never)}
               title="出力をテキストノードに送る"
             >
@@ -206,10 +206,10 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
       <div className="px-3 pt-2 pb-2 nodrag">
         {tab === 'input' ? (
           <textarea
-            className="w-full resize-none rounded-md px-2.5 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none transition-colors duration-150 nodrag nopan"
+            className="w-full resize-none rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag nopan"
             style={{
-              background: '#0A0A0B',
-              border: '1px solid #27272A',
+              background: 'var(--bg-canvas)',
+              border: '1px solid var(--border)',
               minHeight: '180px',
               lineHeight: 1.6,
             }}
@@ -230,10 +230,10 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
           />
         ) : (
           <div
-            className="w-full rounded-md px-2.5 py-2 text-[12px] text-[#FAFAFA] overflow-y-auto"
+            className="w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] overflow-y-auto"
             style={{
-              background: '#0A0A0B',
-              border: '1px solid #27272A',
+              background: 'var(--bg-canvas)',
+              border: '1px solid var(--border)',
               minHeight: '180px',
               lineHeight: 1.6,
               whiteSpace: 'pre-wrap',
@@ -241,14 +241,14 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
             }}
           >
             {isGenerating ? (
-              <span className="flex items-center gap-2 text-[#71717A]">
+              <span className="flex items-center gap-2 text-[var(--text-tertiary)]">
                 <Loader2 size={12} className="animate-spin" />
                 変換中...
               </span>
             ) : outputText ? (
               outputText
             ) : (
-              <span className="text-[#71717A]">まだ変換されていません。「▶」を押して実行してください。</span>
+              <span className="text-[var(--text-tertiary)]">まだ変換されていません。「▶」を押して実行してください。</span>
             )}
           </div>
         )}
@@ -259,19 +259,19 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         {/* Model selector */}
         <div className="relative">
           <button
-            className="flex items-center gap-1 h-7 px-2 rounded-md text-[11px] text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-150"
-            style={{ border: '1px solid #27272A', background: '#0A0A0B' }}
+            className="flex items-center gap-1 h-7 px-2 rounded-md text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
+            style={{ border: '1px solid var(--border)', background: 'var(--bg-canvas)' }}
             onClick={() => { setModelOpen((v) => !v); setExportOpen(false) }}
           >
             <span className="truncate max-w-[90px]">{selectedModel.label}</span>
-            <ChevronDown size={10} className="text-[#71717A] flex-shrink-0" />
+            <ChevronDown size={10} className="text-[var(--text-tertiary)] flex-shrink-0" />
           </button>
           {modelOpen && (
             <div
               className="absolute bottom-8 left-0 z-50 rounded-lg overflow-hidden py-1"
               style={{
-                background: '#18181B',
-                border: '1px solid #27272A',
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border)',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
                 minWidth: 160,
               }}
@@ -281,11 +281,11 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
                   key={m.value}
                   className="w-full text-left px-3 h-8 text-[11px] transition-colors duration-150"
                   style={{
-                    color: m.value === model ? '#FAFAFA' : '#A1A1AA',
-                    background: m.value === model ? '#1E1E22' : 'transparent',
+                    color: m.value === model ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    background: m.value === model ? 'var(--bg-elevated)' : 'transparent',
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1E1E22' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = m.value === model ? '#1E1E22' : 'transparent' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = m.value === model ? 'var(--bg-elevated)' : 'transparent' }}
                   onClick={() => {
                     updateNode(id, { model: m.value } as never)
                     setModelOpen(false)
@@ -300,8 +300,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
 
         {/* Settings */}
         <button
-          className="w-7 h-7 flex items-center justify-center rounded-md text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-150"
-          style={{ border: '1px solid #27272A', background: '#0A0A0B' }}
+          className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
+          style={{ border: '1px solid var(--border)', background: 'var(--bg-canvas)' }}
           title="設定"
         >
           <Settings size={12} />
@@ -310,8 +310,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         {/* Export */}
         <div className="relative">
           <button
-            className="w-7 h-7 flex items-center justify-center rounded-md text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-150"
-            style={{ border: '1px solid #27272A', background: '#0A0A0B' }}
+            className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
+            style={{ border: '1px solid var(--border)', background: 'var(--bg-canvas)' }}
             onClick={() => { setExportOpen((v) => !v); setModelOpen(false) }}
             title="エクスポート"
           >
@@ -321,8 +321,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
             <div
               className="absolute bottom-8 left-0 z-50 rounded-lg overflow-hidden py-1"
               style={{
-                background: '#18181B',
-                border: '1px solid #27272A',
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border)',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
                 minWidth: 180,
               }}
@@ -330,9 +330,9 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
               {EXPORT_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
-                  className="w-full text-left px-3 h-8 text-[11px] text-[#A1A1AA] transition-colors duration-150"
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1E1E22'; (e.currentTarget as HTMLElement).style.color = '#FAFAFA' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#A1A1AA' }}
+                  className="w-full text-left px-3 h-8 text-[11px] text-[var(--text-secondary)] transition-colors duration-150"
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                   onClick={() => handleExport(opt.value)}
                 >
                   {opt.label}
@@ -346,8 +346,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
         <button
           className="ml-auto w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150"
           style={{
-            background: isGenerating ? '#3F3F46' : '#FAFAFA',
-            color: isGenerating ? '#71717A' : '#0A0A0B',
+            background: isGenerating ? 'var(--border-active)' : 'var(--text-primary)',
+            color: isGenerating ? 'var(--text-tertiary)' : 'var(--bg-canvas)',
             flexShrink: 0,
           }}
           onClick={handleRun}
@@ -370,7 +370,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
           top: '50%',
           width: 20,
           height: 20,
-          background: `radial-gradient(circle, ${PORT_COLORS.text} 3px, #111113 3px 5px, transparent 5px)`,
+          background: `radial-gradient(circle, ${PORT_COLORS.text} 3px, var(--bg-surface) 3px 5px, transparent 5px)`,
           border: 'none',
           borderRadius: 0,
         }}

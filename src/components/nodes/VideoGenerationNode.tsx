@@ -206,14 +206,14 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             ? 'node-generating border-[#EC4899] shadow-[0_0_0_1px_rgba(236,72,153,0.3)]'
             : selected
             ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]'
-            : 'border-[#27272A]',
+            : 'border-[var(--border)]',
         ].join(' ')}
-        style={{ background: '#111113' }}
+        style={{ background: 'var(--bg-surface)' }}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 h-9 border-b border-[#27272A]" style={{ minHeight: 36 }}>
+        <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
           <Film size={14} className="shrink-0" style={{ color: '#EC4899' }} />
-          <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">{nodeData.label}</span>
+          <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
         </div>
 
         {/* Text input handle */}
@@ -225,7 +225,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             top: '30%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #6366F1 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}
@@ -240,7 +240,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             top: '60%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #8B5CF6 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}
@@ -263,12 +263,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Model */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[#A1A1AA]">Model</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Model</label>
               <CapsuleFieldToggle fieldId="model" visibility={getCapsuleVisibility('model')} onChange={handleCapsuleChange} />
             </div>
             <select
-              className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none nodrag appearance-none"
-              style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+              className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+              style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
               value={currentModel?.id ?? ''}
               onChange={(e) => {
                 const newModel = allVideoModels.find((m) => m.id === e.target.value)
@@ -296,12 +296,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           {currentModel && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-[11px] font-medium text-[#A1A1AA]">Duration: {nodeData.duration}s</label>
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Duration: {nodeData.duration}s</label>
                 <CapsuleFieldToggle fieldId="duration" visibility={getCapsuleVisibility('duration')} onChange={handleCapsuleChange} />
               </div>
               <select
-                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none nodrag appearance-none"
-                style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
                 value={nodeData.duration}
                 onChange={(e) => upd(updateNode, id, { duration: e.target.value })}
                 disabled={isGenerating}
@@ -317,7 +317,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           {currentModel && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-[11px] font-medium text-[#A1A1AA]">Aspect Ratio</label>
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
                 <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
               </div>
               <div className="flex gap-1.5 flex-wrap">
@@ -331,9 +331,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                       key={ar}
                       className="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors nodrag"
                       style={{
-                        background: active ? 'rgba(236,72,153,0.2)' : '#1E1E22',
-                        color: active ? '#EC4899' : '#A1A1AA',
-                        border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : '#27272A'}`,
+                        background: active ? 'rgba(236,72,153,0.2)' : 'var(--bg-elevated)',
+                        color: active ? '#EC4899' : 'var(--text-secondary)',
+                        border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : 'var(--border)'}`,
                         minWidth: '3rem',
                       }}
                       onClick={() => upd(updateNode, id, { aspectRatio: ar })}
@@ -350,10 +350,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Audio toggle */}
           {currentModel?.features.includes('audio') && (
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-medium text-[#A1A1AA]">Audio</label>
+              <label className="text-[11px] font-medium text-[var(--text-secondary)]">Audio</label>
               <button
                 className="relative w-8 h-4 rounded-full transition-colors nodrag"
-                style={{ background: nodeData.audioEnabled ? '#EC4899' : '#3F3F46' }}
+                style={{ background: nodeData.audioEnabled ? '#EC4899' : 'var(--border-active)' }}
                 onClick={() => upd(updateNode, id, { audioEnabled: !nodeData.audioEnabled })}
                 disabled={isGenerating}
               >
@@ -366,7 +366,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           )}
 
           {/* Estimated cost */}
-          <div className="text-[11px] text-[#71717A]">
+          <div className="text-[11px] text-[var(--text-tertiary)]">
             概算コスト: ~${estimatedCost}
           </div>
 
@@ -397,7 +397,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             <>
               <div
                 className="relative rounded-lg overflow-hidden group/vid cursor-pointer"
-                style={{ background: '#000', border: '1px solid #27272A' }}
+                style={{ background: '#000', border: '1px solid var(--border)' }}
                 onClick={() => setLightboxOpen(true)}
               >
                 <video
@@ -438,16 +438,16 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               <div className="flex items-center gap-1.5">
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
-                  style={{ background: '#1E1E22' }}
+                  style={{ background: 'var(--bg-elevated)' }}
                   onClick={togglePlay}
                 >
-                  {isPlaying ? <Pause size={12} style={{ color: '#A1A1AA' }} /> : <Play size={12} style={{ color: '#A1A1AA' }} />}
+                  {isPlaying ? <Pause size={12} style={{ color: 'var(--text-secondary)' }} /> : <Play size={12} style={{ color: 'var(--text-secondary)' }} />}
                 </button>
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{
-                    background: loop ? 'rgba(236,72,153,0.2)' : '#1E1E22',
-                    color: loop ? '#EC4899' : '#71717A',
+                    background: loop ? 'rgba(236,72,153,0.2)' : 'var(--bg-elevated)',
+                    color: loop ? '#EC4899' : 'var(--text-tertiary)',
                     border: `1px solid ${loop ? 'rgba(236,72,153,0.4)' : 'transparent'}`,
                   }}
                   onClick={() => setLoop((v) => !v)}
@@ -458,8 +458,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{
-                    background: muted ? '#1E1E22' : 'rgba(236,72,153,0.2)',
-                    color: muted ? '#71717A' : '#EC4899',
+                    background: muted ? 'var(--bg-elevated)' : 'rgba(236,72,153,0.2)',
+                    color: muted ? 'var(--text-tertiary)' : '#EC4899',
                     border: `1px solid ${muted ? 'transparent' : 'rgba(236,72,153,0.4)'}`,
                   }}
                   onClick={() => {
@@ -471,7 +471,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                   {muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
                 </button>
                 {nodeData.fileName && (
-                  <span className="ml-auto text-[10px] text-[#71717A] truncate" style={{ maxWidth: 100 }}>
+                  <span className="ml-auto text-[10px] text-[var(--text-tertiary)] truncate" style={{ maxWidth: 100 }}>
                     {nodeData.fileName}
                   </span>
                 )}
@@ -513,7 +513,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             top: '50%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #EC4899 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}

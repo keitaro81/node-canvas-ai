@@ -110,15 +110,15 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
         'node-popin relative flex flex-col w-[280px] rounded-xl overflow-visible border transition-all duration-150',
         selected
           ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]'
-          : 'border-[#27272A]',
+          : 'border-[var(--border)]',
       ].join(' ')}
-      style={{ background: '#111113' }}
+      style={{ background: 'var(--bg-surface)' }}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-[#27272A]" style={{ minHeight: 36 }}>
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
         <div className="w-0.5 h-4 rounded-full shrink-0" style={{ background: '#8B5CF6' }} />
         <ImageIcon size={14} className="shrink-0" style={{ color: '#8B5CF6' }} />
-        <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">{nodeData.label}</span>
+        <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
         <CapsuleFieldToggle
           fieldId="imageUrl"
           visibility={getCapsuleVisibility('imageUrl')}
@@ -136,7 +136,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
         {displayUrl ? (
           <div
             className="relative rounded-lg overflow-hidden transition-all duration-150"
-            style={{ border: isDragOver ? '1px dashed #8B5CF6' : '1px solid #27272A' }}
+            style={{ border: isDragOver ? '1px dashed #8B5CF6' : '1px solid var(--border)' }}
           >
             <img
               src={displayUrl}
@@ -174,9 +174,9 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
               <Loader2 size={20} className="animate-spin" style={{ color: '#8B5CF6' }} />
             ) : (
               <>
-                <ImageIcon size={24} color="#3F3F46" />
+                <ImageIcon size={24} color="var(--border-active)" />
                 <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックしてアップロード</span>
-                <span className="text-[11px]" style={{ color: '#71717A' }}>PNG / JPEG / WebP</span>
+                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>PNG / JPEG / WebP</span>
               </>
             )}
           </label>
@@ -199,7 +199,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
           top: '50%',
           width: 20,
           height: 20,
-          background: 'radial-gradient(circle, #8B5CF6 3px, #111113 3px 5px, transparent 5px)',
+          background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
           border: 'none',
           borderRadius: 0,
         }}

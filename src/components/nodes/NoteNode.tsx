@@ -31,14 +31,14 @@ function renderMarkdown(text: string): React.ReactNode[] {
   return text.split('\n').map((line, i) => {
     if (line.startsWith('# ')) {
       return (
-        <div key={i} className="text-[15px] font-bold text-[#FAFAFA] mt-1">
+        <div key={i} className="text-[15px] font-bold text-[var(--text-primary)] mt-1">
           {line.slice(2)}
         </div>
       )
     }
     if (line.startsWith('## ')) {
       return (
-        <div key={i} className="text-[13px] font-semibold text-[#FAFAFA] mt-1">
+        <div key={i} className="text-[13px] font-semibold text-[var(--text-primary)] mt-1">
           {line.slice(3)}
         </div>
       )
@@ -46,7 +46,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
     if (line.startsWith('- ')) {
       return (
         <div key={i} className="flex gap-1.5 text-[12px] text-[#E4E4E7]">
-          <span className="text-[#A1A1AA] flex-shrink-0 mt-0.5">•</span>
+          <span className="text-[var(--text-secondary)] flex-shrink-0 mt-0.5">•</span>
           <span>{renderInline(line.slice(2))}</span>
         </div>
       )
@@ -115,7 +115,7 @@ export const NoteNode = memo(function NoteNode(props: NodeProps) {
         style={{ height: 36, borderBottom: `1px solid ${colors.border}` }}
       >
         <StickyNote size={14} style={{ color: colors.accent, flexShrink: 0 }} />
-        <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">
+        <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">
           {data.label}
         </span>
 
@@ -143,7 +143,7 @@ export const NoteNode = memo(function NoteNode(props: NodeProps) {
         {/* Edit / Preview toggle */}
         <button
           className="w-[22px] h-[22px] flex items-center justify-center rounded transition-all duration-150 nodrag"
-          style={{ color: '#A1A1AA' }}
+          style={{ color: 'var(--text-secondary)' }}
           onClick={() => setIsEditing((v) => !v)}
           onMouseDown={(e) => e.stopPropagation()}
           title={isEditing ? 'プレビュー' : '編集'}
@@ -154,7 +154,7 @@ export const NoteNode = memo(function NoteNode(props: NodeProps) {
         {/* Delete */}
         <button
           className="opacity-0 group-hover:opacity-100 w-[22px] h-[22px] flex items-center justify-center rounded transition-all duration-150 nodrag"
-          style={{ color: '#71717A' }}
+          style={{ color: 'var(--text-tertiary)' }}
           onClick={() => removeNode(id)}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -166,7 +166,7 @@ export const NoteNode = memo(function NoteNode(props: NodeProps) {
       <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
         {isEditing ? (
           <textarea
-            className="w-full h-full resize-none p-3 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none nodrag"
+            className="w-full h-full resize-none p-3 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none nodrag"
             style={{ background: 'transparent', border: 'none' }}
             placeholder="メモを入力... (Markdown対応: # 見出し、**太字**、- リスト)"
             value={content}
@@ -179,7 +179,7 @@ export const NoteNode = memo(function NoteNode(props: NodeProps) {
             {content ? (
               <div className="flex flex-col gap-0.5">{renderMarkdown(content)}</div>
             ) : (
-              <span className="text-[12px] text-[#71717A]">
+              <span className="text-[12px] text-[var(--text-tertiary)]">
                 メモを入力... (Markdown対応)
               </span>
             )}

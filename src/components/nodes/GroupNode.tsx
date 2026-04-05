@@ -49,7 +49,7 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
     <div
       className="relative w-full h-full rounded-xl"
       style={{
-        border: `1px dashed ${isCapsuleTarget ? '#8B5CF6' : '#3F3F46'}`,
+        border: `1px dashed ${isCapsuleTarget ? '#8B5CF6' : 'var(--border-active)'}`,
         background: isCapsuleTarget ? 'rgba(139,92,246,0.04)' : 'rgba(255,255,255,0.01)',
       }}
     >
@@ -57,8 +57,8 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
         minWidth={200}
         minHeight={120}
         isVisible={selected}
-        lineStyle={{ borderColor: '#3F3F46' }}
-        handleStyle={{ background: '#3F3F46', border: 'none', width: 8, height: 8, borderRadius: 2 }}
+        lineStyle={{ borderColor: 'var(--border-active)' }}
+        handleStyle={{ background: 'var(--border-active)', border: 'none', width: 8, height: 8, borderRadius: 2 }}
       />
 
       {/* Header bar */}
@@ -66,12 +66,12 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
         className="absolute top-0 left-0 right-0 flex items-center gap-1.5 px-2.5 nodrag"
         style={{
           height: 28,
-          background: '#0A0A0B',
-          borderBottom: `1px dashed ${isCapsuleTarget ? '#8B5CF6' : '#3F3F46'}`,
+          background: 'var(--bg-canvas)',
+          borderBottom: `1px dashed ${isCapsuleTarget ? '#8B5CF6' : 'var(--border-active)'}`,
           borderRadius: '12px 12px 0 0',
         }}
       >
-        <Layers size={12} style={{ color: isCapsuleTarget ? '#8B5CF6' : '#71717A', flexShrink: 0 }} />
+        <Layers size={12} style={{ color: isCapsuleTarget ? '#8B5CF6' : 'var(--text-tertiary)', flexShrink: 0 }} />
 
         {editingLabel ? (
           <input
@@ -80,12 +80,12 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
             onChange={(e) => setLabelDraft(e.target.value)}
             onBlur={commitLabel}
             onKeyDown={handleKeyDown}
-            className="flex-1 bg-transparent text-[12px] font-medium text-[#FAFAFA] outline-none border-b border-[#3F3F46] min-w-0"
+            className="flex-1 bg-transparent text-[12px] font-medium text-[var(--text-primary)] outline-none border-b border-[var(--border-active)] min-w-0"
           />
         ) : (
           <span
             className="flex-1 text-[12px] font-medium truncate min-w-0 cursor-text"
-            style={{ color: isCapsuleTarget ? '#C4B5FD' : '#A1A1AA' }}
+            style={{ color: isCapsuleTarget ? '#C4B5FD' : 'var(--text-secondary)' }}
             onDoubleClick={() => { setLabelDraft(groupData.label); setEditingLabel(true) }}
           >
             {groupData.label}
@@ -94,18 +94,18 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
 
         {editingLabel ? (
           <button
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#1E1E22]"
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)]"
             onMouseDown={(e) => { e.preventDefault(); commitLabel() }}
           >
             <Check size={11} style={{ color: '#22C55E' }} />
           </button>
         ) : (
           <button
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#1E1E22]"
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)]"
             onClick={() => { setLabelDraft(groupData.label); setEditingLabel(true) }}
             title="名前を変更"
           >
-            <Pencil size={11} style={{ color: '#71717A' }} />
+            <Pencil size={11} style={{ color: 'var(--text-tertiary)' }} />
           </button>
         )}
 
@@ -115,7 +115,7 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
           style={
             isCapsuleTarget
               ? { background: '#4C1D95', color: '#C4B5FD', border: '1px solid #7C3AED' }
-              : { background: '#18181B', color: '#71717A', border: '1px solid #27272A' }
+              : { background: 'var(--bg-panel)', color: 'var(--text-tertiary)', border: '1px solid var(--border)' }
           }
           onClick={toggleCapsule}
           title={isCapsuleTarget ? 'Appビューの対象から外す' : 'Appとして設定'}

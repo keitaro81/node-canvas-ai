@@ -227,18 +227,18 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             ? 'node-generating border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]'
             : selected
             ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]'
-            : 'border-[#27272A]',
+            : 'border-[var(--border)]',
         ].join(' ')}
-        style={{ background: '#111113' }}
+        style={{ background: 'var(--bg-surface)' }}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 h-9 border-b border-[#27272A]" style={{ minHeight: 36 }}>
+        <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
           <div className="w-0.5 h-4 rounded-full shrink-0" style={{ background: '#8B5CF6' }} />
           <Sparkles size={14} className="shrink-0" style={{ color: '#8B5CF6' }} />
-          <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">{nodeData.label}</span>
+          <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
           <button
             className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag"
-            style={{ color: '#71717A' }}
+            style={{ color: 'var(--text-tertiary)' }}
             onClick={() => {
               const { removeNode } = useCanvasStore.getState()
               removeNode(id)
@@ -258,7 +258,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             top: '25%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #6366F1 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}
@@ -272,7 +272,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             top: '65%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #8B5CF6 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}
@@ -308,13 +308,13 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             <>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-medium text-[#A1A1AA]">Model</label>
+                  <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Model</label>
                   <CapsuleFieldToggle fieldId="model" visibility={getCapsuleVisibility('model')} onChange={handleCapsuleChange} />
                 </div>
                 <div className="relative">
                   <select
-                    className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none transition-colors nodrag appearance-none"
-                    style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+                    className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
+                    style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
                     value={model}
                     onChange={(e) =>
                       updateNode(id, { params: { ...nodeData.params, model: e.target.value } })
@@ -325,7 +325,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>
-                  <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA]" />
+                  <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
                 </div>
               </div>
             </>
@@ -334,7 +334,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Aspect Ratio: T2I・Editモード共通 */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[#A1A1AA]">Aspect Ratio</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
               <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
             </div>
             <div className="flex gap-1 flex-wrap">
@@ -346,9 +346,9 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     key={ratio}
                     className="flex-1 py-1 rounded text-[11px] font-medium transition-colors nodrag"
                     style={{
-                      background: active ? '#8B5CF6' : '#1E1E22',
-                      color: active ? '#FAFAFA' : isAutoDisabled ? '#3F3F46' : '#A1A1AA',
-                      border: `1px solid ${active ? '#8B5CF6' : '#27272A'}`,
+                      background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                      color: active ? 'var(--text-primary)' : isAutoDisabled ? 'var(--border-active)' : 'var(--text-secondary)',
+                      border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
                       cursor: isAutoDisabled ? 'not-allowed' : 'pointer',
                       minWidth: 0,
                     }}
@@ -369,11 +369,11 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Seed: T2Iモードのみ */}
           {!hasImages && (
             <div>
-              <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">Seed</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">Seed</label>
               <input
                 type="number"
-                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none transition-colors nodrag"
-                style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors nodrag"
+                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
                 placeholder="空欄 = ランダム"
                 value={seed}
                 onChange={(e) =>
@@ -398,7 +398,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           {nodeData.status === 'done' && !!outputUrl && (
             <div
               className="relative rounded-lg overflow-hidden group/img cursor-pointer"
-              style={{ border: '1px solid #27272A' }}
+              style={{ border: '1px solid var(--border)' }}
               onClick={() => setLightboxOpen(true)}
             >
               <img src={outputUrl} alt="Generated" className="w-full h-auto block" />
@@ -460,7 +460,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             top: '50%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #8B5CF6 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}

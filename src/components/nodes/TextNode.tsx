@@ -17,12 +17,12 @@ export const TextNode = memo(function TextNode(props: NodeProps) {
       icon={<Type size={14} />}
       outputs={[{ id: 'out', portType: 'text' }]}
     >
-      <label className="text-[11px] text-[#A1A1AA] font-medium">プロンプト</label>
+      <label className="text-[11px] text-[var(--text-secondary)] font-medium">プロンプト</label>
       <textarea
-        className="w-full min-h-[80px] resize-y rounded-md px-2.5 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none focus:border-[#3F3F46] transition-colors duration-150 nodrag"
+        className="w-full min-h-[80px] resize-y rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--border-active)] transition-colors duration-150 nodrag"
         style={{
-          background: '#0A0A0B',
-          border: '1px solid #27272A',
+          background: 'var(--bg-canvas)',
+          border: '1px solid var(--border)',
         }}
         placeholder="テキストプロンプトを入力..."
         value={prompt}

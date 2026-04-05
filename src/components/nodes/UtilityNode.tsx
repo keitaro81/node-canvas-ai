@@ -15,7 +15,7 @@ export const UtilityNode = memo(function UtilityNode(props: NodeProps) {
       inputs={[{ id: 'in', portType: 'text' }]}
       outputs={[{ id: 'out', portType: 'text' }]}
     >
-      <p className="text-[12px] text-[#A1A1AA]">ユーティリティノード</p>
+      <p className="text-[12px] text-[var(--text-secondary)]">ユーティリティノード</p>
     </BaseNode>
   )
 })

@@ -118,17 +118,17 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
     <div ref={containerRef} className="mb-4">
       {/* ヘッダー: ラベル + タブ切替 */}
       <div className="flex items-center justify-between mb-1.5">
-        <div className="text-[11px] text-[#A1A1AA] font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] font-medium">{label}</div>
         <div
           className="flex items-center gap-0.5 rounded-md p-0.5"
-          style={{ background: '#18181B', border: '1px solid #27272A' }}
+          style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
         >
           <button
             onClick={() => setTab('input')}
             className="px-2 py-0.5 rounded text-[10px] font-medium transition-all"
             style={{
-              background: tab === 'input' ? '#1E1E22' : 'transparent',
-              color: tab === 'input' ? '#FAFAFA' : '#71717A',
+              background: tab === 'input' ? 'var(--bg-elevated)' : 'transparent',
+              color: tab === 'input' ? 'var(--text-primary)' : 'var(--text-tertiary)',
             }}
           >
             元テキスト
@@ -137,8 +137,8 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
             onClick={() => setTab('output')}
             className="px-2 py-0.5 rounded text-[10px] font-medium transition-all flex items-center gap-1"
             style={{
-              background: tab === 'output' ? '#1E1E22' : 'transparent',
-              color: tab === 'output' ? '#6366F1' : '#71717A',
+              background: tab === 'output' ? 'var(--bg-elevated)' : 'transparent',
+              color: tab === 'output' ? '#6366F1' : 'var(--text-tertiary)',
             }}
           >
             <Sparkles size={9} />
@@ -150,8 +150,8 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
       {/* コンテンツエリア */}
       {tab === 'input' ? (
         <textarea
-          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none resize-y"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 80, lineHeight: 1.6 }}
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none resize-y"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 80, lineHeight: 1.6 }}
           placeholder="プロンプトを入力..."
           value={inputText}
           onChange={(e) => updateNode(nodeId, { inputText: e.target.value } as never)}
@@ -160,17 +160,17 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
         <div
           className="w-full rounded-md px-3 py-2 text-[12px] overflow-y-auto"
           style={{
-            background: '#0A0A0B',
-            border: '1px solid #27272A',
+            background: 'var(--bg-canvas)',
+            border: '1px solid var(--border)',
             minHeight: 80,
             lineHeight: 1.6,
-            color: outputText ? '#FAFAFA' : '#71717A',
+            color: outputText ? 'var(--text-primary)' : 'var(--text-tertiary)',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }}
         >
           {isGenerating ? (
-            <span className="flex items-center gap-2 text-[#71717A]">
+            <span className="flex items-center gap-2 text-[var(--text-tertiary)]">
               <Loader2 size={12} className="animate-spin" />
               変換中...
             </span>
@@ -185,7 +185,7 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
           <button
             ref={modelBtnRef}
             className="flex items-center gap-1 h-6 px-2 rounded text-[10px] transition-colors"
-            style={{ background: '#18181B', border: '1px solid #27272A', color: '#A1A1AA' }}
+            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
             onClick={() => {
               const rect = modelBtnRef.current?.getBoundingClientRect()
               if (rect) {
@@ -212,8 +212,8 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
                 left: dropdownPos.left,
                 transform: dropdownPos.openUpward ? 'translateY(-100%)' : 'none',
                 zIndex: 99999,
-                background: '#18181B',
-                border: '1px solid #27272A',
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border)',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
                 width: 170,
               }}
@@ -222,9 +222,9 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
                 <button
                   key={m.value}
                   className="w-full text-left px-3 h-8 text-[11px] transition-colors"
-                  style={{ color: m.value === model ? '#FAFAFA' : '#A1A1AA', background: m.value === model ? '#1E1E22' : 'transparent' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1E1E22' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = m.value === model ? '#1E1E22' : 'transparent' }}
+                  style={{ color: m.value === model ? 'var(--text-primary)' : 'var(--text-secondary)', background: m.value === model ? 'var(--bg-elevated)' : 'transparent' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = m.value === model ? 'var(--bg-elevated)' : 'transparent' }}
                   onClick={() => { updateNode(nodeId, { model: m.value } as never); setModelOpen(false) }}
                 >
                   {m.label}
@@ -239,7 +239,7 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
         {tab === 'output' && outputText && (
           <button
             className="w-6 h-6 flex items-center justify-center rounded transition-colors"
-            style={{ background: '#18181B', border: '1px solid #27272A', color: '#71717A' }}
+            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text-tertiary)' }}
             onClick={handleCopy}
             title="コピー"
           >
@@ -308,9 +308,9 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
 
   return (
     <div className="mb-3">
-      <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+      <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
       {displayUrl ? (
-        <div className="relative rounded-lg overflow-hidden" style={{ border: '1px solid #27272A' }}>
+        <div className="relative rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
           <img src={displayUrl} alt="Reference" className="w-full h-auto block" />
           {isUploading && (
             <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
@@ -330,13 +330,13 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
       ) : (
         <label
           className="flex flex-col items-center justify-center gap-2 rounded-lg py-5 cursor-pointer transition-colors"
-          style={{ border: '1px dashed #27272A', minHeight: 100 }}
+          style={{ border: '1px dashed var(--border)', minHeight: 100 }}
         >
           {isUploading ? (
             <Loader2 size={18} className="animate-spin" style={{ color: '#8B5CF6' }} />
           ) : (
             <>
-              <ImageIcon size={20} color="#3F3F46" />
+              <ImageIcon size={20} color="var(--border-active)" />
               <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックしてアップロード</span>
             </>
           )}
@@ -364,10 +364,10 @@ function TextPromptField({ nodeId, label }: { nodeId: string; label: string }) {
 
   return (
     <div className="mb-3">
-      <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+      <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
       <textarea
-        className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none resize-y"
-        style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 72 }}
+        className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none resize-y"
+        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 72 }}
         placeholder="プロンプトを入力..."
         value={value}
         onChange={(e) =>
@@ -385,10 +385,10 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
   if (inputs.length === 0) return null
 
   return (
-    <div style={{ borderBottom: '1px solid #27272A' }}>
+    <div style={{ borderBottom: '1px solid var(--border)' }}>
       <div
         className="px-4 py-2 flex items-center gap-1.5"
-        style={{ borderBottom: '1px solid #1E1E22' }}
+        style={{ borderBottom: '1px solid var(--border)' }}
       >
         <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#52525B' }}>
           入力
@@ -450,10 +450,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (!isEditable) {
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#71717A] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-tertiary)] mb-1 font-medium">{label}</div>
         <div
-          className="text-[12px] text-[#A1A1AA] px-3 py-2 rounded-md"
-          style={{ background: '#0A0A0B', border: '1px solid #1E1E22' }}
+          className="text-[12px] text-[var(--text-secondary)] px-3 py-2 rounded-md"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
         >
           {value || '—'}
         </div>
@@ -465,10 +465,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (field.id === 'prompt') {
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <textarea
-          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] placeholder-[#71717A] focus:outline-none resize-y"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A', minHeight: 72 }}
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none resize-y"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 72 }}
           value={value}
           onChange={(e) => updateField(e.target.value)}
         />
@@ -480,10 +480,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (field.id === 'model' && isImageGenNode) {
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <select
-          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] focus:outline-none appearance-none"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
           value={value}
           onChange={(e) => updateField(e.target.value)}
         >
@@ -499,7 +499,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (field.id === 'aspectRatio' && isImageGenNode) {
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <div className="flex gap-1 flex-wrap">
           {IMAGE_ASPECT_RATIOS.map((ratio) => {
             const active = value === ratio
@@ -508,9 +508,9 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
                 key={ratio}
                 className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
                 style={{
-                  background: active ? '#8B5CF6' : '#1E1E22',
-                  color: active ? '#FAFAFA' : '#A1A1AA',
-                  border: `1px solid ${active ? '#8B5CF6' : '#27272A'}`,
+                  background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
                   minWidth: 0,
                 }}
                 onClick={() => updateField(ratio)}
@@ -528,10 +528,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (field.id === 'model' && isVideoGenNode) {
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <select
-          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] focus:outline-none appearance-none"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
           value={value}
           onChange={(e) => updateField(e.target.value)}
         >
@@ -549,7 +549,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     const ratios = currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <div className="flex gap-1.5 flex-wrap">
           {ratios.map((ar) => {
             const active = value === ar
@@ -558,9 +558,9 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
                 key={ar}
                 className="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors"
                 style={{
-                  background: active ? 'rgba(236,72,153,0.2)' : '#1E1E22',
-                  color: active ? '#EC4899' : '#A1A1AA',
-                  border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : '#27272A'}`,
+                  background: active ? 'rgba(236,72,153,0.2)' : 'var(--bg-elevated)',
+                  color: active ? '#EC4899' : 'var(--text-secondary)',
+                  border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : 'var(--border)'}`,
                   minWidth: '3rem',
                 }}
                 onClick={() => updateField(ar)}
@@ -580,10 +580,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     const durations = currentVideoModel?.supportedDurations ?? ['5', '10']
     return (
       <div className="mb-3">
-        <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <select
-          className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] focus:outline-none"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
           value={value}
           onChange={(e) => updateField(e.target.value)}
         >
@@ -598,11 +598,11 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   // default: テキスト入力
   return (
     <div className="mb-3">
-      <div className="text-[11px] text-[#A1A1AA] mb-1 font-medium">{label}</div>
+      <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
       <input
         type="text"
-        className="w-full rounded-md px-3 py-2 text-[12px] text-[#FAFAFA] focus:outline-none"
-        style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+        className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none"
+        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
         value={value}
         onChange={(e) => updateField(e.target.value)}
       />
@@ -702,14 +702,14 @@ function CapsuleStagePanel({
       {stages.length > 1 && (
         <div
           className="flex items-center justify-between px-4 py-2 flex-shrink-0"
-          style={{ borderBottom: '1px solid #27272A' }}
+          style={{ borderBottom: '1px solid var(--border)' }}
         >
           <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1E1E22] transition-colors disabled:opacity-30"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-30"
             onClick={() => onPreviewChange(i - 1)}
             disabled={i === 0}
           >
-            <ChevronLeft size={14} style={{ color: '#A1A1AA' }} />
+            <ChevronLeft size={14} style={{ color: 'var(--text-secondary)' }} />
           </button>
 
           <div className="flex items-center gap-2">
@@ -717,24 +717,24 @@ function CapsuleStagePanel({
               className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0"
               style={
                 status === 'done'
-                  ? { background: '#22C55E', color: '#0A0A0B' }
+                  ? { background: '#22C55E', color: 'var(--bg-canvas)' }
                   : { background: '#8B5CF6', color: 'white' }
               }
             >
               {status === 'done' ? '✓' : i + 1}
             </div>
-            <span className="text-[13px] font-medium text-[#FAFAFA]">{stage.label}</span>
+            <span className="text-[13px] font-medium text-[var(--text-primary)]">{stage.label}</span>
             <span className="text-[11px]" style={{ color: status === 'done' ? '#22C55E' : '#52525B' }}>
               {status === 'done' ? '完了' : `${i + 1} / ${stages.length}`}
             </span>
           </div>
 
           <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1E1E22] transition-colors disabled:opacity-30"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-30"
             onClick={() => onPreviewChange(i + 1)}
             disabled={i === stages.length - 1}
           >
-            <ChevronRight size={14} style={{ color: '#A1A1AA' }} />
+            <ChevronRight size={14} style={{ color: 'var(--text-secondary)' }} />
           </button>
         </div>
       )}
@@ -869,7 +869,7 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
   const stage = stages[activeIndex]
   if (!stage) {
     return (
-      <div className="flex-1 flex items-center justify-center" style={{ color: '#3F3F46' }}>
+      <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--border-active)' }}>
         <div className="text-center">
           <div className="text-4xl mb-3 opacity-20">🎨</div>
           <div className="text-[12px]">ステージを選択してください</div>
@@ -897,10 +897,10 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
       {isGenerating ? (
         <div className="flex flex-col items-center gap-3">
           <div
-            className="w-10 h-10 rounded-full border-2 border-[#27272A]"
+            className="w-10 h-10 rounded-full border-2 border-[var(--border)]"
             style={{ borderTopColor: '#8B5CF6', animation: 'spin 0.8s linear infinite' }}
           />
-          <span className="text-[12px] text-[#71717A]">
+          <span className="text-[12px] text-[var(--text-tertiary)]">
             {(d.progress as string) || '生成中...'}
           </span>
         </div>
@@ -913,12 +913,12 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
       ) : outputText ? (
         <div
           className="w-full max-w-lg rounded-xl p-5 text-[13px] leading-relaxed whitespace-pre-wrap"
-          style={{ background: '#111113', border: '1px solid #27272A', color: '#FAFAFA' }}
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
         >
           {outputText}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-2 text-[#3F3F46]">
+        <div className="flex flex-col items-center gap-2 text-[var(--border-active)]">
           <div className="text-4xl opacity-30">
             {stage.nodeType === 'videoGen' ? '🎬' : '🖼'}
           </div>
@@ -944,7 +944,7 @@ function StepTabs({
   const nodes = useCanvasStore((s) => s.nodes)
 
   return (
-    <div className="flex items-center gap-0 px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #1E1E22' }}>
+    <div className="flex items-center gap-0 px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
       {stages.map((stage, i) => {
         const status = getStageStatus(stage.nodeId, nodes)
         const isActive = activeIndex === i
@@ -954,8 +954,8 @@ function StepTabs({
             <button
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all relative"
               style={{
-                color: isActive ? '#FAFAFA' : status === 'done' ? '#71717A' : '#52525B',
-                background: isActive ? '#1E1E22' : 'transparent',
+                color: isActive ? 'var(--text-primary)' : status === 'done' ? 'var(--text-tertiary)' : '#52525B',
+                background: isActive ? 'var(--bg-elevated)' : 'transparent',
               }}
               onClick={() => onChange(i)}
             >
@@ -966,7 +966,7 @@ function StepTabs({
                     ? { background: '#14532D', border: '1px solid #22C55E', color: '#22C55E' }
                     : isActive
                     ? { background: '#4C1D95', border: '1px solid #8B5CF6', color: '#C4B5FD' }
-                    : { background: '#18181B', border: '1px solid #27272A', color: '#52525B' }
+                    : { background: 'var(--bg-panel)', border: '1px solid var(--border)', color: '#52525B' }
                 }
               >
                 {status === 'done' ? '✓' : i + 1}
@@ -977,7 +977,7 @@ function StepTabs({
             {i < stages.length - 1 && (
               <div
                 className="w-8 h-px mx-1 flex-shrink-0"
-                style={{ background: status === 'done' ? 'rgba(34,197,94,0.3)' : '#27272A' }}
+                style={{ background: status === 'done' ? 'rgba(34,197,94,0.3)' : 'var(--border)' }}
               />
             )}
           </div>
@@ -1007,10 +1007,10 @@ export function CapsuleView() {
 
   if (!group) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{ color: '#3F3F46' }}>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{ color: 'var(--border-active)' }}>
         <Layers size={40} style={{ opacity: 0.2 }} />
         <div className="text-center">
-          <div className="text-[14px] font-medium text-[#71717A] mb-1">Appが設定されていません</div>
+          <div className="text-[14px] font-medium text-[var(--text-tertiary)] mb-1">Appが設定されていません</div>
           <div className="text-[12px] text-[#52525B]">Canvasモードでノードをグループ化し、「App化」ボタンを押してください</div>
         </div>
       </div>
@@ -1019,10 +1019,10 @@ export function CapsuleView() {
 
   if (stages.length === 0 && inputs.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{ color: '#3F3F46' }}>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{ color: 'var(--border-active)' }}>
         <Sparkles size={40} style={{ opacity: 0.2 }} />
         <div className="text-center">
-          <div className="text-[14px] font-medium text-[#71717A] mb-1">「{group.data.label}」にノードがありません</div>
+          <div className="text-[14px] font-medium text-[var(--text-tertiary)] mb-1">「{group.data.label}」にノードがありません</div>
           <div className="text-[12px] text-[#52525B]">画像生成・動画生成ノードをグループに追加してください</div>
         </div>
       </div>
@@ -1036,24 +1036,24 @@ export function CapsuleView() {
         className="flex flex-col flex-shrink-0 overflow-hidden"
         style={{
           width: 320,
-          background: '#111113',
-          borderRight: '1px solid #27272A',
+          background: 'var(--bg-surface)',
+          borderRight: '1px solid var(--border)',
         }}
       >
         {/* Panel header */}
         <div
           className="flex items-center gap-2.5 px-4 py-3 flex-shrink-0"
-          style={{ borderBottom: '1px solid #27272A' }}
+          style={{ borderBottom: '1px solid var(--border)' }}
         >
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: '#18181B' }}
+            style={{ background: 'var(--bg-panel)' }}
           >
             <Layers size={14} style={{ color: '#8B5CF6' }} />
           </div>
           <div>
-            <div className="text-[14px] font-semibold text-[#FAFAFA]">{group.data.label}</div>
-            <div className="text-[11px] text-[#71717A]">{stages.length} ステージ</div>
+            <div className="text-[14px] font-semibold text-[var(--text-primary)]">{group.data.label}</div>
+            <div className="text-[11px] text-[var(--text-tertiary)]">{stages.length} ステージ</div>
           </div>
         </div>
 

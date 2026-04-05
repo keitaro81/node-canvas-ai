@@ -58,7 +58,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
           <>
             <div
               className="relative rounded-lg overflow-hidden group/img cursor-pointer"
-              style={{ border: '1px solid #27272A' }}
+              style={{ border: '1px solid var(--border)' }}
               onClick={() => setLightboxOpen(true)}
             >
               <img
@@ -91,7 +91,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
               </div>
             </div>
             {imgSize && (
-              <div className="text-[11px] text-[#71717A] text-center py-1.5">
+              <div className="text-[11px] text-[var(--text-tertiary)] text-center py-1.5">
                 {imgSize.w} × {imgSize.h}
               </div>
             )}
@@ -99,10 +99,10 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
         ) : (
           <div
             className="flex flex-col items-center justify-center gap-2 rounded-lg py-8"
-            style={{ border: '1px dashed #27272A', minHeight: 120 }}
+            style={{ border: '1px dashed var(--border)', minHeight: 120 }}
           >
-            <ImageIcon size={32} color="#3F3F46" />
-            <span className="text-[11px] text-[#71717A]">画像を接続してください</span>
+            <ImageIcon size={32} color="var(--border-active)" />
+            <span className="text-[11px] text-[var(--text-tertiary)]">画像を接続してください</span>
           </div>
         )}
       </BaseNode>

@@ -49,25 +49,25 @@ export function AuthModal() {
       style={{ background: 'rgba(0,0,0,0.7)' }}
     >
       <div
-        className="w-[400px] rounded-[12px] border border-[#27272A] p-8 flex flex-col gap-6"
-        style={{ background: '#111113' }}
+        className="w-[400px] rounded-[12px] border border-[var(--border)] p-8 flex flex-col gap-6"
+        style={{ background: 'var(--bg-surface)' }}
       >
         {/* Logo */}
         <div className="flex flex-col items-center gap-1">
-          <span className="text-[20px] font-semibold text-[#FAFAFA]">Node Canvas AI</span>
-          <span className="text-[13px] text-[#A1A1AA]">AIワークフローを構築しましょう</span>
+          <span className="text-[20px] font-semibold text-[var(--text-primary)]">Node Canvas AI</span>
+          <span className="text-[13px] text-[var(--text-secondary)]">AIワークフローを構築しましょう</span>
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-[8px] border border-[#27272A] overflow-hidden" style={{ background: '#0A0A0B' }}>
+        <div className="flex rounded-[8px] border border-[var(--border)] overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
           {(['signin', 'signup'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => { setTab(t); setError(null); setSuccessMsg(null) }}
               className="flex-1 py-2 text-[13px] font-medium transition-colors duration-150"
               style={{
-                background: tab === t ? '#1E1E22' : 'transparent',
-                color: tab === t ? '#FAFAFA' : '#71717A',
+                background: tab === t ? 'var(--bg-elevated)' : 'transparent',
+                color: tab === t ? 'var(--text-primary)' : 'var(--text-tertiary)',
               }}
             >
               {t === 'signin' ? 'ログイン' : '新規登録'}
@@ -78,7 +78,7 @@ export function AuthModal() {
         {/* Google */}
         <button
           onClick={handleGoogle}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-[8px] border border-[#3F3F46] text-[13px] font-medium text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-150"
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-[8px] border border-[var(--border-active)] text-[13px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
           style={{ background: 'transparent' }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
@@ -92,43 +92,43 @@ export function AuthModal() {
 
         {/* Divider */}
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-px" style={{ background: '#27272A' }} />
-          <span className="text-[11px] text-[#71717A]">または</span>
-          <div className="flex-1 h-px" style={{ background: '#27272A' }} />
+          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+          <span className="text-[11px] text-[var(--text-tertiary)]">または</span>
+          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12px] font-medium text-[#A1A1AA]">メールアドレス</label>
-            <div className="flex items-center rounded-[6px] border border-[#27272A] px-3 focus-within:border-[#3F3F46]" style={{ background: '#0A0A0B' }}>
-              <Mail size={13} style={{ color: '#71717A' }} className="shrink-0" />
+            <label className="text-[12px] font-medium text-[var(--text-secondary)]">メールアドレス</label>
+            <div className="flex items-center rounded-[6px] border border-[var(--border)] px-3 focus-within:border-[var(--border-active)]" style={{ background: 'var(--bg-canvas)' }}>
+              <Mail size={13} style={{ color: 'var(--text-tertiary)' }} className="shrink-0" />
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 required
-                className="flex-1 bg-transparent text-[13px] text-[#FAFAFA] placeholder-[#71717A] outline-none py-2 px-2"
+                className="flex-1 bg-transparent text-[13px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none py-2 px-2"
               />
             </div>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12px] font-medium text-[#A1A1AA]">パスワード</label>
-            <div className="flex items-center rounded-[6px] border border-[#27272A] px-3 focus-within:border-[#3F3F46]" style={{ background: '#0A0A0B' }}>
+            <label className="text-[12px] font-medium text-[var(--text-secondary)]">パスワード</label>
+            <div className="flex items-center rounded-[6px] border border-[var(--border)] px-3 focus-within:border-[var(--border-active)]" style={{ background: 'var(--bg-canvas)' }}>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="flex-1 bg-transparent text-[13px] text-[#FAFAFA] placeholder-[#71717A] outline-none py-2"
+                className="flex-1 bg-transparent text-[13px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none py-2"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="ml-2 text-[#71717A] hover:text-[#A1A1AA] transition-colors"
+                className="ml-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
               >
                 {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>

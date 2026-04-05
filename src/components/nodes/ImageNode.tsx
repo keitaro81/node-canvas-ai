@@ -20,11 +20,11 @@ export const ImageNode = memo(function ImageNode(props: NodeProps) {
       inputs={[{ id: 'prompt', portType: 'text' }]}
       outputs={[{ id: 'out', portType: 'image' }]}
     >
-      <label className="text-[11px] text-[#A1A1AA] font-medium">モデル</label>
+      <label className="text-[11px] text-[var(--text-secondary)] font-medium">モデル</label>
       <div className="relative">
         <select
-          className="w-full h-8 rounded-md pl-2.5 pr-8 text-[12px] text-[#FAFAFA] focus:outline-none nodrag appearance-none"
-          style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
+          className="w-full h-8 rounded-md pl-2.5 pr-8 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
           value={model}
           onChange={(e) => updateNode(props.id, { params: { ...data.params, model: e.target.value } })}
         >
@@ -32,7 +32,7 @@ export const ImageNode = memo(function ImageNode(props: NodeProps) {
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
-        <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA]" />
+        <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
       </div>
 
       {data.output ? (
@@ -44,8 +44,8 @@ export const ImageNode = memo(function ImageNode(props: NodeProps) {
         />
       ) : (
         <div
-          className="w-full rounded-md mt-1 flex items-center justify-center text-[11px] text-[#71717A]"
-          style={{ height: 100, background: '#0A0A0B', border: '1px dashed #27272A' }}
+          className="w-full rounded-md mt-1 flex items-center justify-center text-[11px] text-[var(--text-tertiary)]"
+          style={{ height: 100, background: 'var(--bg-canvas)', border: '1px dashed var(--border)' }}
         >
           出力なし
         </div>

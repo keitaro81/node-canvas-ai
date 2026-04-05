@@ -68,13 +68,13 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
   return (
     <>
       <div
-        className="node-popin relative flex flex-col w-[320px] rounded-xl overflow-visible border border-[#27272A] transition-all duration-150"
-        style={{ background: '#111113' }}
+        className="node-popin relative flex flex-col w-[320px] rounded-xl overflow-visible border border-[var(--border)] transition-all duration-150"
+        style={{ background: 'var(--bg-surface)' }}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 h-9 border-b border-[#27272A]" style={{ minHeight: 36 }}>
+        <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
           <MonitorPlay size={14} className="shrink-0" style={{ color: '#EC4899' }} />
-          <span className="flex-1 text-[13px] font-semibold text-[#FAFAFA] truncate">{nodeData.label}</span>
+          <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
         </div>
 
         {/* Input handle */}
@@ -86,7 +86,7 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
             top: '50%',
             width: 20,
             height: 20,
-            background: 'radial-gradient(circle, #EC4899 3px, #111113 3px 5px, transparent 5px)',
+            background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
           }}
@@ -99,7 +99,7 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
               {/* Video player with hover overlay */}
               <div
                 className="relative rounded-lg overflow-hidden group/vid cursor-pointer"
-                style={{ background: '#000', border: '1px solid #27272A' }}
+                style={{ background: '#000', border: '1px solid var(--border)' }}
                 onClick={() => setLightboxOpen(true)}
               >
                 <video
@@ -142,14 +142,14 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
                 {/* Play/Pause */}
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
-                  style={{ background: '#1E1E22' }}
+                  style={{ background: 'var(--bg-elevated)' }}
                   onClick={togglePlay}
                   title={isPlaying ? '一時停止' : '再生'}
                 >
                   {isPlaying ? (
-                    <Pause size={12} style={{ color: '#A1A1AA' }} />
+                    <Pause size={12} style={{ color: 'var(--text-secondary)' }} />
                   ) : (
-                    <Play size={12} style={{ color: '#A1A1AA' }} />
+                    <Play size={12} style={{ color: 'var(--text-secondary)' }} />
                   )}
                 </button>
 
@@ -157,8 +157,8 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{
-                    background: nodeData.loop ? 'rgba(236,72,153,0.2)' : '#1E1E22',
-                    color: nodeData.loop ? '#EC4899' : '#71717A',
+                    background: nodeData.loop ? 'rgba(236,72,153,0.2)' : 'var(--bg-elevated)',
+                    color: nodeData.loop ? '#EC4899' : 'var(--text-tertiary)',
                     border: `1px solid ${nodeData.loop ? 'rgba(236,72,153,0.4)' : 'transparent'}`,
                   }}
                   onClick={() => updateNode(id, { loop: !nodeData.loop } as Parameters<typeof updateNode>[1])}
@@ -171,8 +171,8 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{
-                    background: nodeData.muted ? '#1E1E22' : 'rgba(236,72,153,0.2)',
-                    color: nodeData.muted ? '#71717A' : '#EC4899',
+                    background: nodeData.muted ? 'var(--bg-elevated)' : 'rgba(236,72,153,0.2)',
+                    color: nodeData.muted ? 'var(--text-tertiary)' : '#EC4899',
                     border: `1px solid ${nodeData.muted ? 'transparent' : 'rgba(236,72,153,0.4)'}`,
                   }}
                   onClick={() => {
@@ -188,7 +188,7 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
 
                 {/* Filename */}
                 {fileName && (
-                  <span className="ml-auto text-[10px] text-[#71717A] truncate" style={{ maxWidth: 100 }}>
+                  <span className="ml-auto text-[10px] text-[var(--text-tertiary)] truncate" style={{ maxWidth: 100 }}>
                     {fileName}
                   </span>
                 )}
@@ -197,10 +197,10 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
           ) : (
             <div
               className="flex flex-col items-center justify-center gap-2 rounded-lg py-8"
-              style={{ border: '1px dashed #27272A', minHeight: 140 }}
+              style={{ border: '1px dashed var(--border)', minHeight: 140 }}
             >
-              <VideoIcon size={32} color="#3F3F46" />
-              <span className="text-[11px] text-[#71717A]">ビデオを待っています...</span>
+              <VideoIcon size={32} color="var(--border-active)" />
+              <span className="text-[11px] text-[var(--text-tertiary)]">ビデオを待っています...</span>
             </div>
           )}
         </div>

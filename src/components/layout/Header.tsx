@@ -1,5 +1,16 @@
 import { useRef, useState } from 'react'
-import { Sparkles, Settings, LogOut, Check, Loader2, Clock, GitBranch, Layers } from 'lucide-react'
+import {
+  Sparkle,
+  Gear,
+  SignOut,
+  Check,
+  CircleNotch,
+  Clock,
+  TreeStructure,
+  Stack,
+  Sun,
+  Moon,
+} from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -9,8 +20,8 @@ function SaveStatus() {
 
   if (isSaving) {
     return (
-      <span className="flex items-center gap-1 text-[11px] text-[#71717A]">
-        <Loader2 size={11} className="animate-spin" />
+      <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+        <CircleNotch size={11} className="animate-spin" />
         保存中...
       </span>
     )
@@ -18,7 +29,7 @@ function SaveStatus() {
 
   if (hasUnsavedChanges) {
     return (
-      <span className="flex items-center gap-1 text-[11px] text-[#F59E0B]">
+      <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--warning)' }}>
         <Clock size={11} />
         未保存の変更あり
       </span>
@@ -30,8 +41,8 @@ function SaveStatus() {
     const mins = Math.floor(diff / 60000)
     const label = mins < 1 ? 'たった今' : `${mins}分前`
     return (
-      <span className="flex items-center gap-1 text-[11px] text-[#22C55E]">
-        <Check size={11} />
+      <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--success)' }}>
+        <Check size={11} weight="bold" />
         {label}に保存
       </span>
     )
@@ -40,7 +51,12 @@ function SaveStatus() {
   return null
 }
 
-export function Header() {
+interface HeaderProps {
+  theme: 'light' | 'dark'
+  onToggleTheme: () => void
+}
+
+export function Header({ theme, onToggleTheme }: HeaderProps) {
   const { user, signOut } = useAuth()
   const { currentWorkflowName, currentWorkflowId, renameWorkflow, setCurrentWorkflowName } = useWorkflowStore()
   const appMode = useCanvasStore((s) => s.appMode)
@@ -72,14 +88,23 @@ export function Header() {
 
   return (
     <header
-      className="flex items-center shrink-0 px-4 border-b border-[#27272A]"
-      style={{ height: 48, background: '#111113' }}
+      className="flex items-center shrink-0 px-4 border-b"
+      style={{
+        height: 48,
+        background: 'var(--bg-header)',
+        borderColor: 'var(--border-header)',
+      }}
     >
       {/* Left: Logo + Workflow name + save status */}
       <div className="flex items-center gap-2 min-w-0" style={{ width: '35%' }}>
-        <Sparkles size={16} style={{ color: '#8B5CF6' }} className="shrink-0" />
-        <span className="text-[14px] font-semibold text-[#FAFAFA] shrink-0">Node Canvas AI</span>
-        <div className="w-px h-4 shrink-0" style={{ background: '#27272A' }} />
+        <Sparkle size={16} weight="fill" style={{ color: 'var(--accent)' }} className="shrink-0" />
+        <span
+          className="text-[14px] font-semibold shrink-0"
+          style={{ color: 'var(--text-primary)' }}
+        >
+          Node Canvas AI
+        </span>
+        <div className="w-px h-4 shrink-0" style={{ background: 'var(--border)' }} />
         {editing ? (
           <input
             ref={inputRef}
@@ -87,13 +112,21 @@ export function Header() {
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitEdit}
             onKeyDown={handleKeyDown}
-            className="text-[12px] font-medium text-[#FAFAFA] bg-[#0A0A0B] border border-[#3F3F46] rounded px-2 py-0.5 outline-none focus:border-[#8B5CF6] min-w-0 w-[120px]"
+            className="text-[12px] font-medium rounded px-2 py-0.5 outline-none min-w-0 w-[120px]"
+            style={{
+              color: 'var(--text-primary)',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-active)',
+            }}
             autoFocus
           />
         ) : (
           <button
             onClick={startEdit}
-            className="text-[12px] text-[#A1A1AA] hover:text-[#FAFAFA] px-1 py-0.5 rounded hover:bg-[#1E1E22] transition-colors duration-150 truncate min-w-0"
+            className="text-[12px] px-1 py-0.5 rounded transition-colors duration-150 truncate min-w-0"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'; (e.currentTarget as HTMLElement).style.background = 'transparent' }}
           >
             {currentWorkflowName}
           </button>
@@ -101,69 +134,88 @@ export function Header() {
         <SaveStatus />
       </div>
 
-      {/* Center: Mode toggle */}
+      {/* Center: Mode toggle — ピル型 */}
       <div className="flex-1 flex items-center justify-center">
         <div
-          className="flex items-center"
+          className="flex items-center p-0.5 rounded-full"
           style={{
-            background: '#0A0A0B',
-            border: '1px solid #27272A',
-            borderRadius: 8,
-            padding: 3,
-            gap: 2,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
           }}
         >
           <button
-            className="flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150"
             style={
               appMode === 'graph'
-                ? { background: '#1E1E22', color: '#FAFAFA' }
-                : { background: 'transparent', color: '#71717A' }
+                ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                : { background: 'transparent', color: 'var(--text-tertiary)' }
             }
             onClick={() => setAppMode('graph')}
           >
-            <GitBranch size={12} />
+            <TreeStructure size={13} weight={appMode === 'graph' ? 'bold' : 'regular'} />
             Canvas
           </button>
           <button
-            className="flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150"
             style={
               appMode === 'capsule'
-                ? { background: '#1E1E22', color: '#FAFAFA' }
-                : { background: 'transparent', color: '#71717A' }
+                ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                : { background: 'transparent', color: 'var(--text-tertiary)' }
             }
             onClick={() => setAppMode('capsule')}
           >
-            <Layers size={12} />
+            <Stack size={13} weight={appMode === 'capsule' ? 'bold' : 'regular'} />
             App
           </button>
         </div>
       </div>
 
-      {/* Right: User + Settings */}
-      <div className="flex items-center justify-end gap-1 shrink-0">
+      {/* Right: Theme toggle + User + Settings */}
+      <div className="flex items-center justify-end gap-1 shrink-0" style={{ width: '35%' }}>
+        {/* Theme toggle */}
+        <button
+          onClick={onToggleTheme}
+          className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
+          style={{ color: 'var(--text-secondary)' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+          title={theme === 'light' ? 'ダークモードへ' : 'ライトモードへ'}
+        >
+          {theme === 'light'
+            ? <Moon size={15} />
+            : <Sun size={15} />
+          }
+        </button>
+
         {user && (
           <>
             <span
-              className="text-[12px] text-[#71717A] truncate max-w-[120px]"
+              className="text-[12px] truncate max-w-[120px]"
+              style={{ color: 'var(--text-tertiary)' }}
               title={user.email ?? ''}
             >
               {user.email}
             </span>
             <button
               onClick={signOut}
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1E1E22] transition-colors duration-150"
+              className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
               title="ログアウト"
             >
-              <LogOut size={14} style={{ color: '#A1A1AA' }} />
+              <SignOut size={15} />
             </button>
           </>
         )}
         <button
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1E1E22] transition-colors duration-150"
-          title="Settings"
+          className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
+          style={{ color: 'var(--text-secondary)' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+          title="設定"
         >
-          <Settings size={15} style={{ color: '#A1A1AA' }} />
+          <Gear size={15} />
         </button>
       </div>
     </header>

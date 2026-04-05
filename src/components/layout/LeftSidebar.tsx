@@ -109,21 +109,21 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
     <div className="relative flex shrink-0" style={{ zIndex: 10 }}>
       {/* Sidebar panel */}
       <div
-        className="flex flex-col border-r border-[#27272A] overflow-hidden"
+        className="flex flex-col border-r border-[var(--border)] overflow-hidden"
         style={{
           width: open ? 240 : 0,
-          background: '#18181B',
+          background: 'var(--bg-panel)',
           transition: 'width 200ms ease-out',
         }}
       >
         <div style={{ width: 240 }} className="flex flex-col h-full">
           {/* Tab bar */}
-          <div className="flex items-center gap-0.5 px-2 pt-2 pb-0 border-b border-[#27272A]">
+          <div className="flex items-center gap-0.5 px-2 pt-2 pb-0 border-b border-[var(--border)]">
             <button
               onClick={() => setActiveTab('palette')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-t text-[11px] font-medium transition-colors duration-150"
               style={{
-                color: activeTab === 'palette' ? '#FAFAFA' : '#71717A',
+                color: activeTab === 'palette' ? 'var(--text-primary)' : 'var(--text-tertiary)',
                 borderBottom: activeTab === 'palette' ? '2px solid #8B5CF6' : '2px solid transparent',
                 background: 'transparent',
               }}
@@ -135,7 +135,7 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
               onClick={() => setActiveTab('workflows')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-t text-[11px] font-medium transition-colors duration-150"
               style={{
-                color: activeTab === 'workflows' ? '#FAFAFA' : '#71717A',
+                color: activeTab === 'workflows' ? 'var(--text-primary)' : 'var(--text-tertiary)',
                 borderBottom: activeTab === 'workflows' ? '2px solid #8B5CF6' : '2px solid transparent',
                 background: 'transparent',
               }}
@@ -150,7 +150,7 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
             {activeTab === 'palette' ? (
               <div className="flex flex-col h-full">
                 <div className="px-3 pt-3 pb-2">
-                  <span className="text-[11px] font-medium text-[#71717A] uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
                     Node Palette
                   </span>
                 </div>
@@ -162,7 +162,7 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
                           className="w-1.5 h-1.5 rounded-full"
                           style={{ background: group.color }}
                         />
-                        <span className="text-[10px] font-medium text-[#71717A] uppercase tracking-wider">
+                        <span className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
                           {group.category}
                         </span>
                       </div>
@@ -172,8 +172,8 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
                             key={node.type}
                             draggable
                             onDragStart={(e) => handleDragStart(e, node)}
-                            className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-[#27272A] cursor-grab active:cursor-grabbing hover:border-[#3F3F46] hover:bg-[#1E1E22] transition-all duration-150 select-none"
-                            style={{ background: '#111113' }}
+                            className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-[var(--border)] cursor-grab active:cursor-grabbing hover:border-[var(--border-active)] hover:bg-[var(--bg-elevated)] transition-all duration-150 select-none"
+                            style={{ background: 'var(--bg-surface)' }}
                           >
                             <div
                               className="shrink-0 w-6 h-6 rounded flex items-center justify-center"
@@ -182,10 +182,10 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
                               {node.icon}
                             </div>
                             <div className="flex flex-col min-w-0">
-                              <span className="text-[12px] font-medium text-[#FAFAFA] leading-tight truncate">
+                              <span className="text-[12px] font-medium text-[var(--text-primary)] leading-tight truncate">
                                 {node.label}
                               </span>
-                              <span className="text-[11px] text-[#71717A] leading-tight truncate">
+                              <span className="text-[11px] text-[var(--text-tertiary)] leading-tight truncate">
                                 {node.description}
                               </span>
                             </div>
@@ -206,19 +206,19 @@ export function LeftSidebar({ open, onToggle }: LeftSidebarProps) {
       {/* Toggle button */}
       <button
         onClick={onToggle}
-        className="absolute top-3 flex items-center justify-center w-5 h-8 rounded-r border border-l-0 border-[#27272A] hover:bg-[#1E1E22] transition-colors duration-150"
+        className="absolute top-3 flex items-center justify-center w-5 h-8 rounded-r border border-l-0 border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
         style={{
           left: open ? 240 : 0,
-          background: '#18181B',
+          background: 'var(--bg-panel)',
           transition: 'left 200ms ease-out',
           zIndex: 1,
         }}
         title={open ? 'Close palette' : 'Open palette'}
       >
         {open ? (
-          <ChevronLeft size={12} style={{ color: '#71717A' }} />
+          <ChevronLeft size={12} style={{ color: 'var(--text-tertiary)' }} />
         ) : (
-          <ChevronRight size={12} style={{ color: '#71717A' }} />
+          <ChevronRight size={12} style={{ color: 'var(--text-tertiary)' }} />
         )}
       </button>
     </div>

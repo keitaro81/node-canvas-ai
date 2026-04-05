@@ -105,13 +105,13 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, groupNode
       <div
         ref={menuRef}
         style={style}
-        className="min-w-[160px] rounded-lg border border-[#27272A] bg-[#18181B] shadow-[0_4px_16px_rgba(0,0,0,0.4)] py-1 overflow-hidden"
+        className="min-w-[160px] rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] shadow-[0_4px_16px_rgba(0,0,0,0.1)] py-1 overflow-hidden"
       >
         <button
-          className="w-full flex items-center gap-2.5 px-3 h-8 text-[13px] text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-100 text-left"
+          className="w-full flex items-center gap-2.5 px-3 h-8 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-100 text-left"
           onClick={() => onUngroup?.(groupNodeId)}
         >
-          <Ungroup size={14} style={{ color: '#A1A1AA' }} />
+          <Ungroup size={14} style={{ color: 'var(--text-secondary)' }} />
           グループ解除
         </button>
       </div>
@@ -122,20 +122,20 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, groupNode
     <div
       ref={menuRef}
       style={style}
-      className="min-w-[180px] rounded-lg border border-[#27272A] bg-[#18181B] shadow-[0_4px_16px_rgba(0,0,0,0.4)] py-1 overflow-hidden"
+      className="min-w-[180px] rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] shadow-[0_4px_16px_rgba(0,0,0,0.1)] py-1 overflow-hidden"
     >
-      <div className="px-3 py-1.5 text-[11px] font-medium text-[#71717A] uppercase tracking-wider">
+      <div className="px-3 py-1.5 text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
         {sourcePortType ? '接続先を選択' : 'ノードを追加'}
       </div>
       {filteredGroups.map((group) => (
         <div key={group.category}>
-          <div className="px-3 py-1 text-[10px] text-[#71717A] uppercase tracking-wider mt-1">
+          <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider mt-1">
             {group.category}
           </div>
           {group.items.map((item) => (
             <button
               key={item.label}
-              className="w-full flex items-center gap-2.5 px-3 h-8 text-[13px] text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-100 text-left"
+              className="w-full flex items-center gap-2.5 px-3 h-8 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors duration-100 text-left"
               onClick={() => {
                 onSelect(item.type, item.label)
                 onClose()

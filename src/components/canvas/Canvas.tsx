@@ -35,6 +35,7 @@ import { GroupNode } from '../nodes/GroupNode'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, PortType, GroupNodeData } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
+import { useTheme } from '../../hooks/useTheme'
 
 const nodeTypes: NodeTypes = {
   baseNode: TextNode, // fallback
@@ -262,6 +263,13 @@ function groupSelectedNodes(
 export function Canvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom } =
     useCanvasStore()
+
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const canvasBg   = isDark ? 'var(--bg-canvas)' : '#EDECEA'
+  const dotColor   = isDark ? '#2A2A30' : '#D0CCC8'
+  const surfaceBg  = isDark ? 'var(--bg-surface)' : '#FFFFFF'
+  const borderCol  = isDark ? 'var(--border)' : '#E2DED9'
 
   const isLoadingWorkflow = useWorkflowStore((s) => s.isLoadingWorkflow)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
@@ -766,7 +774,7 @@ export function Canvas() {
   return (
     <div
       className="h-full w-full"
-      style={{ background: '#0A0A0B', position: 'relative' }}
+      style={{ background: canvasBg, position: 'relative' }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
@@ -812,25 +820,27 @@ export function Canvas() {
         fitView
         minZoom={0.1}
         maxZoom={2.0}
-        colorMode="dark"
+        colorMode={isDark ? 'dark' : 'light'}
+        style={{ background: canvasBg }}
         elevateEdgesOnSelect={false}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
-          style: { stroke: '#3F3F46', strokeWidth: 2 },
+          style: { stroke: isDark ? 'var(--border-active)' : '#C8C4BE', strokeWidth: 2 },
         }}
       >
         <Background
           variant={BackgroundVariant.Dots}
           gap={20}
           size={1.5}
-          color="#2A2A30"
-          style={{ background: '#0A0A0B' }}
+          color={dotColor}
+          style={{ background: canvasBg }}
         />
         <Controls
           style={{
-            background: '#111113',
-            border: '1px solid #27272A',
-            borderRadius: 8,
+            background: surfaceBg,
+            border: `1px solid ${borderCol}`,
+            borderRadius: 9999,
+            boxShadow: 'none',
           }}
         />
         <MiniMap
@@ -841,10 +851,10 @@ export function Canvas() {
             if (type === 'utility') return '#6B7280'
             return '#6366F1'
           }}
-          maskColor="rgba(10,10,11,0.7)"
+          maskColor={isDark ? 'rgba(10,10,11,0.7)' : 'rgba(237,236,234,0.7)'}
           style={{
-            background: '#111113',
-            border: '1px solid #27272A',
+            background: surfaceBg,
+            border: `1px solid ${borderCol}`,
             borderRadius: 8,
           }}
         />
