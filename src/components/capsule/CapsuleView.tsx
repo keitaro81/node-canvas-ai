@@ -638,7 +638,7 @@ function StageGenerateButton({
   const prevDone = prevStage ? getStageStatus(prevStage.nodeId, nodes) === 'done' : true
   const isLocked = !prevDone
 
-  const label = nodeType === 'videoGen' ? '動画を生成' : nodeType === 'promptEnhancer' ? 'テキストを生成' : '画像を生成'
+  const label = nodeType === 'videoGen' ? '動画を生成' : '画像を生成'
 
   function handleClick() {
     const event = new CustomEvent('capsule:generate', { detail: { nodeId } })
@@ -890,10 +890,7 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
     ? ((d.videoUrl as string | null | undefined) || undefined)
     : ((d.output as string | undefined) || undefined)
 
-  // promptEnhancer の出力テキスト
-  const outputText = stage.nodeType === 'promptEnhancer'
-    ? (d.outputText as string | undefined)
-    : undefined
+  const outputText = undefined
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">
@@ -923,7 +920,7 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
       ) : (
         <div className="flex flex-col items-center gap-2 text-[#3F3F46]">
           <div className="text-4xl opacity-30">
-            {stage.nodeType === 'videoGen' ? '🎬' : stage.nodeType === 'promptEnhancer' ? '✨' : '🖼'}
+            {stage.nodeType === 'videoGen' ? '🎬' : '🖼'}
           </div>
           <div className="text-[12px]">まだ生成されていません</div>
         </div>
