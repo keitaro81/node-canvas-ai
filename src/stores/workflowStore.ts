@@ -76,8 +76,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ isLoadingWorkflow: true })
     try {
       const workflow = await getWorkflow(id)
-      const { setNodes, setEdges } = useCanvasStore.getState()
-      const canvasData = workflow.canvas_data as { nodes?: AppNode[]; edges?: Edge[] } | null
+      const { setNodes, setEdges, setCapsuleGroupId } = useCanvasStore.getState()
+      const canvasData = workflow.canvas_data as { nodes?: AppNode[]; edges?: Edge[]; capsuleGroupId?: string | null } | null
 
       // 保存済みデータに blob: URL が残っていれば除去する
       // generating 状態のまま保存されたノードは error にリセット（リロード後に永遠に生成中にならないよう）
@@ -95,6 +95,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       })
       setNodes(restoredNodes as AppNode[])
       setEdges(canvasData?.edges ?? [])
+      setCapsuleGroupId(canvasData?.capsuleGroupId ?? null)
 
       set({
         currentWorkflowId: id,
@@ -114,7 +115,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     set({ isSaving: true })
     try {
-      const { nodes, edges } = useCanvasStore.getState()
+      const { nodes, edges, capsuleGroupId } = useCanvasStore.getState()
       // blob: URL はセッション限りなので保存から除外する
       const sanitizedNodes = nodes.map((node) => {
         const d = node.data as Record<string, unknown>
@@ -123,7 +124,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         return { ...node, data: rest }
       })
       await updateWorkflow(currentWorkflowId, {
-        canvas_data: { nodes: sanitizedNodes, edges, viewport: viewport ?? null } as unknown as Json,
+        canvas_data: { nodes: sanitizedNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
       })
       set({ hasUnsavedChanges: false, lastSavedAt: new Date() })
     } finally {

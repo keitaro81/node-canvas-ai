@@ -31,7 +31,8 @@ import { VideoGenerationNode } from '../nodes/VideoGenerationNode'
 import { VideoDisplayNode } from '../nodes/VideoDisplayNode'
 import { ReferenceImageNode } from '../nodes/ReferenceImageNode'
 import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
-import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, PortType } from '../../types/nodes'
+import { GroupNode } from '../nodes/GroupNode'
+import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, PortType, GroupNodeData } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
 
 const nodeTypes: NodeTypes = {
@@ -48,6 +49,7 @@ const nodeTypes: NodeTypes = {
   referenceImageNode: ReferenceImageNode,
   noteNode: NoteNode,
   promptEnhancerNode: PromptEnhancerNode,
+  groupNode: GroupNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -64,6 +66,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   imageComposite:  'imageCompositeNode', // kept for backward compat with saved workflows
   note:            'noteNode',
   promptEnhancer:  'promptEnhancerNode',
+  group:           'groupNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -117,13 +120,14 @@ interface ContextMenuState {
   sourceNodeId?: string
   sourceHandleId?: string | null
   sourcePortType?: PortType
+  groupNodeId?: string  // グループノード右クリック時
 }
 
 let nodeIdCounter = 1
 
 // ノードタイプ別のデフォルト入力ハンドルID（ポートタイプ → ハンドルID）
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
-  promptEnhancer: { text: 'in-text-prompt' },
+  promptEnhancer: {},
   imageGen:       { text: 'in-text', image: 'in-image' },
   videoGen:       { text: 'in-text', image: 'in-image' },
   utility:        { text: 'in-text-in' },
@@ -143,6 +147,57 @@ function parsePortType(handleId: string | null): string {
 
 function isCompatiblePorts(sourceType: string, targetType: string): boolean {
   return PORT_COMPATIBLE[sourceType]?.includes(targetType) ?? false
+}
+
+// 選択ノードをグループ化するユーティリティ
+function groupSelectedNodes(
+  nodes: AppNode[],
+  setNodes: (ns: AppNode[]) => void
+) {
+  const selected = nodes.filter((n) => n.selected && n.type !== 'groupNode')
+  if (selected.length < 2) return
+
+  const padding = 40
+  const headerHeight = 28
+  const xs = selected.map((n) => n.position.x)
+  const ys = selected.map((n) => n.position.y)
+  const x2s = selected.map((n) => n.position.x + (n.measured?.width ?? n.width ?? 280))
+  const y2s = selected.map((n) => n.position.y + (n.measured?.height ?? n.height ?? 160))
+
+  const minX = Math.min(...xs) - padding
+  const minY = Math.min(...ys) - padding - headerHeight
+  const maxX = Math.max(...x2s) + padding
+  const maxY = Math.max(...y2s) + padding
+
+  const groupId = `group-${Date.now()}`
+  const groupData: GroupNodeData = { label: 'Group', capsuleEnabled: false }
+
+  const groupNode: AppNode = {
+    id: groupId,
+    type: 'groupNode',
+    position: { x: minX, y: minY },
+    style: { width: maxX - minX, height: maxY - minY },
+    data: groupData as unknown as NodeData,
+    selectable: true,
+    draggable: true,
+  }
+
+  const updatedNodes = nodes.map((n) => {
+    if (!selected.find((s) => s.id === n.id)) return n
+    return {
+      ...n,
+      parentId: groupId,
+      extent: 'parent' as const,
+      position: {
+        x: n.position.x - minX,
+        y: n.position.y - minY,
+      },
+      selected: false,
+    }
+  })
+
+  // グループノードを最背面（先頭）に挿入
+  setNodes([groupNode, ...updatedNodes])
 }
 
 export function Canvas() {
@@ -176,6 +231,17 @@ export function Canvas() {
       if (e.code === 'Digit0' && e.metaKey && e.altKey) {
         e.preventDefault()
         rfInstance.current?.fitView({ padding: 0.15, duration: 400 })
+      }
+      if (e.code === 'KeyG' && e.metaKey && !e.shiftKey) {
+        e.preventDefault()
+        const { nodes: currentNodes, setNodes: storeSetNodes } = useCanvasStore.getState()
+        groupSelectedNodes(currentNodes, storeSetNodes)
+      }
+      if (e.code === 'KeyG' && e.metaKey && e.shiftKey) {
+        e.preventDefault()
+        const { nodes: currentNodes, ungroupNodes } = useCanvasStore.getState()
+        const selectedGroup = currentNodes.find((n) => n.selected && n.type === 'groupNode')
+        if (selectedGroup) ungroupNodes(selectedGroup.id)
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
@@ -346,6 +412,18 @@ export function Canvas() {
     },
     [setSelectedNode]
   )
+
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, node: AppNode) => {
+    if (node.type !== 'groupNode') return
+    e.preventDefault()
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      flowX: 0,
+      flowY: 0,
+      groupNodeId: node.id,
+    })
+  }, [])
 
   const handleViewportChange = useCallback(
     (vp: Viewport) => setZoom(vp.zoom),
@@ -587,6 +665,7 @@ export function Canvas() {
         panOnScrollMode={PanOnScrollMode.Free}
         zoomActivationKeyCode="Meta"
         deleteKeyCode={['Backspace', 'Delete']}
+        onNodeContextMenu={handleNodeContextMenu}
         onPaneContextMenu={handlePaneContextMenu}
         onPaneClick={() => setContextMenu(null)}
         onSelectionChange={handleSelectionChange}
@@ -637,6 +716,11 @@ export function Canvas() {
           onSelect={handleNodeSelect}
           onClose={() => setContextMenu(null)}
           sourcePortType={contextMenu.sourcePortType}
+          groupNodeId={contextMenu.groupNodeId}
+          onUngroup={(groupId) => {
+            useCanvasStore.getState().ungroupNodes(groupId)
+            setContextMenu(null)
+          }}
         />
       )}
     </div>

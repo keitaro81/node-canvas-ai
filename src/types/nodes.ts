@@ -14,6 +14,23 @@ export type NodeType =
   | 'note'
   | 'imageComposite'
   | 'promptEnhancer'
+  | 'group'
+
+// Capsule機能: フィールド単位の公開フラグ
+export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
+
+export interface CapsuleFieldDef {
+  id: string
+  capsuleVisibility: CapsuleVisibility
+  capsuleLabel?: string   // Capsule表示用ラベル（省略時はノード内ラベルを使用）
+  capsuleOrder?: number   // Capsule内での表示順
+}
+
+// グループノードのデータ
+export interface GroupNodeData {
+  label: string
+  capsuleEnabled: boolean   // このグループをCapsuleビューで表示するか
+}
 
 export type NodeStatus = 'idle' | 'generating' | 'done' | 'error'
 
@@ -40,6 +57,7 @@ export const PORT_COLORS: Record<PortType, string> = {
 }
 
 export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
+  group:          '#3F3F46',
   text:           '#6366F1',
   image:          '#8B5CF6',
   video:          '#EC4899',

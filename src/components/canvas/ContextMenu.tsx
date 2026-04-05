@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2 } from 'lucide-react'
+import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -13,7 +13,7 @@ interface MenuItem {
 const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   textPrompt:     [],
   referenceImage: [],
-  promptEnhancer: ['text'],
+  promptEnhancer: [],
   imageGen:       ['text', 'image'],
   videoGen:       ['text', 'image'],
   note:           [],
@@ -57,9 +57,11 @@ interface ContextMenuProps {
   onSelect: (type: NodeType, label: string) => void
   onClose: () => void
   sourcePortType?: PortType
+  groupNodeId?: string
+  onUngroup?: (groupId: string) => void
 }
 
-export function ContextMenu({ x, y, onSelect, onClose, sourcePortType }: ContextMenuProps) {
+export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, groupNodeId, onUngroup }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -95,6 +97,25 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType }: Context
     left: x,
     top: y,
     zIndex: 9999,
+  }
+
+  // グループノード右クリック: グループ解除のみ表示
+  if (groupNodeId) {
+    return (
+      <div
+        ref={menuRef}
+        style={style}
+        className="min-w-[160px] rounded-lg border border-[#27272A] bg-[#18181B] shadow-[0_4px_16px_rgba(0,0,0,0.4)] py-1 overflow-hidden"
+      >
+        <button
+          className="w-full flex items-center gap-2.5 px-3 h-8 text-[13px] text-[#FAFAFA] hover:bg-[#1E1E22] transition-colors duration-100 text-left"
+          onClick={() => onUngroup?.(groupNodeId)}
+        >
+          <Ungroup size={14} style={{ color: '#A1A1AA' }} />
+          グループ解除
+        </button>
+      </div>
+    )
   }
 
   return (

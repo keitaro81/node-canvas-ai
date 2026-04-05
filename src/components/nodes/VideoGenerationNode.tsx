@@ -1,11 +1,12 @@
-import { memo, useCallback, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
 import { Play, Pause, Loader2, AlertCircle, Film, RotateCcw, Download, Maximize2, Volume2, VolumeX, X } from 'lucide-react'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
-import type { VideoGenerationNodeData } from '../../types/nodes'
+import type { VideoGenerationNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
+import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress, VideoModelDefinition } from '../../lib/ai/types'
 import { saveGeneration } from '../../lib/api/generations'
 import { uploadVideoFromUrl } from '../../lib/api/storage'
@@ -58,13 +59,18 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
-    const incomingEdge = edges.find((e) => e.target === id && e.targetHandle === 'in-text')
-    if (!incomingEdge) return null
-    const sourceNode = nodes.find((n) => n.id === incomingEdge.source)
-    const d = sourceNode?.data as Record<string, unknown> | undefined
-    return (d?.params as Record<string, unknown> | undefined)?.prompt as string
-      || d?.outputText as string
-      || null
+    const incomingEdges = edges.filter((e) => e.target === id && e.targetHandle === 'in-text')
+    if (incomingEdges.length === 0) return null
+    const prompts = incomingEdges
+      .map((edge) => {
+        const sourceNode = nodes.find((n) => n.id === edge.source)
+        const d = sourceNode?.data as Record<string, unknown> | undefined
+        return ((d?.params as Record<string, unknown> | undefined)?.prompt as string)
+          || (d?.outputText as string)
+          || null
+      })
+      .filter((p): p is string => !!p && p.trim() !== '')
+    return prompts.length > 0 ? prompts.join('\n\n') : null
   }, [id])
 
   const handleGenerate = useCallback(async () => {
@@ -161,9 +167,30 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     }
   }, [id, nodeData, currentModel, connectedImageUrl, getConnectedPrompt, updateNode])
 
+  useEffect(() => {
+    function onCapsuleGenerate(e: Event) {
+      const { nodeId } = (e as CustomEvent<{ nodeId: string }>).detail
+      if (nodeId === id) handleGenerate()
+    }
+    window.addEventListener('capsule:generate', onCapsuleGenerate)
+    return () => window.removeEventListener('capsule:generate', onCapsuleGenerate)
+  }, [id, handleGenerate])
+
   const estimatedCost = currentModel
     ? (currentModel.pricePerSecond * parseInt(nodeData.duration || currentModel.supportedDurations[0], 10)).toFixed(2)
     : '0.00'
+
+  const capsuleFields = ((data as unknown as NodeData).capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
+  function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
+    return capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+  }
+  function handleCapsuleChange(fieldId: string, visibility: CapsuleVisibility) {
+    const updated: Record<string, CapsuleFieldDef> = {
+      ...capsuleFields,
+      [fieldId]: { id: fieldId, capsuleVisibility: visibility },
+    }
+    updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
+  }
 
   const togglePlay = () => {
     if (!videoRef.current) return
@@ -235,7 +262,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
           {/* Model */}
           <div>
-            <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">Model</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-medium text-[#A1A1AA]">Model</label>
+              <CapsuleFieldToggle fieldId="model" visibility={getCapsuleVisibility('model')} onChange={handleCapsuleChange} />
+            </div>
             <select
               className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none nodrag appearance-none"
               style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
@@ -265,9 +295,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           {/* Duration */}
           {currentModel && (
             <div>
-              <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">
-                Duration: {nodeData.duration}s
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[#A1A1AA]">Duration: {nodeData.duration}s</label>
+                <CapsuleFieldToggle fieldId="duration" visibility={getCapsuleVisibility('duration')} onChange={handleCapsuleChange} />
+              </div>
               <select
                 className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none nodrag appearance-none"
                 style={{ background: '#0A0A0B', border: '1px solid #27272A' }}

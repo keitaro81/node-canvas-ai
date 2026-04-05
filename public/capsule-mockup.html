@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capsule Mode Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #0A0A0B;
+    color: #FAFAFA;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  .header {
+    height: 48px;
+    background: #111113;
+    border-bottom: 1px solid #27272A;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .logo { font-size: 16px; font-weight: 600; color: #FAFAFA; }
+  .header-spacer { flex: 1; }
+
+  .mode-toggle {
+    display: flex;
+    background: #0A0A0B;
+    border: 1px solid #27272A;
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .mode-btn {
+    padding: 4px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 150ms ease-out;
+    color: #71717A;
+    background: transparent;
+  }
+  .mode-btn.active { background: #1E1E22; color: #FAFAFA; }
+
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ─── Graph View ─── */
+  .graph-view {
+    flex: 1;
+    position: relative;
+    background: #0A0A0B;
+    background-image: radial-gradient(circle, #1A1A1E 1px, transparent 1px);
+    background-size: 20px 20px;
+    overflow: hidden;
+  }
+  .graph-view.hidden { display: none; }
+
+  .edges-svg {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .graph-node {
+    position: absolute;
+    width: 230px;
+    background: #111113;
+    border: 1px solid #27272A;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .graph-node.selected { border-color: #8B5CF6; box-shadow: 0 0 0 1px #8B5CF6; }
+  .node-header {
+    height: 36px;
+    display: flex; align-items: center;
+    padding: 0 10px; gap: 8px;
+    position: relative;
+  }
+  .node-accent {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; border-radius: 12px 0 0 0;
+  }
+  .node-title { font-size: 13px; font-weight: 600; margin-left: 4px; }
+  .node-body { padding: 10px 12px; }
+  .node-field { margin-bottom: 8px; }
+  .node-label { font-size: 11px; color: #A1A1AA; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .node-input {
+    width: 100%; background: #0A0A0B;
+    border: 1px solid #27272A; border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; color: #FAFAFA;
+    font-family: 'Inter', sans-serif; resize: none;
+  }
+  .port { width: 10px; height: 10px; border-radius: 50%; position: absolute; }
+  .port-in { left: -5px; top: 50%; transform: translateY(-50%); }
+  .port-out { right: -5px; top: 50%; transform: translateY(-50%); }
+
+  .group-box {
+    position: absolute;
+    border: 1px dashed #3F3F46;
+    border-radius: 12px;
+    background: rgba(139, 92, 246, 0.03);
+  }
+  .group-label {
+    position: absolute; top: -10px; left: 12px;
+    font-size: 11px; color: #A1A1AA;
+    background: #0A0A0B; padding: 0 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .capsule-badge {
+    background: #8B5CF6; color: white;
+    font-size: 10px; padding: 1px 6px;
+    border-radius: 4px; font-weight: 500;
+  }
+  .flag-pill {
+    font-size: 10px; padding: 1px 6px;
+    border-radius: 4px; font-weight: 500;
+    cursor: pointer; border: none;
+    font-family: 'Inter', sans-serif;
+  }
+  .flag-editable { background: #4C1D95; color: #C4B5FD; }
+  .flag-visible { background: #1E3A5F; color: #93C5FD; }
+  .flag-hidden { background: #18181B; color: #52525B; border: 1px solid #27272A; }
+
+  .graph-label {
+    position: absolute; top: 20px; left: 20px;
+    font-size: 11px; color: #52525B;
+    background: #111113; border: 1px solid #27272A;
+    padding: 4px 10px; border-radius: 6px;
+  }
+  .toggle-hint {
+    position: absolute; bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px; color: #71717A;
+    background: #111113; border: 1px solid #27272A;
+    padding: 6px 14px; border-radius: 20px; white-space: nowrap;
+  }
+
+  /* ─── Capsule View ─── */
+  .capsule-view {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+  .capsule-view.hidden { display: none; }
+
+  /* Left panel */
+  .capsule-panel {
+    width: 320px;
+    flex-shrink: 0;
+    background: #111113;
+    border-right: 1px solid #27272A;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .capsule-panel-header {
+    padding: 16px 18px;
+    border-bottom: 1px solid #27272A;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .capsule-icon {
+    width: 28px; height: 28px;
+    background: #18181B; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .capsule-title { font-size: 14px; font-weight: 600; }
+  .capsule-subtitle { font-size: 11px; color: #71717A; margin-top: 1px; }
+  .capsule-stages { flex: 1; overflow-y: auto; }
+
+  /* Stage */
+  .stage { border-bottom: 1px solid #27272A; }
+  .stage:last-child { border-bottom: none; }
+  .stage-header {
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer;
+  }
+  .stage-header:hover { background: #18181B; }
+  .stage-number {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; flex-shrink: 0;
+  }
+  .stage-number.done { background: #22C55E; color: #0A0A0B; }
+  .stage-number.active { background: #8B5CF6; color: white; }
+  .stage-number.waiting { background: #18181B; color: #71717A; border: 1px solid #27272A; }
+  .stage-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .stage-status { font-size: 11px; color: #71717A; }
+  .stage-status.done-text { color: #22C55E; }
+  .stage-status.active-text { color: #8B5CF6; }
+
+  .stage-body { padding: 0 18px 14px; }
+  .stage-body.collapsed { display: none; }
+
+  .collapsed-preview {
+    padding: 0 18px 12px;
+    display: flex; gap: 10px; align-items: center;
+  }
+  .mini-preview {
+    width: 44px; height: 44px;
+    background: #18181B; border-radius: 6px;
+    border: 1px solid #27272A;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: pointer;
+  }
+  .mini-preview:hover { border-color: #8B5CF6; }
+  .mini-info { flex: 1; }
+  .mini-info-label { font-size: 11px; color: #71717A; }
+  .mini-info-value { font-size: 12px; color: #A1A1AA; margin-top: 2px; }
+  .btn-regen {
+    background: transparent; border: 1px solid #3F3F46;
+    color: #A1A1AA; font-size: 11px; padding: 4px 10px;
+    border-radius: 6px; cursor: pointer;
+    font-family: 'Inter', sans-serif; transition: all 150ms;
+  }
+  .btn-regen:hover { border-color: #71717A; color: #FAFAFA; }
+
+  .field { margin-bottom: 10px; }
+  .field-label { font-size: 11px; color: #A1A1AA; margin-bottom: 4px; font-weight: 500; }
+  .field-input {
+    width: 100%; background: #0A0A0B;
+    border: 1px solid #27272A; border-radius: 6px;
+    padding: 7px 10px; font-size: 12px; color: #FAFAFA;
+    font-family: 'Inter', sans-serif; resize: vertical; min-height: 64px;
+  }
+  .field-input:focus { outline: none; border-color: #3F3F46; }
+  .field-select {
+    width: 100%; background: #0A0A0B;
+    border: 1px solid #27272A; border-radius: 6px;
+    padding: 7px 10px; font-size: 12px; color: #FAFAFA;
+    font-family: 'Inter', sans-serif;
+  }
+  .btn-generate {
+    width: 100%; background: #8B5CF6; color: white;
+    border: none; border-radius: 8px; height: 34px;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    font-family: 'Inter', sans-serif; transition: all 150ms;
+    margin-top: 4px;
+  }
+  .btn-generate:hover { background: #7C3AED; }
+  .btn-generate:disabled {
+    background: #18181B; color: #3F3F46;
+    cursor: not-allowed; border: 1px solid #27272A;
+  }
+
+  /* Right: large preview area */
+  .capsule-preview-area {
+    flex: 1;
+    background: #0A0A0B;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .preview-stage-tabs {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+  .preview-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: #52525B;
+    transition: all 150ms;
+    position: relative;
+    white-space: nowrap;
+  }
+  .preview-tab.active { color: #FAFAFA; }
+  .preview-tab.done { color: #71717A; }
+
+  .tab-step-num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600;
+    background: #18181B;
+    border: 1px solid #3F3F46;
+    color: #52525B;
+    transition: all 150ms;
+    flex-shrink: 0;
+  }
+  .preview-tab.done .tab-step-num {
+    background: #14532D;
+    border-color: #22C55E;
+    color: #22C55E;
+  }
+  .preview-tab.active .tab-step-num {
+    background: #4C1D95;
+    border-color: #8B5CF6;
+    color: #C4B5FD;
+  }
+
+  /* connector line between steps */
+  .tab-connector {
+    width: 32px;
+    height: 1px;
+    background: #27272A;
+    flex-shrink: 0;
+  }
+  .tab-connector.done { background: #22C55E; opacity: 0.4; }
+
+  /* underline for active tab */
+  .preview-tab::after {
+    content: '';
+    position: absolute;
+    bottom: -2px; left: 18px; right: 18px;
+    height: 2px;
+    border-radius: 1px;
+    background: #8B5CF6;
+    opacity: 0;
+    transition: opacity 150ms;
+  }
+  .preview-tab.active::after { opacity: 1; }
+
+  .large-preview {
+    width: 70%;
+    max-width: 720px;
+    aspect-ratio: 16/9;
+    background: #111113;
+    border: 1px solid #27272A;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .large-preview-empty {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 10px;
+    color: #3F3F46;
+  }
+  .large-preview-empty-icon { font-size: 36px; opacity: 0.3; }
+  .large-preview-empty-text { font-size: 12px; }
+
+  .large-spinner {
+    width: 40px; height: 40px;
+    border: 3px solid #27272A;
+    border-top-color: #8B5CF6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .large-preview-img {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    font-size: 64px;
+  }
+  .large-preview-video {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #1a0a2e 0%, #2d1b4e 50%, #1a0a2e 100%);
+    font-size: 64px;
+  }
+
+  .preview-label {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #71717A;
+  }
+  .preview-label span { color: #A1A1AA; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <span class="logo">node-canvas-ai</span>
+  <div class="header-spacer"></div>
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="btn-graph" onclick="setMode('graph')">Graph</button>
+    <button class="mode-btn" id="btn-capsule" onclick="setMode('capsule')">Capsule</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ─── Graph View ─── -->
+  <div class="graph-view" id="graph-view">
+    <div class="graph-label">Graphモード — グループ「Image to Video」がCapsule対象</div>
+    <svg class="edges-svg">
+      <path d="M 300 235 C 350 235, 370 280, 420 280" stroke="#6366F1" stroke-width="2" fill="none" opacity="0.7"/>
+      <path d="M 660 300 C 710 300, 730 380, 780 380" stroke="#8B5CF6" stroke-width="2" fill="none" opacity="0.7"/>
+    </svg>
+    <div class="group-box" style="left: 80px; top: 155px; width: 680px; height: 290px;">
+      <div class="group-label">Image to Video <span class="capsule-badge">Capsule</span></div>
+    </div>
+    <div class="graph-node" style="left: 100px; top: 195px;">
+      <div class="node-header">
+        <div class="node-accent" style="background:#6366F1;"></div>
+        <span style="font-size:13px;">Aa</span>
+        <span class="node-title">Text Prompt</span>
+        <div class="port port-out" style="background:#6366F1;"></div>
+      </div>
+      <div class="node-body">
+        <div class="node-field">
+          <div class="node-label">プロンプト <span class="flag-pill flag-editable">editable</span></div>
+          <textarea class="node-input" rows="3">A serene mountain landscape at golden hour...</textarea>
+        </div>
+      </div>
+    </div>
+    <div class="graph-node selected" style="left: 420px; top: 215px;">
+      <div class="node-header">
+        <div class="node-accent" style="background:#8B5CF6;"></div>
+        <span>🖼</span>
+        <span class="node-title">Image Generation</span>
+        <div class="port port-in" style="background:#6366F1;"></div>
+        <div class="port port-out" style="background:#8B5CF6;"></div>
+      </div>
+      <div class="node-body">
+        <div class="node-field">
+          <div class="node-label">モデル <span class="flag-pill flag-visible">visible</span></div>
+          <select class="node-input" style="height:30px;"><option>flux-schnell</option></select>
+        </div>
+        <div class="node-field">
+          <div class="node-label">アスペクト比 <span class="flag-pill flag-hidden">hidden</span></div>
+          <select class="node-input" style="height:30px;"><option>16:9</option></select>
+        </div>
+      </div>
+    </div>
+    <div class="graph-node" style="left: 780px; top: 320px;">
+      <div class="node-header">
+        <div class="node-accent" style="background:#EC4899;"></div>
+        <span>🎬</span>
+        <span class="node-title">Video Generation</span>
+        <div class="port port-in" style="background:#8B5CF6;"></div>
+      </div>
+      <div class="node-body">
+        <div class="node-field">
+          <div class="node-label">長さ <span class="flag-pill flag-editable">editable</span></div>
+          <select class="node-input" style="height:30px;"><option>5秒</option></select>
+        </div>
+      </div>
+    </div>
+    <div class="toggle-hint">Graph → Capsule に切り替えると左パネル＋大プレビューのUIになります</div>
+  </div>
+
+  <!-- ─── Capsule View ─── -->
+  <div class="capsule-view hidden" id="capsule-view">
+
+    <!-- Left panel: stages & controls -->
+    <div class="capsule-panel">
+      <div class="capsule-panel-header">
+        <div class="capsule-icon">🎨</div>
+        <div>
+          <div class="capsule-title">Image to Video</div>
+          <div class="capsule-subtitle" id="capsule-subtitle">2 stages · 1 completed</div>
+        </div>
+      </div>
+      <div class="capsule-stages">
+
+        <!-- Stage 1: 完了済み -->
+        <div class="stage">
+          <div class="stage-header" onclick="toggleStage1()">
+            <div class="stage-number done">✓</div>
+            <span class="stage-name">画像生成</span>
+            <span class="stage-status done-text">完了</span>
+          </div>
+          <div class="collapsed-preview" id="stage1-collapsed" style="display:none;">
+            <div class="mini-preview" onclick="showPreview('image')" title="クリックで大きく表示">🏔️</div>
+            <div class="mini-info">
+              <div class="mini-info-label">生成済み · flux-schnell</div>
+              <div class="mini-info-value" style="color:#52525B; font-size:11px;">クリックで右に表示</div>
+            </div>
+            <button class="btn-regen">再生成</button>
+          </div>
+          <div class="stage-body" id="stage1-body">
+            <div class="field">
+              <div class="field-label">プロンプト</div>
+              <textarea class="field-input">A serene mountain landscape at golden hour, dramatic clouds, photorealistic</textarea>
+            </div>
+            <div class="field">
+              <div class="field-label">モデル</div>
+              <div style="font-size:12px; color:#A1A1AA; padding:7px 10px; background:#0A0A0B; border:1px solid #27272A; border-radius:6px;">flux-schnell</div>
+            </div>
+            <button class="btn-regen" style="width:100%; padding:8px;">再生成</button>
+          </div>
+        </div>
+
+        <!-- Stage 2: アクティブ -->
+        <div class="stage">
+          <div class="stage-header">
+            <div class="stage-number active">2</div>
+            <span class="stage-name">動画生成</span>
+            <span class="stage-status active-text">実行可能</span>
+          </div>
+          <div class="stage-body">
+            <div class="field">
+              <div class="field-label">長さ</div>
+              <select class="field-select">
+                <option>5秒</option>
+                <option>10秒</option>
+              </select>
+            </div>
+            <button class="btn-generate" id="btn-gen2" onclick="generate2()">動画を生成</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right: large preview -->
+    <div class="capsule-preview-area">
+      <!-- Stage tabs -->
+      <div class="preview-stage-tabs">
+        <button class="preview-tab done" id="tab-image" onclick="showPreview('image')">
+          <div class="tab-step-num">✓</div>
+          Step 1 · 画像生成
+        </button>
+        <div class="tab-connector done"></div>
+        <button class="preview-tab active" id="tab-video" onclick="showPreview('video')">
+          <div class="tab-step-num">2</div>
+          Step 2 · 動画生成
+        </button>
+      </div>
+
+      <!-- Image preview -->
+      <div class="large-preview" id="large-preview-image" style="display:none;">
+        <div class="large-preview-img">🏔️</div>
+      </div>
+
+      <!-- Video preview -->
+      <div class="large-preview" id="large-preview-video">
+        <div class="large-preview-empty" id="video-empty">
+          <div class="large-preview-empty-icon">🎬</div>
+          <div class="large-preview-empty-text">まだ生成されていません</div>
+        </div>
+        <div class="large-spinner" id="video-spinner" style="display:none;"></div>
+        <div class="large-preview-video" id="video-result" style="display:none;">🎬</div>
+      </div>
+
+      <div class="preview-label" id="preview-label">
+        Step 2 · 動画生成 · <span>未生成</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  function setMode(mode) {
+    document.getElementById('graph-view').classList.toggle('hidden', mode !== 'graph');
+    document.getElementById('capsule-view').classList.toggle('hidden', mode === 'graph');
+    document.getElementById('btn-graph').classList.toggle('active', mode === 'graph');
+    document.getElementById('btn-capsule').classList.toggle('active', mode !== 'graph');
+  }
+
+  let stage1Expanded = true;
+  function toggleStage1() {
+    stage1Expanded = !stage1Expanded;
+    document.getElementById('stage1-collapsed').style.display = stage1Expanded ? 'none' : 'flex';
+    document.getElementById('stage1-body').classList.toggle('collapsed', !stage1Expanded);
+  }
+
+  let currentPreview = 'image';
+  function showPreview(type) {
+    currentPreview = type;
+    document.getElementById('large-preview-image').style.display = type === 'image' ? 'flex' : 'none';
+    document.getElementById('large-preview-video').style.display = type === 'video' ? 'flex' : 'none';
+    document.getElementById('tab-image').classList.toggle('active', type === 'image');
+    document.getElementById('tab-video').classList.toggle('active', type === 'video');
+    if (type === 'image') {
+      document.getElementById('preview-label').innerHTML = 'Step 1 · 画像生成 · <span>flux-schnell</span>';
+    } else {
+      const hasResult = document.getElementById('video-result').style.display !== 'none';
+      document.getElementById('preview-label').innerHTML = hasResult
+        ? 'Step 2 · 動画生成 · <span>5秒</span>'
+        : 'Step 2 · 動画生成 · <span>未生成</span>';
+    }
+  }
+
+  function generate2() {
+    showPreview('video');
+    document.getElementById('video-empty').style.display = 'none';
+    document.getElementById('video-spinner').style.display = 'block';
+    document.getElementById('video-result').style.display = 'none';
+
+    const btn = document.getElementById('btn-gen2');
+    btn.disabled = true;
+    btn.textContent = '生成中...';
+
+    setTimeout(() => {
+      document.getElementById('video-spinner').style.display = 'none';
+      document.getElementById('video-result').style.display = 'flex';
+      btn.disabled = false;
+      btn.textContent = '動画を生成';
+      document.getElementById('capsule-subtitle').textContent = '2 stages · 2 completed';
+      document.getElementById('preview-label').innerHTML = 'Step 2 · 動画生成 · <span>5秒</span>';
+      // Update step 2 tab to done state
+      const tab2 = document.getElementById('tab-video');
+      tab2.classList.remove('active');
+      tab2.classList.add('done');
+      tab2.querySelector('.tab-step-num').textContent = '✓';
+      document.querySelector('.tab-connector').classList.add('done');
+    }, 2500);
+  }
+</script>
+</body>
+</html>

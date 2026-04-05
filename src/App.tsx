@@ -7,8 +7,10 @@ import { LeftSidebar } from './components/layout/LeftSidebar'
 import { RightPanel } from './components/panels/RightPanel'
 import { StatusBar } from './components/layout/StatusBar'
 import { AuthGuard } from './components/auth/AuthGuard'
+import { CapsuleView } from './components/capsule/CapsuleView'
 import { useAuthStore } from './stores/authStore'
 import { useWorkflowStore } from './stores/workflowStore'
+import { useCanvasStore } from './stores/canvasStore'
 import { useAutoSave } from './hooks/useAutoSave'
 
 function AppInner() {
@@ -16,6 +18,7 @@ function AppInner() {
   const [rightOpen, setRightOpen] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
   const { loadWorkflows, createNewWorkflow, loadWorkflow } = useWorkflowStore()
+  const appMode = useCanvasStore((s) => s.appMode)
 
   useAutoSave()
 
@@ -68,11 +71,18 @@ function AppInner() {
       )}
 
       <div className="flex flex-1 min-h-0 relative">
-        <LeftSidebar open={leftOpen} onToggle={() => setLeftOpen((v) => !v)} />
-        <main className="flex-1 min-w-0 h-full">
-          <Canvas />
-        </main>
-        <RightPanel open={rightOpen} onToggle={() => setRightOpen((v) => !v)} />
+        {/* Graph layout: always mounted to keep node event listeners alive */}
+        <div
+          className="flex flex-1 min-h-0"
+          style={{ display: appMode !== 'graph' ? 'none' : 'flex' }}
+        >
+          <LeftSidebar open={leftOpen} onToggle={() => setLeftOpen((v) => !v)} />
+          <main className="flex-1 min-w-0 h-full">
+            <Canvas />
+          </main>
+          <RightPanel open={rightOpen} onToggle={() => setRightOpen((v) => !v)} />
+        </div>
+        {appMode === 'capsule' && <CapsuleView />}
       </div>
 
       <StatusBar />

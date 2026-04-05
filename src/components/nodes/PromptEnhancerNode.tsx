@@ -29,8 +29,6 @@ const SYSTEM_PROMPT = `You are an expert at writing detailed, evocative prompts 
 function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   const updateNode = useCanvasStore((s) => s.updateNode)
   const removeNode = useCanvasStore((s) => s.removeNode)
-  const storeNodes = useCanvasStore((s) => s.nodes)
-  const storeEdges = useCanvasStore((s) => s.edges)
 
   const nodeData = data as Record<string, unknown>
   const inputText = (nodeData.inputText as string) ?? ''
@@ -65,21 +63,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
     if (!isComposing.current) setLocalInput(inputText)
   }, [inputText])
 
-  // 接続されたテキストノードからプロンプトを取得
-  const getConnectedText = useCallback((): string => {
-    const edge = storeEdges.find(
-      (e) => e.target === id && e.targetHandle?.startsWith('in-text')
-    )
-    if (!edge) return inputText
-    const sourceNode = storeNodes.find((n) => n.id === edge.source)
-    if (!sourceNode) return inputText
-    const d = sourceNode.data as Record<string, unknown>
-    const params = d.params as Record<string, unknown> | undefined
-    return (params?.prompt as string) ?? (d.text as string) ?? inputText
-  }, [storeEdges, storeNodes, id, inputText])
-
   const handleRun = useCallback(async () => {
-    const prompt = getConnectedText() || inputText
+    const prompt = inputText
     if (!prompt.trim()) return
 
     updateNode(id, { status: 'generating' } as never)
@@ -109,7 +94,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
       updateNode(id, { outputText: msg, status: 'error' } as never)
       setTab('output')
     }
-  }, [id, model, inputText, getConnectedText, updateNode])
+  }, [id, model, inputText, updateNode])
 
   const handleCopy = useCallback(async () => {
     if (!outputText) return
@@ -375,21 +360,6 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
           }
         </button>
       </div>
-
-      {/* Input handle */}
-      <Handle
-        id="in-text-prompt"
-        type="target"
-        position={Position.Left}
-        style={{
-          top: '50%',
-          width: 20,
-          height: 20,
-          background: `radial-gradient(circle, ${PORT_COLORS.text} 3px, #111113 3px 5px, transparent 5px)`,
-          border: 'none',
-          borderRadius: 0,
-        }}
-      />
 
       {/* Output handle */}
       <Handle

@@ -14,12 +14,16 @@ import type { NodeData, PortType } from '../types/nodes'
 
 export type AppNode = Node<NodeData>
 
+export type AppMode = 'graph' | 'capsule'
+
 interface CanvasState {
   nodes: AppNode[]
   edges: Edge[]
   selectedNodeId: string | null
   projectName: string
   zoom: number
+  appMode: AppMode
+  capsuleGroupId: string | null   // Capsuleビューで表示するグループノードのid
 
   onNodesChange: OnNodesChange<AppNode>
   onEdgesChange: OnEdgesChange
@@ -34,6 +38,9 @@ interface CanvasState {
   setNodes: (nodes: AppNode[]) => void
   setEdges: (edges: Edge[]) => void
   resetCanvas: () => void
+  setAppMode: (mode: AppMode) => void
+  setCapsuleGroupId: (id: string | null) => void
+  ungroupNodes: (groupId: string) => void
 }
 
 const COMPATIBLE: Record<PortType, PortType[]> = {
@@ -75,6 +82,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectedNodeId: null,
   projectName: 'Untitled Project',
   zoom: 1,
+  appMode: 'graph',
+  capsuleGroupId: null,
 
   onNodesChange: (changes) =>
     set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })),
@@ -157,4 +166,43 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
   resetCanvas: () => set({ nodes: [], edges: [], selectedNodeId: null }),
+  setAppMode: (mode) => set({ appMode: mode }),
+  setCapsuleGroupId: (id) => {
+    set((state) => ({
+      capsuleGroupId: id,
+      nodes: state.nodes.map((n) => {
+        if (n.type !== 'groupNode') return n
+        const data = n.data as Record<string, unknown>
+        return { ...n, data: { ...data, capsuleEnabled: n.id === id } as unknown as NodeData }
+      }),
+    }))
+  },
+
+  ungroupNodes: (groupId) => {
+    set((state) => {
+      const group = state.nodes.find((n) => n.id === groupId)
+      if (!group) return state
+
+      // グループの絶対位置
+      const gx = group.position.x
+      const gy = group.position.y
+
+      const updatedNodes = state.nodes
+        .filter((n) => n.id !== groupId)
+        .map((n) => {
+          if (n.parentId !== groupId) return n
+          // 子ノードの位置をキャンバス絶対座標に変換
+          const { parentId: _p, extent: _e, ...rest } = n as AppNode & { parentId?: string; extent?: unknown }
+          return {
+            ...rest,
+            position: { x: gx + n.position.x, y: gy + n.position.y },
+          } as AppNode
+        })
+
+      // capsuleGroupId がこのグループを指していたらリセット
+      const newCapsuleGroupId = state.capsuleGroupId === groupId ? null : state.capsuleGroupId
+
+      return { nodes: updatedNodes, capsuleGroupId: newCapsuleGroupId }
+    })
+  },
 }))

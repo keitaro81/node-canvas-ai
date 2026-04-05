@@ -1,10 +1,11 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Sparkles, Loader2, Download, Maximize2, X, ChevronDown } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
-import type { NodeData } from '../../types/nodes'
+import type { NodeData, CapsuleFieldDef, CapsuleVisibility } from '../../types/nodes'
+import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { getDefaultProvider } from '../../lib/ai/provider-registry'
 import { saveGeneration } from '../../lib/api/generations'
 import { getImageUrlFromNodeData } from '../../lib/utils'
@@ -57,6 +58,18 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const outputUrl = nodeData.output as string | undefined
   const isGenerating = nodeData.status === 'generating'
 
+  const capsuleFields = (nodeData.capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
+  function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
+    return capsuleFields[fieldId]?.capsuleVisibility ?? 'hidden'
+  }
+  function handleCapsuleChange(fieldId: string, visibility: CapsuleVisibility) {
+    const updated: Record<string, CapsuleFieldDef> = {
+      ...capsuleFields,
+      [fieldId]: { id: fieldId, capsuleVisibility: visibility },
+    }
+    updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
+  }
+
   // 単一の in-image ハンドルに接続されたすべての画像エッジを接続順で取得
   // 旧ハンドルID (in-image-1, in-image-reference, in-image-2) は後方互換として含める
   const imageEdges = storeEdges.filter(
@@ -72,14 +85,18 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
-    // 'in-text-prompt' は旧ノード（BaseNode時代）との後方互換ハンドルID
-    const incomingEdge = edges.find((e) => e.target === id && (e.targetHandle === 'in-text' || e.targetHandle === 'in-text-prompt'))
-    if (!incomingEdge) return null
-    const sourceNode = nodes.find((n) => n.id === incomingEdge.source)
-    const d = sourceNode?.data as Record<string, unknown> | undefined
-    return (d?.params as Record<string, unknown> | undefined)?.prompt as string
-      || d?.outputText as string
-      || null
+    const incomingEdges = edges.filter((e) => e.target === id && (e.targetHandle === 'in-text' || e.targetHandle === 'in-text-prompt'))
+    if (incomingEdges.length === 0) return null
+    const prompts = incomingEdges
+      .map((edge) => {
+        const sourceNode = nodes.find((n) => n.id === edge.source)
+        const d = sourceNode?.data as Record<string, unknown> | undefined
+        return ((d?.params as Record<string, unknown> | undefined)?.prompt as string)
+          || (d?.outputText as string)
+          || null
+      })
+      .filter((p): p is string => !!p && p.trim() !== '')
+    return prompts.length > 0 ? prompts.join('\n\n') : null
   }, [id])
 
   const handleGenerate = useCallback(async () => {
@@ -188,6 +205,15 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     }
   }, [id, model, aspectRatio, seed, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
 
+  useEffect(() => {
+    function onCapsuleGenerate(e: Event) {
+      const { nodeId } = (e as CustomEvent<{ nodeId: string }>).detail
+      if (nodeId === id) handleGenerate()
+    }
+    window.addEventListener('capsule:generate', onCapsuleGenerate)
+    return () => window.removeEventListener('capsule:generate', onCapsuleGenerate)
+  }, [id, handleGenerate])
+
   const hiddenHandleStyle = { opacity: 0, pointerEvents: 'none' as const }
 
   const isDisabled = isGenerating
@@ -281,7 +307,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           {!hasImages && (
             <>
               <div>
-                <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">Model</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-medium text-[#A1A1AA]">Model</label>
+                  <CapsuleFieldToggle fieldId="model" visibility={getCapsuleVisibility('model')} onChange={handleCapsuleChange} />
+                </div>
                 <div className="relative">
                   <select
                     className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[#FAFAFA] focus:outline-none transition-colors nodrag appearance-none"
@@ -304,7 +333,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
           {/* Aspect Ratio: T2I・Editモード共通 */}
           <div>
-            <label className="block text-[11px] font-medium text-[#A1A1AA] mb-1">Aspect Ratio</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-medium text-[#A1A1AA]">Aspect Ratio</label>
+              <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
+            </div>
             <div className="flex gap-1 flex-wrap">
               {ASPECT_RATIOS.map((ratio) => {
                 const active = aspectRatio === ratio
