@@ -283,7 +283,7 @@ function StageGenerateButton({
   const nodes = useCanvasStore((s) => s.nodes)
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
-  if (nodeType === 'referenceImage') return null
+  if ((nodeType as string) === 'referenceImage') return null
   const d = node.data as Record<string, unknown>
 
   const isGenerating =
@@ -536,7 +536,7 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
   const isGenerating = status === 'generating' || status === 'queued' || status === 'processing'
   const outputUrl = (d.output as string | undefined)
     || (d.videoUrl as string | undefined)
-    || (stage.nodeType === 'referenceImage' ? ((d.uploadedImagePreview as string | undefined) || (d.imageUrl as string | undefined)) : undefined)
+    || ((stage.nodeType as string) === 'referenceImage' ? ((d.uploadedImagePreview as string | undefined) || (d.imageUrl as string | undefined)) : undefined)
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">

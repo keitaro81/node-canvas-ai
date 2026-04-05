@@ -193,7 +193,7 @@ export function hasParallelGenerationNodes(
 export function buildCapsuleInputNodes(
   groupId: string,
   nodes: AppNode[],
-  edges: Edge[],
+  _edges: Edge[],
   stages: CapsuleStageInfo[]
 ): CapsuleInputInfo[] {
   const children = getGroupChildren(groupId, nodes)
