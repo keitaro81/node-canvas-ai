@@ -1,9 +1,9 @@
 import React from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { NODE_ACCENT_COLORS } from '../../types/nodes'
 import type { VideoGenerationNodeData, ReferenceImageNodeData } from '../../types/nodes'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
+import type { VideoModelDefinition } from '../../lib/ai/types'
 
 const VIDEO_MODELS = falVideoProvider.getAvailableVideoModels()
 
@@ -11,8 +11,10 @@ const IMAGE_MODELS = [
   { value: 'black-forest-labs/flux-schnell', label: 'FLUX Schnell' },
   { value: 'black-forest-labs/flux-dev',     label: 'FLUX Dev' },
   { value: 'black-forest-labs/flux-1.1-pro', label: 'FLUX 1.1 Pro' },
+  { value: 'fal-ai/flux-2',                  label: 'FLUX.2' },
+  { value: 'fal-ai/nano-banana-2',            label: 'Nano Banana 2' },
 ]
-const IMAGE_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const
+const IMAGE_ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
 
 const STATUS_LABELS: Record<string, string> = {
   idle: 'Idle', generating: 'Generating…', done: 'Done', error: 'Error',
@@ -21,11 +23,6 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   idle: 'var(--text-tertiary)', generating: '#8B5CF6', done: '#22C55E', error: '#EF4444',
   queued: '#F59E0B', processing: '#8B5CF6', completed: '#22C55E', failed: '#EF4444',
-}
-
-interface RightPanelProps {
-  open: boolean
-  onToggle: () => void
 }
 
 // ===== 共通UIパーツ =====
@@ -59,12 +56,13 @@ function SelectField({ label, value, options, onChange, disabled }: {
   )
 }
 
-function ButtonGroupField({ label, value, options, onChange, disabled }: {
+function ButtonGroupField({ label, value, options, onChange, disabled, accentColor = '#8B5CF6' }: {
   label: string
   value: string
   options: string[]
   onChange: (v: string) => void
   disabled?: boolean
+  accentColor?: string
 }) {
   return (
     <div>
@@ -77,9 +75,9 @@ function ButtonGroupField({ label, value, options, onChange, disabled }: {
               key={opt}
               className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
               style={{
-                background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                background: active ? accentColor : 'var(--bg-elevated)',
                 color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+                border: `1px solid ${active ? accentColor : 'var(--border)'}`,
                 minWidth: '2.5rem',
               }}
               onClick={() => onChange(opt)}
@@ -94,18 +92,19 @@ function ButtonGroupField({ label, value, options, onChange, disabled }: {
   )
 }
 
-function ToggleField({ label, value, onChange, disabled }: {
+function ToggleField({ label, value, onChange, disabled, accentColor = '#8B5CF6' }: {
   label: string
   value: boolean
   onChange: (v: boolean) => void
   disabled?: boolean
+  accentColor?: string
 }) {
   return (
     <div className="flex items-center justify-between">
       <FieldLabel>{label}</FieldLabel>
       <button
         className="relative w-8 h-4 rounded-full transition-colors"
-        style={{ background: value ? '#8B5CF6' : 'var(--border-active)' }}
+        style={{ background: value ? accentColor : 'var(--border-active)' }}
         onClick={() => onChange(!value)}
         disabled={disabled}
       >
@@ -166,7 +165,6 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
   const seed = (params.seed as number | null) ?? null
   const output = data.output as string | undefined
 
-  // 接続画像数でモード判定（ノード本体と同じロジック）
   const imageEdges = edges.filter(
     (e) =>
       e.target === nodeId &&
@@ -185,7 +183,6 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
       <section>
         <SectionTitle>Parameters</SectionTitle>
         <div className="flex flex-col gap-3">
-          {/* モードバッジ */}
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-[var(--text-secondary)]">Mode</span>
             <span
@@ -207,12 +204,33 @@ function ImageGenProperties({ nodeId, data, updateNode }: {
               onChange={(v) => set('model', v)}
             />
           )}
-          <ButtonGroupField
-            label="Aspect Ratio"
-            value={aspectRatio}
-            options={[...IMAGE_ASPECT_RATIOS]}
-            onChange={(v) => set('aspectRatio', v)}
-          />
+          <div>
+            <FieldLabel>Aspect Ratio</FieldLabel>
+            <div className="flex gap-1 flex-wrap">
+              {IMAGE_ASPECT_RATIOS.map((ratio) => {
+                const active = aspectRatio === ratio
+                const isAutoDisabled = ratio === 'auto' && !isOmniGen
+                return (
+                  <button
+                    key={ratio}
+                    className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
+                    style={{
+                      background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                      color: active ? 'var(--text-primary)' : isAutoDisabled ? 'var(--border-active)' : 'var(--text-secondary)',
+                      border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+                      cursor: isAutoDisabled ? 'not-allowed' : 'pointer',
+                      minWidth: 0,
+                    }}
+                    onClick={() => { if (!isAutoDisabled) set('aspectRatio', ratio) }}
+                    disabled={isAutoDisabled}
+                    title={ratio === 'auto' ? '参照画像のアスペクト比を自動検出' : undefined}
+                  >
+                    {ratio}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
           {!isOmniGen && (
             <NumberField
               label="Seed"
@@ -239,8 +257,16 @@ function VideoGenProperties({ nodeId, data, updateNode }: {
   data: VideoGenerationNodeData
   updateNode: Upd
 }) {
+  const edges = useCanvasStore((s) => s.edges)
   const set = (patch: Record<string, unknown>) => updateNode(nodeId, patch)
   const currentModel = VIDEO_MODELS.find((m) => m.id === data.model) ?? VIDEO_MODELS[0]
+
+  const hasConnectedImage = edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
+  const aspectRatioOptions = (
+    hasConnectedImage && (currentModel as VideoModelDefinition).i2vSupportedAspectRatios
+      ? (currentModel as VideoModelDefinition).i2vSupportedAspectRatios!
+      : currentModel?.supportedAspectRatios ?? []
+  ) as string[]
 
   return (
     <>
@@ -280,8 +306,9 @@ function VideoGenProperties({ nodeId, data, updateNode }: {
             <ButtonGroupField
               label="Aspect Ratio"
               value={data.aspectRatio}
-              options={currentModel.supportedAspectRatios as string[]}
+              options={aspectRatioOptions}
               onChange={(v) => set({ aspectRatio: v })}
+              accentColor="#EC4899"
             />
           )}
           {currentModel?.features.includes('audio') && (
@@ -289,14 +316,9 @@ function VideoGenProperties({ nodeId, data, updateNode }: {
               label="Audio"
               value={data.audioEnabled}
               onChange={(v) => set({ audioEnabled: v })}
+              accentColor="#EC4899"
             />
           )}
-          <NumberField
-            label="Seed"
-            value={data.seed}
-            onChange={(v) => set({ seed: v })}
-            placeholder="空欄 = ランダム"
-          />
         </div>
       </section>
       {data.videoUrl && (
@@ -330,158 +352,130 @@ function ReferenceImageProperties({ data }: { data: ReferenceImageNodeData }) {
   )
 }
 
-// ===== メインパネル =====
+// ===== フローティングパネル =====
 
-export function RightPanel({ open, onToggle }: RightPanelProps) {
+export function RightPanel() {
   const { nodes, selectedNodeId, updateNode } = useCanvasStore()
   const selected = nodes.find((n) => n.id === selectedNodeId)
 
   const upd: Upd = (id, data) => updateNode(id, data as Parameters<typeof updateNode>[1])
 
+  const visible = !!selected
+
   return (
-    <div className="relative flex shrink-0" style={{ zIndex: 10 }}>
-      {/* Toggle button */}
-      <button
-        onClick={onToggle}
-        className="absolute top-3 flex items-center justify-center w-5 h-8 rounded-l border border-r-0 border-[var(--border)] hover:bg-[var(--bg-elevated)] transition-colors duration-150"
-        style={{
-          right: open ? 300 : 0,
-          background: 'var(--bg-panel)',
-          transition: 'right 200ms ease-out',
-          zIndex: 1,
-        }}
-        title={open ? 'Close properties' : 'Open properties'}
-      >
-        {open ? (
-          <ChevronRight size={12} style={{ color: 'var(--text-tertiary)' }} />
-        ) : (
-          <ChevronLeft size={12} style={{ color: 'var(--text-tertiary)' }} />
-        )}
-      </button>
-
-      {/* Panel */}
+    <div
+      className="pointer-events-none"
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        zIndex: 20,
+      }}
+    >
       <div
-        className="flex flex-col border-l border-[var(--border)] overflow-hidden"
+        className="pointer-events-auto flex flex-col"
         style={{
-          width: open ? 300 : 0,
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          width: 280,
+          maxHeight: 'calc(100% - 24px)',
+          borderRadius: 12,
           background: 'var(--bg-panel)',
-          transition: 'width 200ms ease-out',
+          border: '1px solid var(--border)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'translateX(0)' : 'translateX(16px)',
+          transition: 'opacity 150ms ease-out, transform 150ms ease-out',
+          pointerEvents: visible ? 'auto' : 'none',
+          overflow: 'hidden',
         }}
       >
-        <div style={{ width: 300 }} className="flex flex-col h-full">
-          {/* Panel header */}
-          <div className="px-3 pt-3 pb-2 border-b border-[var(--border)]">
-            <span className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
-              Properties
-            </span>
-          </div>
+        {/* Header */}
+        <div
+          className="flex items-center gap-2 px-3 flex-shrink-0"
+          style={{ height: 40, borderBottom: '1px solid var(--border)' }}
+        >
+          {selected && (
+            <div
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ background: NODE_ACCENT_COLORS[selected.data.type] ?? '#6B7280' }}
+            />
+          )}
+          <span className="flex-1 text-[12px] font-semibold text-[var(--text-primary)] truncate">
+            {selected?.data.label ?? 'Properties'}
+          </span>
+          {selected && (
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: STATUS_COLORS[selected.data.status] ?? 'var(--text-tertiary)' }}
+              />
+              <span className="text-[10px]" style={{ color: STATUS_COLORS[selected.data.status] ?? 'var(--text-tertiary)' }}>
+                {STATUS_LABELS[selected.data.status] ?? selected.data.status}
+              </span>
+            </div>
+          )}
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto">
-            {!selected ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2 px-4">
-                <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center"
-                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--border-active)" strokeWidth="2">
-                    <rect x="3" y="3" width="18" height="18" rx="3" />
-                    <path d="M9 12h6M12 9v6" />
-                  </svg>
-                </div>
-                <p className="text-[12px] text-[var(--text-tertiary)] text-center">
-                  ノードを選択してください
-                </p>
-              </div>
-            ) : (
-              <div className="p-3 flex flex-col gap-4">
-                {/* Node type header */}
-                <div
-                  className="flex items-center gap-2.5 p-3 rounded-lg"
-                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-                >
-                  <div
-                    className="w-2 h-8 rounded-full shrink-0"
-                    style={{ background: NODE_ACCENT_COLORS[selected.data.type] ?? '#6B7280' }}
-                  />
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[13px] font-semibold text-[var(--text-primary)] truncate">
-                      {selected.data.label}
-                    </span>
-                    <span className="text-[11px] text-[var(--text-tertiary)] truncate">
-                      {selected.id}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Status */}
-                <section>
-                  <SectionTitle>Status</SectionTitle>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: STATUS_COLORS[selected.data.status] ?? 'var(--text-tertiary)' }}
-                    />
-                    <span className="text-[12px] text-[var(--text-primary)]">
-                      {STATUS_LABELS[selected.data.status] ?? selected.data.status}
-                    </span>
-                  </div>
-                </section>
-
-                {/* Node-type specific properties */}
-                {selected.type === 'imageGenerationNode' ? (
-                  <ImageGenProperties
-                    nodeId={selected.id}
-                    data={selected.data as Record<string, unknown>}
-                    updateNode={upd}
-                  />
-                ) : selected.type === 'videoGenerationNode' ? (
-                  <VideoGenProperties
-                    nodeId={selected.id}
-                    data={selected.data as unknown as VideoGenerationNodeData}
-                    updateNode={upd}
-                  />
-                ) : selected.type === 'referenceImageNode' ? (
-                  <ReferenceImageProperties data={selected.data as unknown as ReferenceImageNodeData} />
-                ) : (
-                  <>
-                    {Object.keys(selected.data.params ?? {}).length > 0 && (
-                      <section>
-                        <SectionTitle>Parameters</SectionTitle>
-                        <div className="flex flex-col gap-2">
-                          {Object.entries(selected.data.params ?? {}).map(([key, value]) => (
-                            <ParamField
-                              key={key}
-                              paramKey={key}
-                              value={value}
-                              onChange={(newVal) =>
-                                updateNode(selected.id, {
-                                  params: { ...selected.data.params, [key]: newVal },
-                                })
-                              }
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    )}
-                    {selected.data.output !== undefined && (
-                      <section>
-                        <SectionTitle>Output</SectionTitle>
-                        <div
-                          className="p-2 rounded text-[11px] text-[var(--text-secondary)] font-mono break-all"
-                          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-                        >
-                          {typeof selected.data.output === 'string'
-                            ? selected.data.output
-                            : JSON.stringify(selected.data.output, null, 2)}
-                        </div>
-                      </section>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {selected && (
+            <div className="p-3 flex flex-col gap-4">
+              {selected.type === 'imageGenerationNode' ? (
+                <ImageGenProperties
+                  nodeId={selected.id}
+                  data={selected.data as Record<string, unknown>}
+                  updateNode={upd}
+                />
+              ) : selected.type === 'videoGenerationNode' ? (
+                <VideoGenProperties
+                  nodeId={selected.id}
+                  data={selected.data as unknown as VideoGenerationNodeData}
+                  updateNode={upd}
+                />
+              ) : selected.type === 'referenceImageNode' ? (
+                <ReferenceImageProperties data={selected.data as unknown as ReferenceImageNodeData} />
+              ) : (
+                <>
+                  {Object.keys(selected.data.params ?? {}).length > 0 && (
+                    <section>
+                      <SectionTitle>Parameters</SectionTitle>
+                      <div className="flex flex-col gap-2">
+                        {Object.entries(selected.data.params ?? {}).map(([key, value]) => (
+                          <ParamField
+                            key={key}
+                            paramKey={key}
+                            value={value}
+                            onChange={(newVal) =>
+                              updateNode(selected.id, {
+                                params: { ...selected.data.params, [key]: newVal },
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {selected.data.output !== undefined && (
+                    <section>
+                      <SectionTitle>Output</SectionTitle>
+                      <div
+                        className="p-2 rounded text-[11px] text-[var(--text-secondary)] font-mono break-all"
+                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                      >
+                        {typeof selected.data.output === 'string'
+                          ? selected.data.output
+                          : JSON.stringify(selected.data.output, null, 2)}
+                      </div>
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -497,7 +491,6 @@ interface ParamFieldProps {
 function ParamField({ paramKey, value, onChange }: ParamFieldProps) {
   const label = paramKey.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())
 
-  // プロンプト系は常にtextarea
   if (paramKey === 'prompt' || paramKey === 'negativePrompt') {
     return (
       <div className="flex flex-col gap-1">

@@ -1,4 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
+import { MapTrifold } from '@phosphor-icons/react'
 import {
   ReactFlow,
   Background,
@@ -17,6 +18,7 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
+import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { ContextMenu } from './ContextMenu'
 import { TextNode } from '../nodes/TextNode'
@@ -276,6 +278,8 @@ export function Canvas() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const [showMiniMap, setShowMiniMap] = useState(false)
+  const miniMapBtnRef = useRef<HTMLButtonElement>(null)
   const rfInstance = useRef<ReactFlowInstance<AppNode, Edge> | null>(null)
   const connectingNode = useRef<string | null>(null)
   const connectingHandle = useRef<string | null>(null)
@@ -359,6 +363,18 @@ export function Canvas() {
     }, 150)
     return () => clearTimeout(timer)
   }, [isLoadingWorkflow, currentWorkflowId])
+
+  useEffect(() => {
+    if (!showMiniMap) return
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as HTMLElement
+      if (target.closest('.react-flow__minimap')) return
+      if (miniMapBtnRef.current?.contains(target)) return
+      setShowMiniMap(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showMiniMap])
 
   const handlePaneContextMenu = useCallback((e: React.MouseEvent | MouseEvent) => {
     e.preventDefault()
@@ -767,6 +783,9 @@ export function Canvas() {
           ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
         })
       }
+      setTimeout(() => {
+        rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
+      }, 50)
     },
     [addNode]
   )
@@ -802,7 +821,7 @@ export function Canvas() {
         onConnectEnd={handleConnectEnd}
         onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
-        onInit={(instance) => { rfInstance.current = instance }}
+        onInit={(instance) => { rfInstance.current = instance; rfInstanceRef.current = instance }}
         onViewportChange={handleViewportChange}
         nodeTypes={nodeTypes}
         panOnDrag={[1, 2]}
@@ -843,22 +862,65 @@ export function Canvas() {
             boxShadow: 'none',
           }}
         />
-        <MiniMap
-          nodeColor={(n) => {
-            const type = (n.data as { type?: string })?.type
-            if (type === 'image') return '#8B5CF6'
-            if (type === 'video') return '#EC4899'
-            if (type === 'utility') return '#6B7280'
-            return '#6366F1'
-          }}
-          maskColor={isDark ? 'rgba(10,10,11,0.7)' : 'rgba(237,236,234,0.7)'}
-          style={{
-            background: surfaceBg,
-            border: `1px solid ${borderCol}`,
-            borderRadius: 8,
-          }}
-        />
+        {showMiniMap && (
+          <MiniMap
+            pannable
+            nodeColor={(n) => {
+              const type = (n.data as { type?: string })?.type
+              if (type === 'image') return '#8B5CF6'
+              if (type === 'video') return '#EC4899'
+              if (type === 'utility') return '#6B7280'
+              return '#6366F1'
+            }}
+            maskColor={isDark ? 'rgba(10,10,11,0.7)' : 'rgba(237,236,234,0.7)'}
+            style={{
+              background: surfaceBg,
+              border: `1px solid ${borderCol}`,
+              borderRadius: 8,
+              bottom: 60,
+              right: 16,
+            }}
+          />
+        )}
       </ReactFlow>
+
+      {/* ミニマップ トグルボタン */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 16,
+          right: 16,
+          zIndex: 20,
+        }}
+      >
+        <button
+          ref={miniMapBtnRef}
+          onClick={() => setShowMiniMap((v) => !v)}
+          title={showMiniMap ? 'ミニマップを非表示' : 'ミニマップを表示'}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 150ms ease-out',
+            border: `1px solid ${borderCol}`,
+            background: showMiniMap ? 'var(--accent)' : surfaceBg,
+            color: showMiniMap ? '#fff' : 'var(--text-secondary)',
+            boxShadow: 'none',
+          }}
+          onMouseEnter={(e) => {
+            if (!showMiniMap) (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'
+          }}
+          onMouseLeave={(e) => {
+            if (!showMiniMap) (e.currentTarget as HTMLElement).style.background = surfaceBg
+          }}
+        >
+          <MapTrifold size={17} />
+        </button>
+      </div>
 
       {contextMenu && (
         <ContextMenu

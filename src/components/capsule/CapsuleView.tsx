@@ -6,6 +6,7 @@ import { fal } from '../../lib/ai/fal-client'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import type { CapsuleFieldDef } from '../../types/nodes'
+import type { VideoModelDefinition } from '../../lib/ai/types'
 
 const FLUX_MODELS = [
   { value: 'black-forest-labs/flux-schnell', label: 'FLUX Schnell' },
@@ -416,7 +417,12 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (!node) return null
   const d = node.data as Record<string, unknown>
   const params = (d.params as Record<string, unknown>) ?? {}
-  const label = field.capsuleLabel ?? field.id
+  const FIELD_LABELS: Record<string, string> = {
+    model: 'Model', duration: 'Duration', aspectRatio: 'Aspect Ratio',
+    resolution: 'Resolution', audioEnabled: 'Audio', seed: 'Seed',
+    fps: 'FPS', prompt: 'Prompt',
+  }
+  const label = field.capsuleLabel ?? FIELD_LABELS[field.id] ?? field.id
 
   // visible と editable (後方互換) の両方を編集可能として扱う
   const isEditable = field.capsuleVisibility !== 'hidden'
@@ -428,9 +434,10 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     return <ImageUploadField nodeId={nodeId} label={label === 'imageUrl' ? '参照画像' : label} />
   }
 
+  const videoDirectFields = ['model', 'duration', 'aspectRatio', 'resolution', 'fps', 'audioEnabled', 'seed']
+
   function updateField(value: unknown) {
-    const videoFields = ['model', 'duration', 'aspectRatio', 'fps', 'audioEnabled', 'seed']
-    if (videoFields.includes(field.id) && isVideoGenNode) {
+    if (videoDirectFields.includes(field.id) && isVideoGenNode) {
       updateNode(nodeId, { [field.id]: value } as never)
     } else {
       updateNode(nodeId, { params: { ...params, [field.id]: value } } as never)
@@ -438,8 +445,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   }
 
   function getValue(): string {
-    const videoFields = ['model', 'duration', 'aspectRatio']
-    if (videoFields.includes(field.id) && isVideoGenNode) {
+    if (videoDirectFields.includes(field.id) && isVideoGenNode) {
       return String(d[field.id] ?? '')
     }
     return String(params[field.id] ?? '')
@@ -546,7 +552,13 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   // VideoGenerationNode: アスペクト比ボタングループ
   if (field.id === 'aspectRatio' && isVideoGenNode) {
     const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
-    const ratios = currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
+    const edges = useCanvasStore.getState().edges
+    const hasConnectedImage = edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
+    const ratios = (
+      hasConnectedImage && (currentVideoModel as VideoModelDefinition | undefined)?.i2vSupportedAspectRatios
+        ? (currentVideoModel as VideoModelDefinition).i2vSupportedAspectRatios!
+        : currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
+    ) as string[]
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
@@ -589,6 +601,28 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
         >
           {durations.map((dur) => (
             <option key={dur} value={dur}>{dur}秒</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  // VideoGenerationNode: resolution セレクト
+  if (field.id === 'resolution' && isVideoGenNode) {
+    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    const resolutions = currentVideoModel?.supportedResolutions ?? []
+    if (resolutions.length <= 1) return null
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
+        <select
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+          value={value}
+          onChange={(e) => updateField(e.target.value)}
+        >
+          {resolutions.map((r) => (
+            <option key={r} value={r}>{r}</option>
           ))}
         </select>
       </div>
@@ -963,7 +997,7 @@ function StepTabs({
                 className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0"
                 style={
                   status === 'done'
-                    ? { background: '#14532D', border: '1px solid #22C55E', color: '#22C55E' }
+                    ? { background: '#22C55E', color: 'white' }
                     : isActive
                     ? { background: '#4C1D95', border: '1px solid #8B5CF6', color: '#C4B5FD' }
                     : { background: 'var(--bg-panel)', border: '1px solid var(--border)', color: '#52525B' }

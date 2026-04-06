@@ -47,8 +47,9 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
 
   return (
     <div
-      className="relative w-full h-full rounded-xl"
+      className="relative w-full h-full"
       style={{
+        borderRadius: 12,
         border: `1px dashed ${isCapsuleTarget ? '#8B5CF6' : 'var(--border-active)'}`,
         background: isCapsuleTarget ? 'rgba(139,92,246,0.04)' : 'rgba(255,255,255,0.01)',
       }}
@@ -65,10 +66,10 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
       <div
         className="absolute top-0 left-0 right-0 flex items-center gap-1.5 px-2.5 nodrag"
         style={{
-          height: 28,
+          height: 36,
           background: 'var(--bg-canvas)',
           borderBottom: `1px dashed ${isCapsuleTarget ? '#8B5CF6' : 'var(--border-active)'}`,
-          borderRadius: '12px 12px 0 0',
+          borderRadius: '11px 11px 0 0',
         }}
       >
         <Layers size={12} style={{ color: isCapsuleTarget ? '#8B5CF6' : 'var(--text-tertiary)', flexShrink: 0 }} />
@@ -126,7 +127,7 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
               App
             </>
           ) : (
-            <>App化</>
+            <>App</>
           )}
         </button>
       </div>

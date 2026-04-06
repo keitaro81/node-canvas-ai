@@ -21,6 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import type { NodeType } from '../../types/nodes'
 import type { WorkflowRow } from '../../lib/api/workflows'
 
@@ -40,7 +41,6 @@ const PALETTE = [
     items: [
       { type: 'imageGen' as NodeType, label: 'Image Generation', description: 'AI画像を生成', icon: <Sparkle size={15} />, color: '#8B5CF6' },
       { type: 'referenceImage' as NodeType, label: 'Reference Image', description: '参照画像をアップロード', icon: <Image size={15} />, color: '#8B5CF6' },
-      { type: 'imageDisplay' as NodeType, label: 'Image Display', description: '画像を表示', icon: <ImageSquare size={15} />, color: '#8B5CF6' },
     ],
   },
   {
@@ -61,6 +61,31 @@ const PALETTE = [
 // ─────────────────────────────────────────
 // ノード追加パネル
 // ─────────────────────────────────────────
+const NODE_TYPE_MAP: Record<NodeType, string> = {
+  text: 'textNode', image: 'imageNode', video: 'videoNode', utility: 'utilityNode',
+  textPrompt: 'textPromptNode', imageGen: 'imageGenerationNode', imageDisplay: 'imageDisplayNode',
+  videoGen: 'videoGenerationNode', videoDisplay: 'videoDisplayNode', referenceImage: 'referenceImageNode',
+  imageComposite: 'imageCompositeNode', note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode',
+}
+
+let nodeIdCounter = 1000
+
+function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
+  if (type === 'videoGen') {
+    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null }
+  }
+  if (type === 'referenceImage') {
+    return { label, imageUrl: null, uploadedImagePreview: null }
+  }
+  if (type === 'imageGen') {
+    return { type: 'imageGen', label, params: { model: 'black-forest-labs/flux-schnell', aspectRatio: '1:1', seed: '' }, status: 'idle' }
+  }
+  if (type === 'promptEnhancer') {
+    return { type: 'promptEnhancer', label, params: {}, status: 'idle', inputText: '', outputText: '', model: 'anthropic/claude-haiku-4.5' }
+  }
+  return { type, label, params: {}, status: 'idle' }
+}
+
 function NodePanel({ onClose }: { onClose: () => void }) {
   const addNode = useCanvasStore((s) => s.addNode)
 
@@ -70,7 +95,28 @@ function NodePanel({ onClose }: { onClose: () => void }) {
   }
 
   function handleAdd(type: NodeType, label: string) {
-    addNode(type, label)
+    const rf = rfInstanceRef.current
+    // キャンバス中央をフロー座標に変換
+    const canvasEl = document.querySelector('.react-flow') as HTMLElement | null
+    const bounds = canvasEl?.getBoundingClientRect()
+    const screenCenter = bounds
+      ? { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
+      : { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+    const pos = rf
+      ? rf.screenToFlowPosition(screenCenter)
+      : screenCenter
+
+    const id = `node-${Date.now()}-${nodeIdCounter++}`
+    addNode({
+      id,
+      type: NODE_TYPE_MAP[type],
+      position: { x: pos.x - 140, y: pos.y - 80 },
+      data: buildNodeData(type, label) as never,
+      ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+    })
+    setTimeout(() => {
+      rfInstanceRef.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
+    }, 50)
     onClose()
   }
 

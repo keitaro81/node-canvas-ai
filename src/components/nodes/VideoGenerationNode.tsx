@@ -313,6 +313,27 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             </div>
           )}
 
+          {/* Resolution */}
+          {currentModel && currentModel.supportedResolutions.length > 1 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Resolution</label>
+                <CapsuleFieldToggle fieldId="resolution" visibility={getCapsuleVisibility('resolution')} onChange={handleCapsuleChange} />
+              </div>
+              <select
+                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                value={nodeData.resolution}
+                onChange={(e) => upd(updateNode, id, { resolution: e.target.value })}
+                disabled={isGenerating}
+              >
+                {currentModel.supportedResolutions.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Aspect Ratio */}
           {currentModel && (
             <div>

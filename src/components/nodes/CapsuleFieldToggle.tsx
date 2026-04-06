@@ -16,8 +16,8 @@ const LABELS: Record<CapsuleVisibility, string> = {
 
 const STYLES: Record<CapsuleVisibility, React.CSSProperties> = {
   hidden:   { background: 'var(--bg-panel)', color: 'var(--text-tertiary)', border: '1px solid var(--border)' },
-  visible:  { background: '#4C1D95', color: '#C4B5FD', border: '1px solid #7C3AED' },
-  editable: { background: '#4C1D95', color: '#C4B5FD', border: '1px solid #7C3AED' },
+  visible:  { background: 'var(--border-active)', color: 'white', border: '1px solid var(--border-active)' },
+  editable: { background: 'var(--border-active)', color: 'white', border: '1px solid var(--border-active)' },
 }
 
 export function CapsuleFieldToggle({ fieldId, visibility, onChange }: CapsuleFieldToggleProps) {

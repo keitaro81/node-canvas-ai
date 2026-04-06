@@ -15,7 +15,6 @@ import { useAutoSave } from './hooks/useAutoSave'
 import { useTheme } from './hooks/useTheme'
 
 function AppInner() {
-  const [rightOpen, setRightOpen] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
   const { theme, toggle: toggleTheme } = useTheme()
   const { loadWorkflows, createNewWorkflow, loadWorkflow } = useWorkflowStore()
@@ -80,8 +79,8 @@ function AppInner() {
           <main className="flex-1 min-w-0 h-full relative">
             <Canvas />
             <FloatingToolbar />
+            <RightPanel />
           </main>
-          <RightPanel open={rightOpen} onToggle={() => setRightOpen((v) => !v)} />
         </div>
         {appMode === 'capsule' && <CapsuleView />}
       </div>

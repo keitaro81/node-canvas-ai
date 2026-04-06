@@ -97,7 +97,6 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
     >
       {/* Left: Logo + Workflow name + save status */}
       <div className="flex items-center gap-2 min-w-0" style={{ width: '35%' }}>
-        <Sparkle size={16} weight="fill" style={{ color: 'var(--accent)' }} className="shrink-0" />
         <span
           className="text-[14px] font-semibold shrink-0"
           style={{ color: 'var(--text-primary)' }}
