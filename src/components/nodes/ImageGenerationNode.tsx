@@ -435,7 +435,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <div className="flex gap-1">
                   {resolutions.map((r) => {
                     const active = resolution === r
-                    const is4K = r === '4K'
                     return (
                       <button
                         key={r}
