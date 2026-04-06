@@ -10,7 +10,6 @@ import {
   Sparkle,
   FilmStrip,
   Image,
-  ImageSquare,
   Note,
   Wrench,
   MagicWand,
@@ -474,7 +473,21 @@ export function FloatingToolbar() {
   }
 
   function handleAddNote() {
-    addNode('note', 'Note')
+    const rf = rfInstanceRef.current
+    const canvasEl = document.querySelector('.react-flow') as HTMLElement | null
+    const bounds = canvasEl?.getBoundingClientRect()
+    const screenCenter = bounds
+      ? { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
+      : { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+    const pos = rf ? rf.screenToFlowPosition(screenCenter) : screenCenter
+    const id = `node-${Date.now()}-${nodeIdCounter++}`
+    addNode({
+      id,
+      type: 'noteNode',
+      position: { x: pos.x - 140, y: pos.y - 80 },
+      data: { type: 'note', label: 'Note', params: {}, status: 'idle' } as never,
+      style: { width: 280, height: 160 },
+    })
   }
 
   // パネル外クリック / Escape で閉じる
