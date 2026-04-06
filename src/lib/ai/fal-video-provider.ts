@@ -54,6 +54,21 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
   },
+  {
+    id: 'kling-v3-pro',
+    name: 'Kling v3 Pro',
+    endpoint: 'fal-ai/kling-video/v3/pro/text-to-video',
+    i2vEndpoint: 'fal-ai/kling-video/v3/pro/image-to-video',
+    pricePerSecond: 0.1,
+    maxDuration: '15',
+    supportedDurations: ['3', '5', '10', '15'],
+    supportedResolutions: ['1080p'],
+    supportedAspectRatios: ['16:9', '9:16', '1:1'],
+    i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
+    features: [],
+    paramStyle: 'kling',
+    supportedModes: ['text-to-video', 'image-to-video'],
+  },
 ];
 
 /** 画像URLから自然サイズを取得し、16:9 / 9:16 / 1:1 の中で最も近い比率を返す */

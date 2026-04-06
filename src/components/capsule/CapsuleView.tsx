@@ -1045,7 +1045,7 @@ export function CapsuleView() {
         <Layers size={40} style={{ opacity: 0.2 }} />
         <div className="text-center">
           <div className="text-[14px] font-medium text-[var(--text-tertiary)] mb-1">Appが設定されていません</div>
-          <div className="text-[12px] text-[#52525B]">Canvasモードでノードをグループ化し、「App化」ボタンを押してください</div>
+          <div className="text-[12px] text-[#52525B]">Canvasモードでノードをグループ化し、「App」ボタンを押してください。</div>
         </div>
       </div>
     )

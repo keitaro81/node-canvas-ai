@@ -448,6 +448,9 @@ export function Canvas() {
           })
           autoConnect()
           checkAndDisableCapsuleIfNeeded(targetGroupId)
+          setTimeout(() => {
+            rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
+          }, 50)
           setContextMenu(null)
           return
         }
@@ -461,6 +464,9 @@ export function Canvas() {
         ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
       })
       autoConnect()
+      setTimeout(() => {
+        rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
+      }, 50)
       setContextMenu(null)
     },
     [contextMenu, addNode, onConnect]

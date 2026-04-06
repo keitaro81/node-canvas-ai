@@ -24,7 +24,7 @@ export interface AIProvider {
 
 // ===== ビデオ生成関連の型 =====
 
-export type VideoDuration = '5' | '6' | '8' | '10' | '12' | '14' | '16' | '18' | '20';
+export type VideoDuration = '3' | '5' | '6' | '8' | '10' | '12' | '14' | '15' | '16' | '18' | '20';
 export type VideoResolution = '1080p' | '1440p' | '2160p';
 export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | 'auto';
 export type VideoFps = 25 | 50;

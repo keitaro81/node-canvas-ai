@@ -488,6 +488,9 @@ export function FloatingToolbar() {
       data: { type: 'note', label: 'Note', params: {}, status: 'idle' } as never,
       style: { width: 280, height: 160 },
     })
+    setTimeout(() => {
+      rfInstanceRef.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
+    }, 50)
   }
 
   // パネル外クリック / Escape で閉じる
