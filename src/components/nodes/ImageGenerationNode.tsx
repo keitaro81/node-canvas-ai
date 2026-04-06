@@ -35,6 +35,12 @@ const FLUX_MODELS = [
   { value: 'black-forest-labs/flux-1.1-pro',  label: 'FLUX 1.1 Pro' },
   { value: 'fal-ai/flux-2',                   label: 'FLUX.2' },
   { value: 'fal-ai/nano-banana-2',             label: 'Nano Banana 2' },
+  { value: 'fal-ai/nano-banana-pro',           label: 'Nano Banana Pro' },
+]
+
+const NB_EDIT_MODELS = [
+  { value: 'fal-ai/nano-banana-2',   label: 'Nano Banana 2' },
+  { value: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
 ]
 
 
@@ -52,6 +58,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const storeEdges = useCanvasStore((s) => s.edges)
 
   const model = (nodeData.params?.model as string) ?? 'black-forest-labs/flux-schnell'
+  const editModel = (nodeData.params?.editModel as string) ?? 'fal-ai/nano-banana-2'
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
   const seed = (nodeData.params?.seed as string) ?? ''
   const errorMsg = nodeData.params?.error as string | undefined
@@ -69,6 +76,20 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     }
     updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
   }
+
+  // capsuleFields に未登録のフィールドを 'visible' で初期化する
+  // （未登録のままだと capsuleUtils が Object.values で列挙できずAppモードに表示されない）
+  useEffect(() => {
+    const defaultFields = ['model', 'editModel', 'aspectRatio', 'seed']
+    const current = (useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as NodeData | undefined)
+      ?.capsuleFields as Record<string, CapsuleFieldDef> | undefined ?? {}
+    const missing = defaultFields.filter((f) => !(f in current))
+    if (missing.length === 0) return
+    const updated = { ...current }
+    missing.forEach((f) => { updated[f] = { id: f, capsuleVisibility: 'visible' } })
+    updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   // 単一の in-image ハンドルに接続されたすべての画像エッジを接続順で取得
   // 旧ハンドルID (in-image-1, in-image-reference, in-image-2) は後方互換として含める
@@ -130,13 +151,14 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       // auto + 画像なし → 1:1 フォールバック
       const resolvedAspectRatio = aspectRatio === 'auto' ? '1:1' : aspectRatio
 
-      if (connectedImageUrls.length === 0 && model === 'fal-ai/nano-banana-2') {
-        // Nano Banana 2 T2I（Edge Functionを経由せず直接呼び出し）
+      const NB_T2I_MODELS = ['fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro']
+      if (connectedImageUrls.length === 0 && NB_T2I_MODELS.includes(model)) {
+        // Nano Banana T2I（Edge Functionを経由せず直接呼び出し）
         usedModel = model
-        const nb2Input: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio }
-        if (seed) nb2Input.seed = Number(seed)
-        const result = await fal.subscribe('fal-ai/nano-banana-2', {
-          input: nb2Input,
+        const nbInput: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio }
+        if (seed) nbInput.seed = Number(seed)
+        const result = await fal.subscribe(model, {
+          input: nbInput,
           logs: false,
         })
         outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
@@ -157,16 +179,17 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           throw new Error(result.error ?? '生成に失敗しました')
         }
       } else {
-        // 画像あり → Nano Banana 2 Edit
+        // 画像あり → 選択されたNano Banana Edit
         // auto の場合は aspect_ratio を省略して API に参照画像の寸法を使わせる
-        usedModel = 'fal-ai/nano-banana-2/edit'
-        const nb2EditInput: Record<string, unknown> = {
+        const editEndpoint = `${editModel}/edit`
+        usedModel = editEndpoint
+        const nbEditInput: Record<string, unknown> = {
           prompt,
           image_urls: connectedImageUrls,
           ...(aspectRatio !== 'auto' && { aspect_ratio: aspectRatio }),
         }
-        const result = await fal.subscribe('fal-ai/nano-banana-2/edit', {
-          input: nb2EditInput,
+        const result = await fal.subscribe(editEndpoint, {
+          input: nbEditInput,
           logs: false,
         })
         outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
@@ -203,7 +226,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         inputParams: {},
       })
     }
-  }, [id, model, aspectRatio, seed, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
+  }, [id, model, editModel, aspectRatio, seed, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -299,11 +322,37 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 : { background: 'rgba(34,197,94,0.15)', color: '#22C55E' }
               }
             >
-              {!hasImages ? 'T2I' : 'NB2 Edit'}
+              {!hasImages ? 'T2I' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
             </span>
           </div>
 
-          {/* 画像なし: T2Iモデル設定（画像あり時は自動でNB2 Edit） */}
+          {/* 画像あり: Edit用モデル選択 */}
+          {hasImages && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Edit Model</label>
+                <CapsuleFieldToggle fieldId="editModel" visibility={getCapsuleVisibility('editModel')} onChange={handleCapsuleChange} />
+              </div>
+              <div className="relative">
+                <select
+                  className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
+                  style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                  value={editModel}
+                  onChange={(e) =>
+                    updateNode(id, { params: { ...nodeData.params, editModel: e.target.value } })
+                  }
+                  disabled={isGenerating}
+                >
+                  {NB_EDIT_MODELS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+              </div>
+            </div>
+          )}
+
+          {/* 画像なし: T2Iモデル設定 */}
           {!hasImages && (
             <>
               <div>

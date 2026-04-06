@@ -79,7 +79,8 @@ export const falProvider: AIProvider = {
       { id: 'black-forest-labs/flux-dev',       name: 'FLUX Dev',            type: 'image' as const },
       { id: 'black-forest-labs/flux-1.1-pro',   name: 'FLUX 1.1 Pro',        type: 'image' as const },
       { id: 'fal-ai/flux-2',              name: 'FLUX.2',         type: 'image' as const },
-      { id: 'fal-ai/nano-banana-2',       name: 'Nano Banana 2',  type: 'image' as const },
+      { id: 'fal-ai/nano-banana-2',        name: 'Nano Banana 2',   type: 'image' as const },
+      { id: 'fal-ai/nano-banana-pro',     name: 'Nano Banana Pro', type: 'image' as const },
     ]
   },
 }

@@ -192,6 +192,19 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
   }
 
+  // capsuleFields に未登録のフィールドを 'visible' で初期化する
+  useEffect(() => {
+    const defaultFields = ['model', 'duration', 'resolution', 'aspectRatio']
+    const current = ((useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as unknown as NodeData | undefined)
+      ?.capsuleFields as Record<string, CapsuleFieldDef> | undefined) ?? {}
+    const missing = defaultFields.filter((f) => !(f in current))
+    if (missing.length === 0) return
+    const updated = { ...current }
+    missing.forEach((f) => { updated[f] = { id: f, capsuleVisibility: 'visible' } })
+    updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
   const togglePlay = () => {
     if (!videoRef.current) return
     videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause()
