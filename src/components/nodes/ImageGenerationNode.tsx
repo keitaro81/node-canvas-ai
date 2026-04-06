@@ -43,6 +43,10 @@ const NB_EDIT_MODELS = [
   { value: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
 ]
 
+const NB_RESOLUTIONS: Record<string, string[]> = {
+  'fal-ai/nano-banana-2':   ['0.5K', '1K', '2K', '4K'],
+  'fal-ai/nano-banana-pro': ['1K', '2K', '4K'],
+}
 
 const ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
 
@@ -60,6 +64,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const model = (nodeData.params?.model as string) ?? 'black-forest-labs/flux-schnell'
   const editModel = (nodeData.params?.editModel as string) ?? 'fal-ai/nano-banana-2'
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
+  const resolution = (nodeData.params?.resolution as string) ?? '1K'
   const seed = (nodeData.params?.seed as string) ?? ''
   const errorMsg = nodeData.params?.error as string | undefined
   const outputUrl = nodeData.output as string | undefined
@@ -80,7 +85,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   // capsuleFields に未登録のフィールドを 'visible' で初期化する
   // （未登録のままだと capsuleUtils が Object.values で列挙できずAppモードに表示されない）
   useEffect(() => {
-    const defaultFields = ['model', 'editModel', 'aspectRatio', 'seed']
+    const defaultFields = ['model', 'editModel', 'aspectRatio', 'resolution', 'seed']
     const current = (useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as NodeData | undefined)
       ?.capsuleFields as Record<string, CapsuleFieldDef> | undefined ?? {}
     const missing = defaultFields.filter((f) => !(f in current))
@@ -155,7 +160,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       if (connectedImageUrls.length === 0 && NB_T2I_MODELS.includes(model)) {
         // Nano Banana T2I（Edge Functionを経由せず直接呼び出し）
         usedModel = model
-        const nbInput: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio }
+        const nbInput: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio, resolution }
         if (seed) nbInput.seed = Number(seed)
         const result = await fal.subscribe(model, {
           input: nbInput,
@@ -186,6 +191,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         const nbEditInput: Record<string, unknown> = {
           prompt,
           image_urls: connectedImageUrls,
+          resolution,
           ...(aspectRatio !== 'auto' && { aspect_ratio: aspectRatio }),
         }
         const result = await fal.subscribe(editEndpoint, {
@@ -226,7 +232,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         inputParams: {},
       })
     }
-  }, [id, model, editModel, aspectRatio, seed, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
+  }, [id, model, editModel, aspectRatio, resolution, seed, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -414,6 +420,42 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               })}
             </div>
           </div>
+
+          {/* Resolution: NB系モデルのみ */}
+          {(() => {
+            const activeModel = hasImages ? editModel : model
+            const resolutions = NB_RESOLUTIONS[activeModel]
+            if (!resolutions) return null
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Resolution</label>
+                  <CapsuleFieldToggle fieldId="resolution" visibility={getCapsuleVisibility('resolution')} onChange={handleCapsuleChange} />
+                </div>
+                <div className="flex gap-1">
+                  {resolutions.map((r) => {
+                    const active = resolution === r
+                    const is4K = r === '4K'
+                    return (
+                      <button
+                        key={r}
+                        className="flex-1 py-1 rounded text-[11px] font-medium transition-colors nodrag"
+                        style={{
+                          background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                          color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+                        }}
+                        onClick={() => updateNode(id, { params: { ...nodeData.params, resolution: r } })}
+                        disabled={isGenerating}
+                      >
+                        {r}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Seed: T2Iモードのみ */}
           {!hasImages && (

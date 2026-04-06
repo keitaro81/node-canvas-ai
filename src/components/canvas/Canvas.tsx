@@ -87,6 +87,12 @@ const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
   videoUrl: null,
   fileName: null,
   error: null,
+  capsuleFields: {
+    model:       { id: 'model',       capsuleVisibility: 'visible' },
+    duration:    { id: 'duration',    capsuleVisibility: 'visible' },
+    resolution:  { id: 'resolution',  capsuleVisibility: 'visible' },
+    aspectRatio: { id: 'aspectRatio', capsuleVisibility: 'visible' },
+  },
 }
 
 const REFERENCE_IMAGE_DEFAULT_DATA: ReferenceImageNodeData = {
@@ -101,9 +107,17 @@ const IMAGE_GEN_DEFAULT_DATA = {
   params: {
     model: 'black-forest-labs/flux-schnell',
     aspectRatio: '1:1',
+    resolution: '1K',
     seed: '',
   },
   status: 'idle' as const,
+  capsuleFields: {
+    model:       { id: 'model',       capsuleVisibility: 'visible' },
+    editModel:   { id: 'editModel',   capsuleVisibility: 'visible' },
+    aspectRatio: { id: 'aspectRatio', capsuleVisibility: 'visible' },
+    resolution:  { id: 'resolution',  capsuleVisibility: 'visible' },
+    seed:        { id: 'seed',        capsuleVisibility: 'visible' },
+  },
 }
 
 const PROMPT_ENHANCER_DEFAULT_DATA = {

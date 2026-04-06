@@ -89,6 +89,7 @@ export interface VideoGenerationNodeData {
   videoUrl: string | null
   fileName: string | null
   error: string | null
+  capsuleFields?: Record<string, CapsuleFieldDef>
 }
 
 export interface ReferenceImageNodeData {

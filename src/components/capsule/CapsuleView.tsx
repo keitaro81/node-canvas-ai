@@ -418,7 +418,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   const d = node.data as Record<string, unknown>
   const params = (d.params as Record<string, unknown>) ?? {}
   const FIELD_LABELS: Record<string, string> = {
-    model: 'Model', duration: 'Duration', aspectRatio: 'Aspect Ratio',
+    model: 'Model', editModel: 'Edit Model', duration: 'Duration', aspectRatio: 'Aspect Ratio',
     resolution: 'Resolution', audioEnabled: 'Audio', seed: 'Seed',
     fps: 'FPS', prompt: 'Prompt',
   }
@@ -522,6 +522,63 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
                 onClick={() => updateField(ratio)}
               >
                 {ratio}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // ImageGenerationNode: Edit Modelセレクト
+  const NB_EDIT_MODELS_CAPSULE = [
+    { value: 'fal-ai/nano-banana-2',   label: 'Nano Banana 2' },
+    { value: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
+  ]
+  if (field.id === 'editModel' && isImageGenNode) {
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
+        <select
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+          value={value}
+          onChange={(e) => updateField(e.target.value)}
+        >
+          {NB_EDIT_MODELS_CAPSULE.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  // ImageGenerationNode: Resolution ボタングループ
+  const NB_RESOLUTIONS_CAPSULE: Record<string, string[]> = {
+    'fal-ai/nano-banana-2':   ['0.5K', '1K', '2K', '4K'],
+    'fal-ai/nano-banana-pro': ['1K', '2K', '4K'],
+  }
+  if (field.id === 'resolution' && isImageGenNode) {
+    const activeModel = (params.editModel as string) || (params.model as string) || ''
+    const resolutions = NB_RESOLUTIONS_CAPSULE[activeModel] ?? ['1K', '2K', '4K']
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
+        <div className="flex gap-1">
+          {resolutions.map((r) => {
+            const active = (value || '1K') === r
+            return (
+              <button
+                key={r}
+                className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
+                style={{
+                  background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+                }}
+                onClick={() => updateField(r)}
+              >
+                {r}
               </button>
             )
           })}
