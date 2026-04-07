@@ -289,6 +289,7 @@ export function Canvas() {
 
   const isLoadingWorkflow = useWorkflowStore((s) => s.isLoadingWorkflow)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
+  const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
@@ -812,7 +813,7 @@ export function Canvas() {
 
   return (
     <div
-      className="h-full w-full"
+      className={`h-full w-full${!isOwned ? ' canvas-readonly' : ''}`}
       style={{ background: canvasBg, position: 'relative' }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
@@ -851,9 +852,11 @@ export function Canvas() {
         panOnScroll={true}
         panOnScrollMode={PanOnScrollMode.Free}
         zoomActivationKeyCode="Meta"
-        deleteKeyCode={['Backspace', 'Delete']}
-        onNodeContextMenu={handleNodeContextMenu}
-        onPaneContextMenu={handlePaneContextMenu}
+        nodesDraggable={isOwned}
+        nodesConnectable={isOwned}
+        deleteKeyCode={isOwned ? ['Backspace', 'Delete'] : null}
+        onNodeContextMenu={isOwned ? handleNodeContextMenu : undefined}
+        onPaneContextMenu={isOwned ? handlePaneContextMenu : undefined}
         onPaneClick={() => setContextMenu(null)}
         onSelectionChange={handleSelectionChange}
         fitView

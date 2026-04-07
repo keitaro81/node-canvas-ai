@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
   Gear,
   SignOut,
@@ -9,6 +10,10 @@ import {
   Stack,
   Sun,
   Moon,
+  ArrowLeft,
+  Globe,
+  Lock,
+  Copy,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -56,12 +61,24 @@ interface HeaderProps {
 }
 
 export function Header({ theme, onToggleTheme }: HeaderProps) {
+  const navigate = useNavigate()
   const { user, signOut } = useAuth()
-  const { currentWorkflowName, currentWorkflowId, renameWorkflow, setCurrentWorkflowName } = useWorkflowStore()
+  const {
+    currentWorkflowName,
+    currentWorkflowId,
+    currentWorkflowIsPublic,
+    currentWorkflowIsOwned,
+    renameWorkflow,
+    setCurrentWorkflowName,
+    togglePublic,
+    cloneWorkflow,
+  } = useWorkflowStore()
   const appMode = useCanvasStore((s) => s.appMode)
   const setAppMode = useCanvasStore((s) => s.setAppMode)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(currentWorkflowName)
+  const [togglingPublic, setTogglingPublic] = useState(false)
+  const [cloning, setCloning] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   function startEdit() {
@@ -85,6 +102,25 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
     if (e.key === 'Escape') setEditing(false)
   }
 
+  async function handleTogglePublic() {
+    setTogglingPublic(true)
+    try {
+      await togglePublic()
+    } finally {
+      setTogglingPublic(false)
+    }
+  }
+
+  async function handleClone() {
+    setCloning(true)
+    try {
+      const newId = await cloneWorkflow()
+      navigate(`/canvas/${newId}`)
+    } finally {
+      setCloning(false)
+    }
+  }
+
   return (
     <header
       className="flex items-center shrink-0 px-4 border-b"
@@ -94,16 +130,27 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
         borderColor: 'var(--border-header)',
       }}
     >
-      {/* Left: Logo + Workflow name + save status */}
+      {/* Left: Back + Workflow name + save status */}
       <div className="flex items-center gap-2 min-w-0" style={{ width: '35%' }}>
-        <span
-          className="text-[14px] font-semibold shrink-0"
-          style={{ color: 'var(--text-primary)' }}
+        {/* Back to home */}
+        <button
+          onClick={() => navigate('/projects')}
+          className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150 shrink-0"
+          style={{ color: 'var(--text-secondary)' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+          title="ホームへ戻る"
         >
-          Node Canvas AI
-        </span>
+          <ArrowLeft size={15} />
+        </button>
+
         <div className="w-px h-4 shrink-0" style={{ background: 'var(--border)' }} />
-        {editing ? (
+
+        {!currentWorkflowIsOwned ? (
+          <span className="text-[12px] px-1 py-0.5 truncate min-w-0" style={{ color: 'var(--text-secondary)' }}>
+            {currentWorkflowName}
+          </span>
+        ) : editing ? (
           <input
             ref={inputRef}
             value={draft}
@@ -129,10 +176,10 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
             {currentWorkflowName}
           </button>
         )}
-        <SaveStatus />
+        {currentWorkflowIsOwned && <SaveStatus />}
       </div>
 
-      {/* Center: Mode toggle — ピル型 */}
+      {/* Center: Mode toggle */}
       <div className="flex-1 flex items-center justify-center">
         <div
           className="flex items-center p-0.5 rounded-full"
@@ -168,8 +215,55 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
         </div>
       </div>
 
-      {/* Right: Theme toggle + User + Settings */}
+      {/* Right: Public toggle / Read only + Clone + Theme + User + Settings */}
       <div className="flex items-center justify-end gap-1 shrink-0" style={{ width: '35%' }}>
+        {currentWorkflowIsOwned ? (
+          /* Public/Private toggle — 自分のワークフロー */
+          <button
+            onClick={handleTogglePublic}
+            disabled={togglingPublic}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150 disabled:opacity-50"
+            style={
+              currentWorkflowIsPublic
+                ? { background: 'rgba(34,197,94,0.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,0.25)' }
+                : { background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }
+            }
+            title={currentWorkflowIsPublic ? 'Communityに公開中 — クリックで非公開に' : 'クリックでCommunityに公開'}
+          >
+            {togglingPublic
+              ? <CircleNotch size={11} className="animate-spin" />
+              : currentWorkflowIsPublic
+                ? <Globe size={11} weight="fill" />
+                : <Lock size={11} />
+            }
+            {currentWorkflowIsPublic ? 'Public' : 'Private'}
+          </button>
+        ) : (
+          /* Read only + Clone — 他人のワークフロー */
+          <>
+            <span
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium shrink-0"
+              style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.2)' }}
+            >
+              <Lock size={11} />
+              Read only
+            </span>
+            <button
+              onClick={handleClone}
+              disabled={cloning}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150 disabled:opacity-50 shrink-0"
+              style={{ background: 'var(--accent)', color: '#fff' }}
+              title="自分のプロジェクトにコピーして編集可能にする"
+            >
+              {cloning
+                ? <CircleNotch size={11} className="animate-spin" />
+                : <Copy size={11} weight="bold" />
+              }
+              Clone
+            </button>
+          </>
+        )}
+
         {/* Theme toggle */}
         <button
           onClick={onToggleTheme}
@@ -179,21 +273,20 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
           title={theme === 'light' ? 'ダークモードへ' : 'ライトモードへ'}
         >
-          {theme === 'light'
-            ? <Moon size={15} />
-            : <Sun size={15} />
-          }
+          {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
         </button>
 
         {user && (
           <>
-            <span
-              className="text-[12px] truncate max-w-[120px]"
-              style={{ color: 'var(--text-tertiary)' }}
-              title={user.email ?? ''}
-            >
-              {user.email}
-            </span>
+            {currentWorkflowIsOwned && (
+              <span
+                className="text-[12px] truncate max-w-[120px]"
+                style={{ color: 'var(--text-tertiary)' }}
+                title={user.email ?? ''}
+              >
+                {user.email}
+              </span>
+            )}
             <button
               onClick={signOut}
               className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"

@@ -45,6 +45,8 @@ export interface Database {
           canvas_data: Json | null
           viewport: Json | null
           is_template: boolean
+          is_public: boolean
+          thumbnail_url: string | null
           created_at: string
           updated_at: string
         }
@@ -55,6 +57,8 @@ export interface Database {
           canvas_data?: Json | null
           viewport?: Json | null
           is_template?: boolean
+          is_public?: boolean
+          thumbnail_url?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -65,6 +69,8 @@ export interface Database {
           canvas_data?: Json | null
           viewport?: Json | null
           is_template?: boolean
+          is_public?: boolean
+          thumbnail_url?: string | null
           updated_at?: string
         }
       }

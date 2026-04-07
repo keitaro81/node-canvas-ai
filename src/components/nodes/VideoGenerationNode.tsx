@@ -9,6 +9,7 @@ import type { VideoGenerationNodeData, CapsuleFieldDef, CapsuleVisibility, NodeD
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress, VideoModelDefinition } from '../../lib/ai/types'
 import { saveGeneration } from '../../lib/api/generations'
+import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl } from '../../lib/api/storage'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,6 +124,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           upd(updateNode, id, { videoUrl: storedUrl })
         }).catch(() => {})
 
+        useWorkflowStore.getState().updateThumbnail(result.videoUrl)
         saveGeneration({
           nodeId: id,
           nodeType: 'video-generation',

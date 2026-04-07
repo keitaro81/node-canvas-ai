@@ -119,6 +119,15 @@
   background: var(--bg-canvas);
 }
 
+/* Read-only canvas: ノード・エッジの操作を全て無効化 */
+.canvas-readonly .react-flow__node,
+.canvas-readonly .react-flow__edge,
+.canvas-readonly .react-flow__edge-interaction,
+.canvas-readonly .react-flow__handle {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
 /* Controls — horizontal pill */
 .react-flow__controls {
   flex-direction: row !important;

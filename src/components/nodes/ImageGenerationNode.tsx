@@ -8,6 +8,7 @@ import type { NodeData, CapsuleFieldDef, CapsuleVisibility } from '../../types/n
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { getDefaultProvider } from '../../lib/ai/provider-registry'
 import { saveGeneration } from '../../lib/api/generations'
+import { useWorkflowStore } from '../../stores/workflowStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 
 async function downloadFile(url: string, filename: string) {
@@ -217,6 +218,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         outputUrl: outputImageUrl,
         inputParams: { prompt, model: usedModel },
       })
+      useWorkflowStore.getState().updateThumbnail(outputImageUrl)
     } catch (err) {
       updateNode(id, {
         status: 'error',

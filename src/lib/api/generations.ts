@@ -71,3 +71,65 @@ export async function getGenerations(workflowId: string): Promise<GenerationRow[
   if (error) throw error
   return data
 }
+
+/** ワークフローIDごとに最新の生成物URLを1件取得する */
+export async function getLatestGenerationUrlsByWorkflow(
+  workflowIds: string[]
+): Promise<Record<string, string>> {
+  if (!workflowIds.length) return {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from('generations') as any)
+    .select('workflow_id, output_url')
+    .in('workflow_id', workflowIds)
+    .eq('status', 'completed')
+    .not('output_url', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(workflowIds.length * 10)
+  if (error) throw error
+  const map: Record<string, string> = {}
+  for (const g of (data ?? []) as { workflow_id: string; output_url: string }[]) {
+    if (!map[g.workflow_id]) map[g.workflow_id] = g.output_url
+  }
+  return map
+}
+
+export type GenerationWithWorkflow = GenerationRow & { workflow_name: string }
+
+export async function getMyGenerations(): Promise<GenerationWithWorkflow[]> {
+  // Step 1: 自分のプロジェクト一覧
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: projects, error: projError } = await (supabase.from('projects') as any).select('id')
+  if (projError) throw projError
+  if (!projects?.length) return []
+
+  const projectIds = (projects as { id: string }[]).map((p) => p.id)
+
+  // Step 2: 対象ワークフロー一覧（名前付き）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: workflows, error: wfError } = await (supabase.from('workflows') as any)
+    .select('id, name')
+    .in('project_id', projectIds)
+  if (wfError) throw wfError
+  if (!workflows?.length) return []
+
+  const typedWorkflows = workflows as { id: string; name: string }[]
+  const workflowMap: Record<string, string> = {}
+  for (const w of typedWorkflows) workflowMap[w.id] = w.name
+  const workflowIds = typedWorkflows.map((w) => w.id)
+
+  // Step 3: 完了済み生成物（output_url あり）を時系列降順
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: generations, error: genError } = await (supabase.from('generations') as any)
+    .select('*')
+    .in('workflow_id', workflowIds)
+    .eq('status', 'completed')
+    .not('output_url', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (genError) throw genError
+
+  return ((generations ?? []) as GenerationRow[]).map((g) => ({
+    ...g,
+    workflow_name: workflowMap[g.workflow_id] ?? 'Unknown',
+  }))
+}

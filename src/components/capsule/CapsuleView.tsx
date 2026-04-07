@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
+import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
@@ -1085,6 +1086,7 @@ export function CapsuleView() {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
+  const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
 
   const [activePreviewIndex, setActivePreviewIndex] = useState(0)
 
@@ -1121,7 +1123,14 @@ export function CapsuleView() {
   }
 
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className="flex-1 flex overflow-hidden" style={{ position: 'relative' }}>
+      {/* Read-only overlay — 他人のワークフローは操作不可 */}
+      {!isOwned && (
+        <div
+          className="absolute inset-0 z-50"
+          style={{ cursor: 'not-allowed', background: 'transparent' }}
+        />
+      )}
       {/* Left panel */}
       <div
         className="flex flex-col flex-shrink-0 overflow-hidden"

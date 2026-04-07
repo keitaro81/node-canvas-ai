@@ -6,6 +6,8 @@ import {
   createWorkflow,
   updateWorkflow,
   deleteWorkflow,
+  updateWorkflowThumbnail,
+  toggleWorkflowPublic,
   type WorkflowRow,
 } from '../lib/api/workflows'
 import { useCanvasStore } from './canvasStore'
@@ -23,11 +25,13 @@ export interface CanvasViewport {
 interface WorkflowState {
   currentWorkflowId: string | null
   currentWorkflowName: string
+  currentWorkflowIsPublic: boolean
+  currentWorkflowIsOwned: boolean  // 自分のプロジェクト配下かどうか
   workflows: WorkflowRow[]
   isSaving: boolean
   lastSavedAt: Date | null
   hasUnsavedChanges: boolean
-  isLoadingWorkflow: boolean   // ロード中は autoSave をスキップするためのフラグ
+  isLoadingWorkflow: boolean
   defaultProjectId: string | null
 
   loadWorkflows(): Promise<void>
@@ -39,11 +43,16 @@ interface WorkflowState {
   setCurrentWorkflowName(name: string): void
   markUnsavedChanges(): void
   initializeDefaultProject(): Promise<string>
+  togglePublic(): Promise<void>
+  updateThumbnail(url: string): Promise<void>
+  cloneWorkflow(sourceId?: string): Promise<string>  // クローンして新しいworkflowIdを返す
 }
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   currentWorkflowId: null,
   currentWorkflowName: 'Untitled Workflow',
+  currentWorkflowIsPublic: false,
+  currentWorkflowIsOwned: true,
   workflows: [],
   isSaving: false,
   lastSavedAt: null,
@@ -97,9 +106,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       setEdges(canvasData?.edges ?? [])
       setCapsuleGroupId(canvasData?.capsuleGroupId ?? null)
 
+      const isOwned = workflow.project_id === get().defaultProjectId
       set({
         currentWorkflowId: id,
         currentWorkflowName: workflow.name,
+        currentWorkflowIsPublic: (workflow as { is_public?: boolean }).is_public ?? false,
+        currentWorkflowIsOwned: isOwned,
         hasUnsavedChanges: false,
         lastSavedAt: new Date(workflow.updated_at),
       })
@@ -179,5 +191,48 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   markUnsavedChanges(): void {
     set({ hasUnsavedChanges: true })
+  },
+
+  async togglePublic(): Promise<void> {
+    const { currentWorkflowId, currentWorkflowIsPublic } = get()
+    if (!currentWorkflowId) return
+    const next = !currentWorkflowIsPublic
+    await toggleWorkflowPublic(currentWorkflowId, next)
+    set((state) => ({
+      currentWorkflowIsPublic: next,
+      workflows: state.workflows.map((w) =>
+        w.id === currentWorkflowId ? { ...w, is_public: next } : w
+      ),
+    }))
+  },
+
+  async cloneWorkflow(sourceId?: string): Promise<string> {
+    const id = sourceId ?? get().currentWorkflowId
+    if (!id) throw new Error('No workflow to clone')
+    const source = await getWorkflow(id)
+    const projectId = await get().initializeDefaultProject()
+    const cloned = await createWorkflow({
+      project_id: projectId,
+      name: `Clone of ${source.name}`,
+      canvas_data: source.canvas_data,
+      thumbnail_url: (source as { thumbnail_url?: string | null }).thumbnail_url ?? undefined,
+    })
+    await get().loadWorkflows()
+    return cloned.id
+  },
+
+  async updateThumbnail(url: string): Promise<void> {
+    const { currentWorkflowId } = get()
+    if (!currentWorkflowId) return
+    try {
+      await updateWorkflowThumbnail(currentWorkflowId, url)
+      set((state) => ({
+        workflows: state.workflows.map((w) =>
+          w.id === currentWorkflowId ? { ...w, thumbnail_url: url } : w
+        ),
+      }))
+    } catch {
+      // fire-and-forget: サムネイル更新失敗は無視
+    }
   },
 }))

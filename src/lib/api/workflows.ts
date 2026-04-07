@@ -59,3 +59,33 @@ export async function deleteWorkflow(id: string): Promise<void> {
     .eq('id', id)
   if (error) throw error
 }
+
+export async function getPublicWorkflows(): Promise<WorkflowRow[]> {
+  const { data, error } = await supabase
+    .from('workflows')
+    .select('*')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .eq('is_public' as any, true)
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []) as any
+}
+
+export async function updateWorkflowThumbnail(id: string, thumbnailUrl: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const table = supabase.from('workflows') as any
+  const { error } = await table
+    .update({ thumbnail_url: thumbnailUrl, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function toggleWorkflowPublic(id: string, isPublic: boolean): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const table = supabase.from('workflows') as any
+  const { error } = await table
+    .update({ is_public: isPublic, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}

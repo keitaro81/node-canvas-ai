@@ -74,8 +74,8 @@ export function useAutoSave() {
       prevEdges = edges
       if (!changed) return
 
-      const { currentWorkflowId, isSaving, isLoadingWorkflow } = useWorkflowStore.getState()
-      if (!currentWorkflowId || isSaving || isLoadingWorkflow) return
+      const { currentWorkflowId, isSaving, isLoadingWorkflow, currentWorkflowIsOwned } = useWorkflowStore.getState()
+      if (!currentWorkflowId || isSaving || isLoadingWorkflow || !currentWorkflowIsOwned) return
 
       useWorkflowStore.getState().markUnsavedChanges()
 
