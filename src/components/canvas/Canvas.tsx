@@ -230,7 +230,11 @@ function groupSelectedNodes(
   nodes: AppNode[],
   setNodes: (ns: AppNode[]) => void
 ) {
+  // グループノードが選択に含まれる場合は不可
+  if (nodes.some((n) => n.selected && n.type === 'groupNode')) return
   const selected = nodes.filter((n) => n.selected && n.type !== 'groupNode')
+  // 既にグループ内にあるノードが1つでも含まれる場合は不可
+  if (selected.some((n) => n.parentId)) return
   if (selected.length < 2) return
 
   const padding = 40
@@ -291,6 +295,9 @@ export function Canvas() {
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [selectionNodes, setSelectionNodes] = useState<AppNode[]>([])
+  const selectionRef = useRef<AppNode[]>([])
+  const [vp, setVp] = useState({ x: 0, y: 0, zoom: 1 })
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [showMiniMap, setShowMiniMap] = useState(false)
@@ -320,14 +327,20 @@ export function Canvas() {
       }
       if (e.code === 'KeyG' && e.metaKey && !e.shiftKey) {
         e.preventDefault()
-        const { nodes: currentNodes, setNodes: storeSetNodes } = useCanvasStore.getState()
-        groupSelectedNodes(currentNodes, storeSetNodes)
+        const sel = selectionRef.current
+        const hasGroup   = sel.some((n) => n.type === 'groupNode')
+        const hasGrouped = sel.some((n) => n.parentId)
+        const freeCount  = sel.filter((n) => n.type !== 'groupNode' && !n.parentId).length
+        if (!hasGroup && !hasGrouped && freeCount >= 2) {
+          const { nodes: currentNodes, setNodes: storeSetNodes } = useCanvasStore.getState()
+          groupSelectedNodes(currentNodes, storeSetNodes)
+        }
       }
       if (e.code === 'KeyG' && e.metaKey && e.shiftKey) {
         e.preventDefault()
-        const { nodes: currentNodes, ungroupNodes } = useCanvasStore.getState()
-        const selectedGroup = currentNodes.find((n) => n.selected && n.type === 'groupNode')
-        if (selectedGroup) ungroupNodes(selectedGroup.id)
+        const sel = selectionRef.current
+        const selectedGroup = sel.find((n) => n.type === 'groupNode')
+        if (selectedGroup) useCanvasStore.getState().ungroupNodes(selectedGroup.id)
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
@@ -549,6 +562,8 @@ export function Canvas() {
   const handleSelectionChange = useCallback(
     ({ nodes: selected }: { nodes: AppNode[] }) => {
       setSelectedNode(selected.length === 1 ? selected[0].id : null)
+      setSelectionNodes(selected)
+      selectionRef.current = selected
     },
     [setSelectedNode]
   )
@@ -566,7 +581,7 @@ export function Canvas() {
   }, [])
 
   const handleViewportChange = useCallback(
-    (vp: Viewport) => setZoom(vp.zoom),
+    (v: Viewport) => { setZoom(v.zoom); setVp(v) },
     [setZoom]
   )
 
@@ -944,6 +959,136 @@ export function Canvas() {
           <MapTrifold size={17} />
         </button>
       </div>
+
+      {/* 複数選択時のフローティングアクションバー */}
+      {isOwned && (() => {
+        const selectedNonGroup = selectionNodes.filter((n) => n.type !== 'groupNode')
+        const selectedGroups = selectionNodes.filter((n) => n.type === 'groupNode')
+        // グループノードや既にグループ内にあるノードが1つでも含まれる場合はグループ化不可
+        const canGroup =
+          selectedGroups.length === 0 &&
+          selectedNonGroup.length >= 2 &&
+          selectedNonGroup.every((n) => !n.parentId)
+        const canUngroup = selectedGroups.length >= 1
+        if (!canGroup && !canUngroup) return null
+
+        // 選択ノードの絶対フロー座標バウンディングボックスを計算
+        const allSelected = selectionNodes
+        // parentId を持つノードは親の絶対座標を加算する
+        const absPositions = allSelected.map((n) => {
+          let ax = n.position.x
+          let ay = n.position.y
+          if (n.parentId) {
+            const parent = nodes.find((p) => p.id === n.parentId)
+            if (parent) { ax += parent.position.x; ay += parent.position.y }
+          }
+          return {
+            x1: ax,
+            y1: ay,
+            x2: ax + (n.measured?.width ?? (n.style?.width as number | undefined) ?? 280),
+            y2: ay + (n.measured?.height ?? (n.style?.height as number | undefined) ?? 160),
+          }
+        })
+
+        const maxFlowX = Math.max(...absPositions.map((p) => p.x2))
+        const minFlowY = Math.min(...absPositions.map((p) => p.y1))
+
+        // フロー座標 → キャンバスコンテナ内の絶対px座標
+        const screenRight = maxFlowX * vp.zoom + vp.x
+        const screenTop   = minFlowY * vp.zoom + vp.y
+
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              left: screenRight,
+              top: screenTop,
+              transform: 'translateX(-100%) translateY(calc(-100% - 8px))',
+              zIndex: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {canGroup && (
+              <button
+                onClick={() => {
+                  const { nodes: cur, setNodes: storeSet } = useCanvasStore.getState()
+                  groupSelectedNodes(cur, storeSet)
+                }}
+                title="グループ化 (⌘G)"
+                style={{
+                  width: 108,
+                  height: 30,
+                  padding: 0,
+                  borderRadius: 9999,
+                  border: 'none',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  flexShrink: 0,
+                  transition: 'all 150ms ease-out',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1.15)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.filter = 'none' }}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
+                  <rect x="1" y="1" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2.5 1.5"/>
+                  <rect x="3" y="3" width="3" height="3" rx="1" fill="currentColor" opacity="0.8"/>
+                  <rect x="7" y="3" width="3" height="3" rx="1" fill="currentColor" opacity="0.8"/>
+                  <rect x="3" y="7" width="3" height="3" rx="1" fill="currentColor" opacity="0.8"/>
+                  <rect x="7" y="7" width="3" height="3" rx="1" fill="currentColor" opacity="0.8"/>
+                </svg>
+                グループ化
+              </button>
+            )}
+            {canUngroup && (
+              <button
+                onClick={() => {
+                  const { ungroupNodes } = useCanvasStore.getState()
+                  selectedGroups.forEach((g) => ungroupNodes(g.id))
+                }}
+                title="グループ解除 (⌘⇧G)"
+                style={{
+                  width: 108,
+                  height: 30,
+                  padding: 0,
+                  borderRadius: 9999,
+                  border: 'none',
+                  background: 'var(--bg-toolbar)',
+                  color: 'var(--text-primary)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  flexShrink: 0,
+                  transition: 'all 150ms ease-out',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(0.93)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.filter = 'none' }}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
+                  <rect x="1" y="1" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2.5 1.5" opacity="0.4"/>
+                  <line x1="4" y1="4" x2="9" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1="9" y1="4" x2="4" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                グループ解除
+              </button>
+            )}
+          </div>
+        )
+      })()}
 
       {contextMenu && (
         <ContextMenu
