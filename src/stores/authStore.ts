@@ -92,8 +92,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   signOut: async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+    // scope=local でこのデバイスのセッションのみ削除。
+    // サーバー側が403を返してもローカル状態は必ずクリアする。
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
     set({ user: null, session: null })
   },
 

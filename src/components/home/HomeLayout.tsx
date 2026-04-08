@@ -11,7 +11,6 @@ import {
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { useEffect } from 'react'
 
 const NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'My Projects' },
@@ -34,12 +33,7 @@ function UserAvatar({ email }: { email: string }) {
 export function HomeLayout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
-  const { loadWorkflows, createNewWorkflow, workflows } = useWorkflowStore()
-
-  useEffect(() => {
-    loadWorkflows()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const { createNewWorkflow, workflows } = useWorkflowStore()
 
   async function handleNew() {
     await createNewWorkflow()

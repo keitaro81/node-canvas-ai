@@ -53,8 +53,14 @@ export function CanvasPage() {
         await loadWorkflows()
         await loadWorkflow(workflowId!)
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
         console.error('[CanvasPage] 初期化エラー:', err)
+        // ワークフローが見つからない場合（PGRST116）はプロジェクト一覧へ
+        const code = (err as { code?: string })?.code
+        if (code === 'PGRST116') {
+          navigate('/projects')
+          return
+        }
+        const msg = err instanceof Error ? err.message : String(err)
         setInitError(msg)
       } finally {
         setLoading(false)
