@@ -36,7 +36,6 @@ export function WorkflowListPanel() {
     workflows,
     currentWorkflowId,
     hasUnsavedChanges,
-    loadWorkflow,
     createNewWorkflow,
     renameWorkflow,
     deleteWorkflow: deleteWf,

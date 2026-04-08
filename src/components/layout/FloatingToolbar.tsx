@@ -226,7 +226,7 @@ function formatRelativeTime(dateStr: string): string {
 function WorkflowPanel({ onClose }: { onClose: () => void }) {
   const {
     workflows, currentWorkflowId, hasUnsavedChanges,
-    loadWorkflow, createNewWorkflow, renameWorkflow, deleteWorkflow: deleteWf,
+    createNewWorkflow, renameWorkflow, deleteWorkflow: deleteWf,
     saveCurrentWorkflow,
   } = useWorkflowStore()
 
