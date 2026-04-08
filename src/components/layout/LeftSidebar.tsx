@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, Type, Wrench, Sparkles, StickyNote, Layers, PanelLeft, Film, Wand2, ImagePlus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Type, Wrench, Sparkles, StickyNote, Layers, PanelLeft, Film, Wand2, ImagePlus, Video } from 'lucide-react'
 import type { NodeType } from '../../types/nodes'
 import { WorkflowListPanel } from '../panels/WorkflowListPanel'
 
@@ -61,6 +61,13 @@ const PALETTE: Array<{ category: string; color: string; items: NodeDef[] }> = [
         label: 'Video Generation',
         description: 'AI動画を生成',
         icon: <Film size={14} />,
+        color: '#EC4899',
+      },
+      {
+        type: 'referenceVideo',
+        label: 'Reference Video',
+        description: '参照動画をアップロード',
+        icon: <Video size={14} />,
         color: '#EC4899',
       },
     ],

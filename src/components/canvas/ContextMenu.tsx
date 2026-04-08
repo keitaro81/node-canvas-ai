@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup } from 'lucide-react'
+import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -13,6 +13,7 @@ interface MenuItem {
 const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   textPrompt:     [],
   referenceImage: [],
+  referenceVideo: [],
   promptEnhancer: [],
   imageGen:       ['text', 'image'],
   videoGen:       ['text', 'image'],
@@ -38,7 +39,8 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
   {
     category: 'Video',
     items: [
-      { type: 'videoGen', label: 'Video Generation', icon: <Film size={14} />, color: '#EC4899' },
+      { type: 'videoGen',       label: 'Video Generation', icon: <Film size={14} />,  color: '#EC4899' },
+      { type: 'referenceVideo', label: 'Reference Video',  icon: <Video size={14} />, color: '#EC4899' },
     ],
   },
   {

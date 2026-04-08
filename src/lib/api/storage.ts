@@ -22,6 +22,22 @@ export async function deleteImage(path: string): Promise<void> {
 }
 
 /**
+ * ローカルの動画Fileオブジェクトを直接Supabase Storageに保存し、公開URLを返す。
+ */
+export async function uploadVideoFile(file: File, nodeId: string): Promise<string> {
+  const ext = file.name.split('.').pop() || 'mp4'
+  const path = `${nodeId}/${Date.now()}.${ext}`
+
+  const { error } = await supabase.storage
+    .from(VIDEO_BUCKET)
+    .upload(path, file, { contentType: file.type || 'video/mp4', upsert: false })
+  if (error) throw error
+
+  const { data } = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path)
+  return data.publicUrl
+}
+
+/**
  * fal.aiの一時URLから動画をfetchしてSupabase Storageに保存し、公開URLを返す。
  */
 export async function uploadVideoFromUrl(sourceUrl: string, nodeId: string): Promise<string> {

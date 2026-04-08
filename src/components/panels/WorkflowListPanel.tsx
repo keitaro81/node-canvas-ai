@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Plus, MoreHorizontal, Pencil, Trash2, GitBranch } from 'lucide-react'
+import { useNavigate } from 'react-router'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import type { WorkflowRow } from '../../lib/api/workflows'
 
@@ -42,6 +43,7 @@ export function WorkflowListPanel() {
     saveCurrentWorkflow,
   } = useWorkflowStore()
 
+  const navigate = useNavigate()
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [rename, setRename] = useState<RenameState | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
@@ -67,13 +69,13 @@ export function WorkflowListPanel() {
       setSwitching(workflow.id)
       return
     }
-    await loadWorkflow(workflow.id)
+    navigate(`/canvas/${workflow.id}`)
   }
 
   async function handleSwitchConfirm(save: boolean) {
     if (!switching) return
     if (save) await saveCurrentWorkflow()
-    await loadWorkflow(switching)
+    navigate(`/canvas/${switching}`)
     setSwitching(null)
   }
 

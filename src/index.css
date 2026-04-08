@@ -163,6 +163,12 @@
 
 .react-flow__edge-path {
   stroke-width: 2;
+  opacity: 0.35;
+  transition: opacity 150ms ease-out;
+}
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  opacity: 1;
 }
 
 /* Layer ordering: edges below nodes.
@@ -188,6 +194,27 @@ svg.react-flow__connectionline {
 .handle-text  { background: radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 .handle-image { background: radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 .handle-video { background: radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
+
+/* Styled scrollbar for node textareas */
+.node-textarea {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-active) transparent;
+}
+.node-textarea::-webkit-scrollbar {
+  width: 6px;
+}
+.node-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+.node-textarea::-webkit-scrollbar-thumb {
+  background: var(--border-active);
+  border-radius: 3px;
+}
+.node-textarea::-webkit-scrollbar-thumb:hover {
+  background: #52525B;
+}
 
 /* Node pop-in animation */
 @keyframes nodePopIn {

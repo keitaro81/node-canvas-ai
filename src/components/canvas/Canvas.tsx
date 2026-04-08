@@ -32,10 +32,12 @@ import { NoteNode } from '../nodes/NoteNode'
 import { VideoGenerationNode } from '../nodes/VideoGenerationNode'
 import { VideoDisplayNode } from '../nodes/VideoDisplayNode'
 import { ReferenceImageNode } from '../nodes/ReferenceImageNode'
+import { ReferenceVideoNode } from '../nodes/ReferenceVideoNode'
 import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
-import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, PortType, GroupNodeData } from '../../types/nodes'
+import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
+import { uploadVideoFile } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
 import { useTheme } from '../../hooks/useTheme'
 
@@ -51,6 +53,7 @@ const nodeTypes: NodeTypes = {
   videoGenerationNode: VideoGenerationNode,
   videoDisplayNode: VideoDisplayNode,
   referenceImageNode: ReferenceImageNode,
+  referenceVideoNode: ReferenceVideoNode,
   noteNode: NoteNode,
   promptEnhancerNode: PromptEnhancerNode,
   groupNode: GroupNode,
@@ -67,6 +70,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   videoGen:       'videoGenerationNode',
   videoDisplay:   'videoDisplayNode',
   referenceImage:  'referenceImageNode',
+  referenceVideo:  'referenceVideoNode',
   imageComposite:  'imageCompositeNode', // kept for backward compat with saved workflows
   note:            'noteNode',
   promptEnhancer:  'promptEnhancerNode',
@@ -99,6 +103,12 @@ const REFERENCE_IMAGE_DEFAULT_DATA: ReferenceImageNodeData = {
   label: 'Reference Image',
   imageUrl: null,
   uploadedImagePreview: null,
+}
+
+const REFERENCE_VIDEO_DEFAULT_DATA: ReferenceVideoNodeData = {
+  label: 'Reference Video',
+  videoUrl: null,
+  uploadedVideoPreview: null,
 }
 
 const IMAGE_GEN_DEFAULT_DATA = {
@@ -430,6 +440,8 @@ export function Canvas() {
         data = { ...VIDEO_GEN_DEFAULT_DATA, label }
       } else if (type === 'referenceImage') {
         data = { ...REFERENCE_IMAGE_DEFAULT_DATA, label }
+      } else if (type === 'referenceVideo') {
+        data = { ...REFERENCE_VIDEO_DEFAULT_DATA, label }
       } else if (type === 'imageGen') {
         data = { ...IMAGE_GEN_DEFAULT_DATA, label }
       } else if (type === 'promptEnhancer') {
@@ -709,6 +721,7 @@ export function Canvas() {
     }
   }, [])
 
+
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault()
@@ -768,6 +781,61 @@ export function Canvas() {
         return
       }
 
+      // 動画ファイルのドラッグ&ドロップ
+      const videoFiles = Array.from(e.dataTransfer.files)
+        .filter((f) => f.type.startsWith('video/'))
+        .slice(0, 5)
+
+      if (videoFiles.length > 0) {
+        // 単一ファイルかつ既存の referenceVideoNode へのドロップ → 動画を入れ替え
+        if (videoFiles.length === 1) {
+          const targetEl = e.target as Element
+          const nodeEl = targetEl.closest('.react-flow__node') as HTMLElement | null
+          const targetNodeId = nodeEl?.getAttribute('data-id') ?? null
+          const targetNode = targetNodeId ? nodes.find((n) => n.id === targetNodeId) : null
+
+          if (targetNode?.type === 'referenceVideoNode') {
+            const previewUrl = URL.createObjectURL(videoFiles[0])
+            updateNode(targetNodeId!, { uploadedVideoPreview: previewUrl } as Parameters<typeof updateNode>[1])
+            uploadVideoFile(videoFiles[0], targetNodeId!).then((uploadedUrl: string) => {
+              updateNode(targetNodeId!, { videoUrl: uploadedUrl, uploadedVideoPreview: uploadedUrl } as Parameters<typeof updateNode>[1])
+            }).catch(() => {
+              updateNode(targetNodeId!, { videoUrl: null, uploadedVideoPreview: null } as Parameters<typeof updateNode>[1])
+            })
+            return
+          }
+        }
+
+        // 新規 ReferenceVideoNode を整列して生成（横一列、300px間隔）
+        const basePos = rfInstance.current?.screenToFlowPosition({
+          x: e.clientX,
+          y: e.clientY,
+        }) ?? { x: e.clientX, y: e.clientY }
+
+        const NODE_SPACING = 300
+        const totalWidth = NODE_SPACING * (videoFiles.length - 1)
+        const startX = basePos.x - totalWidth / 2
+
+        videoFiles.forEach((file, index) => {
+          const nodeId = `node-${Date.now()}-${nodeIdCounter++}`
+          const previewUrl = URL.createObjectURL(file)
+          addNode({
+            id: nodeId,
+            type: 'referenceVideoNode',
+            position: { x: startX + index * NODE_SPACING, y: basePos.y },
+            data: {
+              ...REFERENCE_VIDEO_DEFAULT_DATA,
+              label: 'Reference Video',
+              uploadedVideoPreview: previewUrl,
+            } as unknown as NodeData,
+          })
+          uploadVideoFile(file, nodeId).then((uploadedUrl: string) => {
+            updateNode(nodeId, { videoUrl: uploadedUrl, uploadedVideoPreview: uploadedUrl } as Parameters<typeof updateNode>[1])
+          }).catch(() => {})
+        })
+        return
+      }
+
       const raw = e.dataTransfer.getData('application/node-palette')
       if (!raw) return
       const { type, label } = JSON.parse(raw) as { type: NodeType; label: string }
@@ -783,6 +851,8 @@ export function Canvas() {
         data = { ...VIDEO_GEN_DEFAULT_DATA, label }
       } else if (type === 'referenceImage') {
         data = { ...REFERENCE_IMAGE_DEFAULT_DATA, label }
+      } else if (type === 'referenceVideo') {
+        data = { ...REFERENCE_VIDEO_DEFAULT_DATA, label }
       } else if (type === 'imageGen') {
         data = { ...IMAGE_GEN_DEFAULT_DATA, label }
       } else if (type === 'promptEnhancer') {

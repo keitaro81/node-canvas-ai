@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
-import { Play, Pause, Loader2, AlertCircle, Film, RotateCcw, Download, Maximize2, Volume2, VolumeX, X } from 'lucide-react'
+import { Play, Pause, Loader2, AlertCircle, Film, RotateCcw, Download, Maximize2, Volume2, VolumeX, X, Video } from 'lucide-react'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
@@ -17,6 +17,8 @@ const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Rec
   updateNode(id, patch)
 
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
+const v2vModels = allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
+const nonV2vModels = allVideoModels.filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
 
 async function downloadFile(url: string, filename: string) {
   try {
@@ -56,7 +58,25 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     return getImageUrlFromNodeData(sourceNode.data)
   })()
 
-  const currentModel = allVideoModels.find((m) => m.id === nodeData.model) ?? allVideoModels[0]
+  // 接続されている参照動画URLをリアクティブに取得
+  const connectedVideoUrl = (() => {
+    const videoEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-video')
+    if (!videoEdge) return null
+    const sourceNode = rfNodes.find((n) => n.id === videoEdge.source)
+    if (!sourceNode) return null
+    const d = sourceNode.data as Record<string, unknown>
+    return (d.videoUrl as string | null) ?? null
+  })()
+
+  const isV2VMode = !!connectedVideoUrl
+
+  // V2Vモード時はv2vモデルのみ、通常時はv2v以外のモデルを使用
+  const availableModels = isV2VMode ? v2vModels : nonV2vModels
+  const currentModel = (() => {
+    const found = availableModels.find((m) => m.id === nodeData.model)
+    if (found) return found
+    return availableModels[0]
+  })()
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -81,7 +101,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    const mode = connectedImageUrl ? 'image-to-video' : 'text-to-video'
+    const mode = connectedVideoUrl ? 'video-to-video' : connectedImageUrl ? 'image-to-video' : 'text-to-video'
     const modelForMode = currentModel
 
     upd(updateNode, id, { status: 'queued', progress: 'キュー待ち...', videoUrl: null, error: null })
@@ -96,6 +116,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       audioEnabled: nodeData.audioEnabled,
       seed: nodeData.seed,
       mode,
+      ...(mode === 'video-to-video' && connectedVideoUrl ? { videoUrl: connectedVideoUrl, ...(connectedImageUrl ? { imageUrl: connectedImageUrl } : {}) } : {}),
       ...(mode === 'image-to-video' && connectedImageUrl ? { imageUrl: connectedImageUrl } : {}),
     }
 
@@ -167,7 +188,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         inputParams: { prompt, model: currentModel?.id ?? nodeData.model, mode },
       })
     }
-  }, [id, nodeData, currentModel, connectedImageUrl, getConnectedPrompt, updateNode])
+  }, [id, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, getConnectedPrompt, updateNode])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -252,7 +273,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           type="target"
           position={Position.Left}
           style={{
-            top: '60%',
+            top: '55%',
             width: 20,
             height: 20,
             background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -261,11 +282,35 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           }}
         />
 
+        {/* Video input handle */}
+        <Handle
+          id="in-video"
+          type="target"
+          position={Position.Left}
+          style={{
+            top: '75%',
+            width: 20,
+            height: 20,
+            background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+            border: 'none',
+            borderRadius: 0,
+          }}
+        />
+
         {/* Body */}
         <div className="px-3 py-3 flex flex-col gap-2">
 
-          {/* Reference image indicator */}
-          {connectedImageUrl && (
+          {/* Mode indicator */}
+          {connectedVideoUrl && (
+            <div
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
+              style={{ background: 'rgba(236,72,153,0.1)', border: '1px solid rgba(236,72,153,0.3)', color: '#EC4899' }}
+            >
+              <Video size={11} />
+              参照動画あり → Video to Video
+            </div>
+          )}
+          {!connectedVideoUrl && connectedImageUrl && (
             <div
               className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
               style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', color: '#8B5CF6' }}
@@ -299,7 +344,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               }}
               disabled={isGenerating}
             >
-              {allVideoModels.map((model) => (
+              {availableModels.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name} (${model.pricePerSecond}/s)
                 </option>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router'
 import {
   Plus,
   FolderOpen,
@@ -17,6 +18,7 @@ import {
   DotsThree,
   Pencil,
   Trash,
+  Video,
 } from '@phosphor-icons/react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -45,7 +47,8 @@ const PALETTE = [
   {
     category: '動画',
     items: [
-      { type: 'videoGen' as NodeType, label: 'Video Generation', description: 'AI動画を生成', icon: <FilmStrip size={15} />, color: '#EC4899' },
+      { type: 'videoGen' as NodeType,       label: 'Video Generation', description: 'AI動画を生成',         icon: <FilmStrip size={15} />, color: '#EC4899' },
+      { type: 'referenceVideo' as NodeType, label: 'Reference Video',  description: '参照動画をアップロード', icon: <Video size={15} />,     color: '#EC4899' },
     ],
   },
   {
@@ -64,6 +67,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   text: 'textNode', image: 'imageNode', video: 'videoNode', utility: 'utilityNode',
   textPrompt: 'textPromptNode', imageGen: 'imageGenerationNode', imageDisplay: 'imageDisplayNode',
   videoGen: 'videoGenerationNode', videoDisplay: 'videoDisplayNode', referenceImage: 'referenceImageNode',
+  referenceVideo: 'referenceVideoNode',
   imageComposite: 'imageCompositeNode', note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode',
 }
 
@@ -75,6 +79,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'referenceImage') {
     return { label, imageUrl: null, uploadedImagePreview: null }
+  }
+  if (type === 'referenceVideo') {
+    return { label, videoUrl: null, uploadedVideoPreview: null }
   }
   if (type === 'imageGen') {
     return { type: 'imageGen', label, params: { model: 'black-forest-labs/flux-schnell', aspectRatio: '1:1', seed: '' }, status: 'idle' }
@@ -223,6 +230,7 @@ function WorkflowPanel({ onClose }: { onClose: () => void }) {
     saveCurrentWorkflow,
   } = useWorkflowStore()
 
+  const navigate = useNavigate()
   const [menu, setMenu] = useState<{ workflowId: string; x: number; y: number } | null>(null)
   const [rename, setRename] = useState<{ workflowId: string; name: string } | null>(null)
   const [confirm, setConfirm] = useState<{ workflowId: string; name: string } | null>(null)
@@ -243,13 +251,13 @@ function WorkflowPanel({ onClose }: { onClose: () => void }) {
   async function handleSwitch(wf: WorkflowRow) {
     if (wf.id === currentWorkflowId) return
     if (hasUnsavedChanges) { setSwitching(wf.id); return }
-    await loadWorkflow(wf.id)
+    navigate(`/canvas/${wf.id}`)
   }
 
   async function handleSwitchConfirm(save: boolean) {
     if (!switching) return
     if (save) await saveCurrentWorkflow()
-    await loadWorkflow(switching)
+    navigate(`/canvas/${switching}`)
     setSwitching(null)
   }
 

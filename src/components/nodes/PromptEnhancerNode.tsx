@@ -206,7 +206,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
       <div className="px-3 pt-2 pb-2 nodrag">
         {tab === 'input' ? (
           <textarea
-            className="w-full resize-none rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag nopan"
+            className="node-textarea resize-y w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag nopan"
             style={{
               background: 'var(--bg-canvas)',
               border: '1px solid var(--border)',
@@ -227,10 +227,11 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
               updateNode(id, { inputText: (e.target as HTMLTextAreaElement).value } as never)
             }}
             onKeyDown={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
           />
         ) : (
           <div
-            className="w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] overflow-y-auto"
+            className="node-textarea w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)]"
             style={{
               background: 'var(--bg-canvas)',
               border: '1px solid var(--border)',
@@ -239,6 +240,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}
+            onWheel={(e) => e.stopPropagation()}
           >
             {isGenerating ? (
               <span className="flex items-center gap-2 text-[var(--text-tertiary)]">

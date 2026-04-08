@@ -84,6 +84,32 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
   },
+  {
+    id: 'kling-o3-standard-v2v',
+    name: 'Kling O3 Standard V2V',
+    endpoint: 'fal-ai/kling-video/o3/standard/video-to-video/reference',
+    pricePerSecond: 0.07,
+    maxDuration: '10',
+    supportedDurations: ['5', '10'],
+    supportedResolutions: ['1080p'],
+    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
+    features: [],
+    paramStyle: 'kling-v2v',
+    supportedModes: ['video-to-video'],
+  },
+  {
+    id: 'kling-o3-pro-v2v',
+    name: 'Kling O3 Pro V2V',
+    endpoint: 'fal-ai/kling-video/o3/pro/video-to-video/reference',
+    pricePerSecond: 0.1,
+    maxDuration: '10',
+    supportedDurations: ['5', '10'],
+    supportedResolutions: ['1080p'],
+    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
+    features: [],
+    paramStyle: 'kling-v2v',
+    supportedModes: ['video-to-video'],
+  },
 ];
 
 /** 画像URLから自然サイズを取得し、16:9 / 9:16 / 1:1 の中で最も近い比率を返す */
@@ -120,6 +146,18 @@ async function buildInput(
     }
   } else {
     aspectRatio = request.aspectRatio
+  }
+
+  if (modelDef.paramStyle === 'kling-v2v') {
+    const input: Record<string, unknown> = {
+      prompt: request.prompt,
+      video_url: request.videoUrl,
+      duration: safeDuration,
+    }
+    if (aspectRatio && aspectRatio !== 'auto') input.aspect_ratio = aspectRatio
+    if (request.imageUrl) input.image_urls = [request.imageUrl]
+    if (request.seed != null) input.seed = request.seed
+    return input
   }
 
   if (modelDef.paramStyle === 'kling') {
@@ -173,8 +211,9 @@ export class FalVideoProvider implements VideoProvider {
     const safeFps = request.fps === 50 && requestedDuration > 10 ? 25 : (request.fps ?? 25);
 
     try {
-      const isI2V = !!request.imageUrl;
-      const endpoint = isI2V && modelDef.i2vEndpoint ? modelDef.i2vEndpoint : modelDef.endpoint;
+      const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v';
+      const isI2V = !isV2V && !!request.imageUrl;
+      const endpoint = isV2V ? modelDef.endpoint : (isI2V && modelDef.i2vEndpoint ? modelDef.i2vEndpoint : modelDef.endpoint);
       const input = await buildInput(modelDef, request, safeDuration, safeFps);
       console.log('[fal-video] request input:', input);
 

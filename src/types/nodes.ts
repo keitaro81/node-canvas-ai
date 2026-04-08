@@ -11,6 +11,7 @@ export type NodeType =
   | 'videoGen'
   | 'videoDisplay'
   | 'referenceImage'
+  | 'referenceVideo'
   | 'note'
   | 'imageComposite'
   | 'promptEnhancer'
@@ -68,6 +69,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   videoGen:       '#EC4899',
   videoDisplay:   '#EC4899',
   referenceImage:  '#8B5CF6',
+  referenceVideo:  '#EC4899',
   note:            '#F59E0B',
   imageComposite:  '#8B5CF6',
   promptEnhancer:  '#6366F1',
@@ -96,6 +98,12 @@ export interface ReferenceImageNodeData {
   label: string
   imageUrl: string | null
   uploadedImagePreview: string | null
+}
+
+export interface ReferenceVideoNodeData {
+  label: string
+  videoUrl: string | null
+  uploadedVideoPreview: string | null
 }
 
 export interface VideoDisplayNodeData {

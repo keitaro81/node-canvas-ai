@@ -31,12 +31,14 @@ function getImageUrlFromNode(node: AppNode): string | null {
 }
 
 const FLUX_MODELS = [
-  { value: 'black-forest-labs/flux-schnell',  label: 'FLUX Schnell' },
-  { value: 'black-forest-labs/flux-dev',      label: 'FLUX Dev' },
-  { value: 'black-forest-labs/flux-1.1-pro',  label: 'FLUX 1.1 Pro' },
-  { value: 'fal-ai/flux-2',                   label: 'FLUX.2' },
-  { value: 'fal-ai/nano-banana-2',             label: 'Nano Banana 2' },
-  { value: 'fal-ai/nano-banana-pro',           label: 'Nano Banana Pro' },
+  { value: 'black-forest-labs/flux-schnell',          label: 'FLUX Schnell' },
+  { value: 'black-forest-labs/flux-dev',              label: 'FLUX Dev' },
+  { value: 'black-forest-labs/flux-1.1-pro',          label: 'FLUX 1.1 Pro' },
+  { value: 'fal-ai/flux-2',                           label: 'FLUX.2' },
+  { value: 'fal-ai/nano-banana-2',                    label: 'Nano Banana 2' },
+  { value: 'fal-ai/nano-banana-pro',                  label: 'Nano Banana Pro' },
+  { value: 'fal-ai/recraft/v4/text-to-image',         label: 'Recraft V4' },
+  { value: 'fal-ai/recraft/v4/pro/text-to-image',     label: 'Recraft V4 Pro' },
 ]
 
 const NB_EDIT_MODELS = [
@@ -50,6 +52,19 @@ const NB_RESOLUTIONS: Record<string, string[]> = {
 }
 
 const ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
+
+const RECRAFT_MODELS = new Set([
+  'fal-ai/recraft/v4/text-to-image',
+  'fal-ai/recraft/v4/pro/text-to-image',
+])
+
+const RECRAFT_IMAGE_SIZES = [
+  { value: 'square',         label: '1:1' },
+  { value: 'landscape_16_9', label: '16:9' },
+  { value: 'portrait_16_9',  label: '9:16' },
+  { value: 'landscape_4_3',  label: '4:3' },
+  { value: 'portrait_4_3',   label: '3:4' },
+] as const
 
 
 
@@ -67,6 +82,8 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
   const resolution = (nodeData.params?.resolution as string) ?? '1K'
   const seed = (nodeData.params?.seed as string) ?? ''
+  const recraftImageSize = (nodeData.params?.recraftImageSize as string) ?? 'square'
+  const isRecraftModel = RECRAFT_MODELS.has(model)
   const errorMsg = nodeData.params?.error as string | undefined
   const outputUrl = nodeData.output as string | undefined
   const isGenerating = nodeData.status === 'generating'
@@ -158,7 +175,15 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       const resolvedAspectRatio = aspectRatio === 'auto' ? '1:1' : aspectRatio
 
       const NB_T2I_MODELS = ['fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro']
-      if (connectedImageUrls.length === 0 && NB_T2I_MODELS.includes(model)) {
+      if (connectedImageUrls.length === 0 && RECRAFT_MODELS.has(model)) {
+        // Recraft T2I（直接呼び出し）
+        usedModel = model
+        const recraftInput: Record<string, unknown> = { prompt, image_size: recraftImageSize }
+        if (seed) recraftInput.seed = Number(seed)
+        const result = await fal.subscribe(model, { input: recraftInput, logs: false })
+        outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+        if (!outputImageUrl) throw new Error('生成に失敗しました')
+      } else if (connectedImageUrls.length === 0 && NB_T2I_MODELS.includes(model)) {
         // Nano Banana T2I（Edge Functionを経由せず直接呼び出し）
         usedModel = model
         const nbInput: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio, resolution }
@@ -234,7 +259,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         inputParams: {},
       })
     }
-  }, [id, model, editModel, aspectRatio, resolution, seed, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
+  }, [id, model, editModel, aspectRatio, resolution, seed, recraftImageSize, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -388,40 +413,70 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             </>
           )}
 
-          {/* Aspect Ratio: T2I・Editモード共通 */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
-              <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
+          {/* Aspect Ratio: Recraftは専用サイズUI、それ以外は通常 */}
+          {!hasImages && isRecraftModel ? (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
+                <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
+              </div>
+              <div className="flex gap-1 flex-wrap">
+                {RECRAFT_IMAGE_SIZES.map((s) => {
+                  const active = recraftImageSize === s.value
+                  return (
+                    <button
+                      key={s.value}
+                      className="flex-1 py-1 rounded text-[11px] font-medium transition-colors nodrag"
+                      style={{
+                        background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+                        minWidth: 0,
+                      }}
+                      onClick={() => updateNode(id, { params: { ...nodeData.params, recraftImageSize: s.value } })}
+                      disabled={isGenerating}
+                    >
+                      {s.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-            <div className="flex gap-1 flex-wrap">
-              {ASPECT_RATIOS.map((ratio) => {
-                const active = aspectRatio === ratio
-                const isAutoDisabled = ratio === 'auto' && !hasImages
-                return (
-                  <button
-                    key={ratio}
-                    className="flex-1 py-1 rounded text-[11px] font-medium transition-colors nodrag"
-                    style={{
-                      background: active ? '#8B5CF6' : 'var(--bg-elevated)',
-                      color: active ? 'var(--text-primary)' : isAutoDisabled ? 'var(--border-active)' : 'var(--text-secondary)',
-                      border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
-                      cursor: isAutoDisabled ? 'not-allowed' : 'pointer',
-                      minWidth: 0,
-                    }}
-                    onClick={() => {
-                      if (isAutoDisabled) return
-                      updateNode(id, { params: { ...nodeData.params, aspectRatio: ratio } })
-                    }}
-                    disabled={isGenerating || isAutoDisabled}
-                    title={ratio === 'auto' ? '参照画像のアスペクト比を自動検出' : undefined}
-                  >
-                    {ratio}
-                  </button>
-                )
-              })}
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
+                <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
+              </div>
+              <div className="flex gap-1 flex-wrap">
+                {ASPECT_RATIOS.map((ratio) => {
+                  const active = aspectRatio === ratio
+                  const isAutoDisabled = ratio === 'auto' && !hasImages
+                  return (
+                    <button
+                      key={ratio}
+                      className="flex-1 py-1 rounded text-[11px] font-medium transition-colors nodrag"
+                      style={{
+                        background: active ? '#8B5CF6' : 'var(--bg-elevated)',
+                        color: active ? 'var(--text-primary)' : isAutoDisabled ? 'var(--border-active)' : 'var(--text-secondary)',
+                        border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+                        cursor: isAutoDisabled ? 'not-allowed' : 'pointer',
+                        minWidth: 0,
+                      }}
+                      onClick={() => {
+                        if (isAutoDisabled) return
+                        updateNode(id, { params: { ...nodeData.params, aspectRatio: ratio } })
+                      }}
+                      disabled={isGenerating || isAutoDisabled}
+                      title={ratio === 'auto' ? '参照画像のアスペクト比を自動検出' : undefined}
+                    >
+                      {ratio}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Resolution: NB系モデルのみ */}
           {(() => {

@@ -41,18 +41,18 @@ export const TextPromptNode = memo(function TextPromptNode(props: NodeProps) {
         />
       </div>
       <textarea
-        className="w-full resize-y rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag"
+        className="node-textarea resize-y w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag"
         style={{
           background: 'var(--bg-canvas)',
           border: '1px solid var(--border)',
           minHeight: '72px',
         }}
-        rows={3}
         placeholder="プロンプトを入力..."
         value={prompt}
         onChange={(e) =>
           updateNode(props.id, { params: { ...data.params, prompt: e.target.value } })
         }
+        onWheel={(e) => e.stopPropagation()}
       />
       <div className="text-[11px] text-[var(--text-tertiary)] text-right tabular-nums">
         {prompt.length} 文字

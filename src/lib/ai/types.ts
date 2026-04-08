@@ -38,8 +38,9 @@ export interface VideoGenerationRequest {
   seed?: number | null;
   audioEnabled?: boolean;          // デフォルト: true
   model: string;                   // フロントエンドID（例: 'ltx-2.3-fast'）
-  mode?: 'text-to-video' | 'image-to-video';  // 生成モード（デフォルト: 'text-to-video'）
-  imageUrl?: string;               // image-to-video 用の入力画像URL
+  mode?: 'text-to-video' | 'image-to-video' | 'video-to-video';
+  imageUrl?: string;               // image-to-video / video-to-video 参照画像URL
+  videoUrl?: string;               // video-to-video 用の入力動画URL
 }
 
 export interface VideoGenerationResult {
@@ -70,8 +71,8 @@ export interface VideoModelDefinition {
   supportedAspectRatios: VideoAspectRatio[];
   i2vSupportedAspectRatios?: VideoAspectRatio[]; // i2v時のアスペクト比（省略時はsupportedAspectRatiosを使用）
   features: string[];              // 例: ['audio', '4k']
-  paramStyle: 'ltx' | 'kling';    // API パラメータの組み立て方式
-  supportedModes: ('text-to-video' | 'image-to-video')[];
+  paramStyle: 'ltx' | 'kling' | 'kling-v2v';    // API パラメータの組み立て方式
+  supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];
 }
 
 // AIProvider インターフェースにビデオメソッドを追加するための型
