@@ -43,7 +43,9 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   const [modelOpen, setModelOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [localInput, setLocalInput] = useState(inputText)
+  const [localOutput, setLocalOutput] = useState(outputText)
   const isComposing = useRef(false)
+  const isOutputComposing = useRef(false)
   const nodeRef = useRef<HTMLDivElement>(null)
 
   // 外部クリックでドロップダウンを閉じる
@@ -62,6 +64,10 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   useEffect(() => {
     if (!isComposing.current) setLocalInput(inputText)
   }, [inputText])
+
+  useEffect(() => {
+    if (!isOutputComposing.current) setLocalOutput(outputText)
+  }, [outputText])
 
   const handleRun = useCallback(async () => {
     const prompt = inputText
@@ -88,10 +94,12 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
       const json = await response.json()
       const enhanced = (json.output as string) ?? ''
       updateNode(id, { outputText: enhanced, status: 'done' } as never)
+      setLocalOutput(enhanced)
       setTab('output')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'エラーが発生しました'
       updateNode(id, { outputText: msg, status: 'error' } as never)
+      setLocalOutput(msg)
       setTab('output')
     }
   }, [id, model, inputText, updateNode])
@@ -229,30 +237,46 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
             onKeyDown={(e) => e.stopPropagation()}
             onWheel={(e) => e.stopPropagation()}
           />
-        ) : (
+        ) : isGenerating ? (
           <div
-            className="node-textarea w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)]"
+            className="node-textarea w-full rounded-md px-2.5 py-2 text-[12px]"
             style={{
               background: 'var(--bg-canvas)',
               border: '1px solid var(--border)',
               minHeight: '180px',
               lineHeight: 1.6,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
             }}
-            onWheel={(e) => e.stopPropagation()}
           >
-            {isGenerating ? (
-              <span className="flex items-center gap-2 text-[var(--text-tertiary)]">
-                <Loader2 size={12} className="animate-spin" />
-                変換中...
-              </span>
-            ) : outputText ? (
-              outputText
-            ) : (
-              <span className="text-[var(--text-tertiary)]">まだ変換されていません。「▶」を押して実行してください。</span>
-            )}
+            <span className="flex items-center gap-2 text-[var(--text-tertiary)]">
+              <Loader2 size={12} className="animate-spin" />
+              変換中...
+            </span>
           </div>
+        ) : (
+          <textarea
+            className="node-textarea resize-y w-full rounded-md px-2.5 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors duration-150 nodrag nopan"
+            style={{
+              background: 'var(--bg-canvas)',
+              border: '1px solid var(--border)',
+              minHeight: '180px',
+              lineHeight: 1.6,
+            }}
+            placeholder="まだ変換されていません。「▶」を押して実行してください。"
+            value={localOutput}
+            onChange={(e) => {
+              setLocalOutput(e.target.value)
+              if (!isOutputComposing.current) {
+                updateNode(id, { outputText: e.target.value } as never)
+              }
+            }}
+            onCompositionStart={() => { isOutputComposing.current = true }}
+            onCompositionEnd={(e) => {
+              isOutputComposing.current = false
+              updateNode(id, { outputText: (e.target as HTMLTextAreaElement).value } as never)
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
+          />
         )}
       </div>
 
