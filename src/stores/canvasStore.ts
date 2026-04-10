@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { temporal } from 'zundo'
 import {
   addEdge,
   applyNodeChanges,
@@ -15,6 +16,62 @@ import type { NodeData, PortType } from '../types/nodes'
 export type AppNode = Node<NodeData>
 
 export type AppMode = 'graph' | 'capsule'
+
+// ===== Undo/Redo (zundo) =====
+
+/** 生成系フィールド: 変更時にundoスナップショットを作らない */
+const GEN_FIELDS = new Set([
+  'status', 'progress', 'videoUrl', 'output', 'error',
+  'requestId', 'requestEndpoint', 'fileName',
+  'outputText', 'uploadedImagePreview',
+])
+
+type PartialCanvasState = Pick<CanvasState, 'nodes' | 'edges'>
+
+/** 生成系フィールドのみ抽出（undo後に再適用するため） */
+function extractGenData(node: AppNode): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(node.data as Record<string, unknown>).filter(([k]) => GEN_FIELDS.has(k))
+  )
+}
+
+/**
+ * true = 等値（スナップショット不要）
+ * - ドラッグ中はスナップショットを作らない（ドラッグ終了時のみ記録）
+ * - 生成系フィールドのみの変化はスナップショット不要
+ */
+function areStatesEqual(past: PartialCanvasState, curr: PartialCanvasState): boolean {
+  if (curr.nodes.some(n => n.dragging)) return true
+
+  if (past.nodes.length !== curr.nodes.length) return false
+
+  // エッジ: 構造的比較（React Flow の selected フラグ変化を無視）
+  if (past.edges.length !== curr.edges.length) return false
+  for (let i = 0; i < past.edges.length; i++) {
+    const pe = past.edges[i], ce = curr.edges[i]
+    if (pe === ce) continue
+    if (pe.id !== ce.id || pe.source !== ce.source || pe.target !== ce.target) return false
+    if (pe.sourceHandle !== ce.sourceHandle || pe.targetHandle !== ce.targetHandle) return false
+  }
+
+  // ノード: 構造 + 生成系フィールドを除いたデータを比較
+  for (let i = 0; i < past.nodes.length; i++) {
+    const p = past.nodes[i], c = curr.nodes[i]
+    if (p === c) continue
+    if (p.id !== c.id || p.type !== c.type) return false
+    if (p.position.x !== c.position.x || p.position.y !== c.position.y) return false
+    if (p.style !== c.style || p.parentId !== c.parentId || p.extent !== c.extent) return false
+    if (p.data === c.data) continue
+    const pd = p.data as Record<string, unknown>
+    const cd = c.data as Record<string, unknown>
+    const allKeys = new Set([...Object.keys(pd), ...Object.keys(cd)])
+    for (const key of allKeys) {
+      if (GEN_FIELDS.has(key)) continue
+      if (pd[key] !== cd[key]) return false
+    }
+  }
+  return true
+}
 
 interface CanvasState {
   nodes: AppNode[]
@@ -78,7 +135,7 @@ const initialNodes: AppNode[] = [
   },
 ]
 
-export const useCanvasStore = create<CanvasState>((set, get) => ({
+export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
   nodes: initialNodes,
   edges: [],
   selectedNodeId: null,
@@ -256,4 +313,38 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
     })
   },
+}), {
+  partialize: (state): PartialCanvasState => ({ nodes: state.nodes, edges: state.edges }),
+  equality: areStatesEqual,
+  limit: 50,
 }))
+
+/** Cmd+Z: 構造的変更をundo。生成結果（videoUrl等）は現在の値を保持する */
+export function undoCanvas(): void {
+  const tp = useCanvasStore.temporal.getState()
+  if (tp.pastStates.length === 0) return
+  const genMap = new Map(useCanvasStore.getState().nodes.map(n => [n.id, extractGenData(n)]))
+  tp.undo()
+  tp.pause()
+  useCanvasStore.setState({
+    nodes: useCanvasStore.getState().nodes.map(n => ({
+      ...n, data: { ...n.data, ...(genMap.get(n.id) ?? {}) } as unknown as NodeData,
+    }))
+  })
+  tp.resume()
+}
+
+/** Cmd+Shift+Z: 構造的変更をredo。生成結果（videoUrl等）は現在の値を保持する */
+export function redoCanvas(): void {
+  const tp = useCanvasStore.temporal.getState()
+  if (tp.futureStates.length === 0) return
+  const genMap = new Map(useCanvasStore.getState().nodes.map(n => [n.id, extractGenData(n)]))
+  tp.redo()
+  tp.pause()
+  useCanvasStore.setState({
+    nodes: useCanvasStore.getState().nodes.map(n => ({
+      ...n, data: { ...n.data, ...(genMap.get(n.id) ?? {}) } as unknown as NodeData,
+    }))
+  })
+  tp.resume()
+}

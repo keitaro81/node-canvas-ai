@@ -18,7 +18,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
+import { useCanvasStore, undoCanvas, redoCanvas, type AppNode } from '../../stores/canvasStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { ContextMenu } from './ContextMenu'
@@ -354,6 +354,14 @@ export function Canvas() {
         const sel = selectionRef.current
         const selectedGroup = sel.find((n) => n.type === 'groupNode')
         if (selectedGroup) useCanvasStore.getState().ungroupNodes(selectedGroup.id)
+      }
+      // Cmd+Z: Undo / Cmd+Shift+Z: Redo
+      if (e.code === 'KeyZ' && e.metaKey) {
+        const activeEl = document.activeElement as HTMLElement | null
+        if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.isContentEditable) return
+        e.preventDefault()
+        if (e.shiftKey) redoCanvas()
+        else undoCanvas()
       }
       // Cmd+C: 選択ノードをコピー
       if (e.code === 'KeyC' && e.metaKey) {
