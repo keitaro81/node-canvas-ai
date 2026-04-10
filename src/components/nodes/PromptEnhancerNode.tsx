@@ -76,12 +76,11 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { status: 'generating' } as never)
 
     try {
-      const falKey = import.meta.env.VITE_FAL_KEY as string
-      const response = await fetch('https://fal.run/fal-ai/any-llm', {
+      const response = await fetch('/api/fal/proxy', {
         method: 'POST',
         headers: {
-          'Authorization': `Key ${falKey}`,
           'Content-Type': 'application/json',
+          'x-fal-target-url': 'https://fal.run/fal-ai/any-llm',
         },
         body: JSON.stringify({ model, system_prompt: SYSTEM_PROMPT, prompt }),
       })
