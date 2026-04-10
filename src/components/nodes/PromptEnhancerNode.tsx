@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Sparkles, LayoutGrid, Copy, Check, ChevronDown, Play, Loader2, Settings, FileOutput } from 'lucide-react'
 import { X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
+import { fal } from '../../lib/ai/fal-client'
 import { PORT_COLORS } from '../../types/nodes'
 
 type Tab = 'input' | 'output'
@@ -76,22 +77,13 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { status: 'generating' } as never)
 
     try {
-      const response = await fetch('/api/fal/proxy', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-fal-target-url': 'https://fal.run/fal-ai/any-llm',
-        },
-        body: JSON.stringify({ model, system_prompt: SYSTEM_PROMPT, prompt }),
+      type LLMOutput = { output?: string }
+      const result = await fal.subscribe('fal-ai/any-llm', {
+        input: { model, system_prompt: SYSTEM_PROMPT, prompt },
+        logs: false,
       })
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '')
-        console.error('[PromptEnhancer] fal.ai error:', response.status, errText)
-        const err = JSON.parse(errText || '{}')
-        throw new Error(err.detail ?? err.message ?? (errText || `HTTP ${response.status}`))
-      }
-      const json = await response.json()
-      const enhanced = (json.output as string) ?? ''
+      const data = (result as unknown as { data?: LLMOutput }).data
+      const enhanced = data?.output ?? ''
       updateNode(id, { outputText: enhanced, status: 'done' } as never)
       setLocalOutput(enhanced)
       setTab('output')
