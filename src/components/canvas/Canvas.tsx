@@ -72,7 +72,6 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   videoDisplay:   'videoDisplayNode',
   referenceImage:  'referenceImageNode',
   referenceVideo:  'referenceVideoNode',
-  imageComposite:  'imageCompositeNode', // kept for backward compat with saved workflows
   note:            'noteNode',
   promptEnhancer:  'promptEnhancerNode',
   group:           'groupNode',
