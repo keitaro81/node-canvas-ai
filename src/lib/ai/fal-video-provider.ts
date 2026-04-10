@@ -85,6 +85,45 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     supportedModes: ['text-to-video', 'image-to-video'],
   },
   {
+    id: 'seedance-2.0-fast',
+    name: 'Seedance 2.0',
+    endpoint: 'bytedance/seedance-2.0/text-to-video',
+    pricePerSecond: 0.05,
+    maxDuration: '15',
+    supportedDurations: ['5', '8', '10', '15'],
+    supportedResolutions: ['480p', '720p'],
+    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    features: ['audio'],
+    paramStyle: 'seedance',
+    supportedModes: ['text-to-video'],
+  },
+  {
+    id: 'seedance-2.0-i2v',
+    name: 'Seedance 2.0 I2V',
+    endpoint: 'bytedance/seedance-2.0/image-to-video',
+    pricePerSecond: 0.05,
+    maxDuration: '15',
+    supportedDurations: ['5', '8', '10', '15'],
+    supportedResolutions: ['480p', '720p'],
+    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    features: ['audio'],
+    paramStyle: 'seedance',
+    supportedModes: ['image-to-video'],
+  },
+  {
+    id: 'seedance-2.0-r2v',
+    name: 'Seedance 2.0 Reference',
+    endpoint: 'bytedance/seedance-2.0/reference-to-video',
+    pricePerSecond: 0.06,
+    maxDuration: '15',
+    supportedDurations: ['5', '8', '10', '15'],
+    supportedResolutions: ['480p', '720p'],
+    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    features: ['audio'],
+    paramStyle: 'seedance-r2v',
+    supportedModes: ['video-to-video'],
+  },
+  {
     id: 'kling-o3-standard-v2v',
     name: 'Kling O3 Standard V2V',
     endpoint: 'fal-ai/kling-video/o3/standard/video-to-video/reference',
@@ -140,6 +179,9 @@ async function buildInput(
     if (modelDef.paramStyle === 'kling' && request.imageUrl) {
       // Kling は 'auto' をサポートしないため画像サイズから最近傍比率を自動検出
       aspectRatio = await detectAspectRatio(request.imageUrl)
+    } else if (modelDef.paramStyle === 'seedance' || modelDef.paramStyle === 'seedance-r2v') {
+      // Seedance は 'auto' を明示的に渡す
+      aspectRatio = 'auto'
     } else {
       // LTX は aspect_ratio を省略すれば自動判定してくれる
       aspectRatio = undefined
@@ -167,6 +209,33 @@ async function buildInput(
     }
     if (aspectRatio) input.aspect_ratio = aspectRatio
     if (request.imageUrl) input.image_url = request.imageUrl
+    if (request.seed != null) input.seed = request.seed
+    return input
+  }
+
+  if (modelDef.paramStyle === 'seedance') {
+    const input: Record<string, unknown> = {
+      prompt: request.prompt,
+      resolution: request.resolution || '720p',
+      duration: safeDuration,
+      generate_audio: request.audioEnabled ?? true,
+      aspect_ratio: aspectRatio,
+    }
+    if (request.imageUrl) input.image_url = request.imageUrl
+    if (request.seed != null) input.seed = request.seed
+    return input
+  }
+
+  if (modelDef.paramStyle === 'seedance-r2v') {
+    const input: Record<string, unknown> = {
+      prompt: request.prompt,
+      resolution: request.resolution || '720p',
+      duration: safeDuration,
+      generate_audio: request.audioEnabled ?? true,
+      aspect_ratio: aspectRatio,
+    }
+    if (request.imageUrl) input.image_urls = [request.imageUrl]
+    if (request.videoUrl) input.video_urls = [request.videoUrl]
     if (request.seed != null) input.seed = request.seed
     return input
   }
@@ -211,7 +280,7 @@ export class FalVideoProvider implements VideoProvider {
     const safeFps = request.fps === 50 && requestedDuration > 10 ? 25 : (request.fps ?? 25);
 
     try {
-      const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v';
+      const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v' || modelDef.paramStyle === 'seedance-r2v';
       const isI2V = !isV2V && !!request.imageUrl;
       const endpoint = isV2V ? modelDef.endpoint : (isI2V && modelDef.i2vEndpoint ? modelDef.i2vEndpoint : modelDef.endpoint);
       const input = await buildInput(modelDef, request, safeDuration, safeFps);
