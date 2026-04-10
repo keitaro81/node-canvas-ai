@@ -91,6 +91,8 @@ const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
   videoUrl: null,
   fileName: null,
   error: null,
+  requestId: null,
+  requestEndpoint: null,
   capsuleFields: {
     model:       { id: 'model',       capsuleVisibility: 'visible' },
     duration:    { id: 'duration',    capsuleVisibility: 'visible' },
