@@ -10,7 +10,7 @@ import {
   toggleWorkflowPublic,
   type WorkflowRow,
 } from '../lib/api/workflows'
-import { useCanvasStore } from './canvasStore'
+import { useCanvasStore, loadCanvasState } from './canvasStore'
 import type { AppNode } from './canvasStore'
 import type { Edge } from '@xyflow/react'
 import type { Json } from '../types/database'
@@ -85,7 +85,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ isLoadingWorkflow: true })
     try {
       const workflow = await getWorkflow(id)
-      const { setNodes, setEdges, setCapsuleGroupId } = useCanvasStore.getState()
       const canvasData = workflow.canvas_data as { nodes?: AppNode[]; edges?: Edge[]; capsuleGroupId?: string | null } | null
 
       // 保存済みデータに blob: URL が残っていれば除去する
@@ -102,9 +101,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
         return { ...node, data }
       })
-      setNodes(restoredNodes as AppNode[])
-      setEdges(canvasData?.edges ?? [])
-      setCapsuleGroupId(canvasData?.capsuleGroupId ?? null)
+      // nodes/edges/capsuleGroupId を原子的にセット。
+      // 別々に set() すると「エッジ空」のundoスナップショットが混入するため loadCanvasState を使う。
+      loadCanvasState(
+        restoredNodes as AppNode[],
+        canvasData?.edges ?? [],
+        canvasData?.capsuleGroupId ?? null
+      )
 
       const isOwned = workflow.project_id === get().defaultProjectId
       set({
