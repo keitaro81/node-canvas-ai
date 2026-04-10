@@ -3,6 +3,9 @@ import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { configureFal } from '../lib/ai/fal-client'
 
+// アプリ起動時に一度だけfal clientを設定する
+configureFal()
+
 interface AuthState {
   user: User | null
   session: Session | null
@@ -101,11 +104,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   initialize: async () => {
     const { data: { session } } = await supabase.auth.getSession()
-    configureFal(session?.access_token ?? null)
     set({ user: session?.user ?? null, session, loading: false })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      configureFal(session?.access_token ?? null)
       set({ user: session?.user ?? null, session })
     })
 
