@@ -13,7 +13,6 @@ export type NodeType =
   | 'referenceImage'
   | 'referenceVideo'
   | 'note'
-  | 'imageComposite'
   | 'promptEnhancer'
   | 'group'
 
@@ -71,7 +70,6 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   referenceImage:  '#8B5CF6',
   referenceVideo:  '#EC4899',
   note:            '#F59E0B',
-  imageComposite:  '#8B5CF6',
   promptEnhancer:  '#6366F1',
 }
 

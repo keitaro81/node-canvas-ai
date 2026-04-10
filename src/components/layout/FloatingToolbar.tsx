@@ -68,7 +68,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   textPrompt: 'textPromptNode', imageGen: 'imageGenerationNode', imageDisplay: 'imageDisplayNode',
   videoGen: 'videoGenerationNode', videoDisplay: 'videoDisplayNode', referenceImage: 'referenceImageNode',
   referenceVideo: 'referenceVideoNode',
-  imageComposite: 'imageCompositeNode', note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode',
+  note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode',
 }
 
 let nodeIdCounter = 1000
