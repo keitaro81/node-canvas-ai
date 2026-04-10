@@ -11,6 +11,7 @@ import {
   type NodeTypes,
   type ReactFlowInstance,
   type Edge,
+  type NodeChange,
   type OnConnectStartParams,
   type FinalConnectionState,
   type Viewport,
@@ -320,6 +321,7 @@ export function Canvas() {
   const dragToBackupIdRef = useRef<Map<string, string>>(new Map())
   const originalEdgesRef = useRef<Edge[]>([])
   const spacePanRef = useRef<{ startX: number; startY: number; vpX: number; vpY: number; zoom: number } | null>(null)
+  const clipboardRef = useRef<{ nodes: AppNode[]; edges: Edge[] }>({ nodes: [], edges: [] })
 
   // Space キー押下管理 + Alt カーソル + ショートカット
   useEffect(() => {
@@ -351,6 +353,65 @@ export function Canvas() {
         const sel = selectionRef.current
         const selectedGroup = sel.find((n) => n.type === 'groupNode')
         if (selectedGroup) useCanvasStore.getState().ungroupNodes(selectedGroup.id)
+      }
+      // Cmd+C: 選択ノードをコピー
+      if (e.code === 'KeyC' && e.metaKey) {
+        const activeEl = document.activeElement as HTMLElement | null
+        if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.isContentEditable) return
+        const sel = selectionRef.current.filter((n) => n.type !== 'groupNode')
+        if (sel.length === 0) return
+        const selIds = new Set(sel.map((n) => n.id))
+        // コピー対象ノード間のエッジのみ抽出
+        const { edges: allEdges } = useCanvasStore.getState()
+        const innerEdges = allEdges.filter((e) => selIds.has(e.source) && selIds.has(e.target))
+        clipboardRef.current = { nodes: sel, edges: innerEdges }
+      }
+      // Cmd+V: コピーしたノードをペースト
+      if (e.code === 'KeyV' && e.metaKey) {
+        const activeEl = document.activeElement as HTMLElement | null
+        if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.isContentEditable) return
+        if (clipboardRef.current.nodes.length === 0) return
+        e.preventDefault()
+        const OFFSET = 30
+        const { onNodesChange: storeOnNodesChange, nodes: currentNodes, edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
+        // 旧ID → 新IDのマップを作成
+        const idMap = new Map<string, string>()
+        const newNodes: AppNode[] = clipboardRef.current.nodes.map((n) => {
+          const newId = `node-${Date.now()}-${nodeIdCounter++}`
+          idMap.set(n.id, newId)
+          return {
+            ...n,
+            id: newId,
+            position: { x: n.position.x + OFFSET, y: n.position.y + OFFSET },
+            selected: true,
+            dragging: false,
+            data: { ...n.data },
+          }
+        })
+        // エッジのsource/targetを新IDに差し替え
+        const newEdges: Edge[] = clipboardRef.current.edges.map((edge) => ({
+          ...edge,
+          id: `edge-${Date.now()}-${nodeIdCounter++}`,
+          source: idMap.get(edge.source)!,
+          target: idMap.get(edge.target)!,
+        }))
+        // onNodesChange 経由で適用:
+        //   1. 既存の選択ノードを deselect
+        //   2. 新ノードを add（selected: true 付き）
+        const changes: NodeChange<AppNode>[] = [
+          ...currentNodes
+            .filter((n) => n.selected)
+            .map((n) => ({ type: 'select' as const, id: n.id, selected: false })),
+          ...newNodes.map((n) => ({ type: 'add' as const, item: n })),
+        ]
+        storeOnNodesChange(changes)
+        // 既存の選択エッジを deselect し、新エッジを追加（selected エッジが残ると Delete で消されるため）
+        storeSetEdges([
+          ...currentEdges.map((e) => e.selected ? { ...e, selected: false } : e),
+          ...newEdges,
+        ])
+        // 次のペーストでさらにオフセットするようクリップボードを更新
+        clipboardRef.current = { nodes: newNodes, edges: newEdges }
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
@@ -643,6 +704,7 @@ export function Canvas() {
           ...e,
           source: srcInDrag ? dragToBackup.get(e.source)! : e.source,
           target: tgtInDrag ? dragToBackup.get(e.target)! : e.target,
+          selected: false, // 選択状態を引き継がない（backup エッジが selected のまま Delete で消えるのを防ぐ）
         }
       })
 
