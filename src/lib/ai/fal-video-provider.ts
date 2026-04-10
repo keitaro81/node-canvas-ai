@@ -259,7 +259,8 @@ export class FalVideoProvider implements VideoProvider {
 
   async generateVideo(
     request: VideoGenerationRequest,
-    onProgress?: (progress: VideoGenerationProgress) => void
+    onProgress?: (progress: VideoGenerationProgress) => void,
+    onRequestId?: (requestId: string, endpoint: string) => void
   ): Promise<VideoGenerationResult> {
     const modelDef = VIDEO_MODELS.find((m) => m.id === request.model);
     if (!modelDef) {
@@ -289,6 +290,9 @@ export class FalVideoProvider implements VideoProvider {
       const result = await fal.subscribe(endpoint, {
         input,
         logs: true,
+        onEnqueue: (requestId: string) => {
+          onRequestId?.(requestId, endpoint);
+        },
         onQueueUpdate: (update) => {
           if (!onProgress) return;
           if (update.status === 'IN_QUEUE') {
@@ -338,6 +342,61 @@ export class FalVideoProvider implements VideoProvider {
         id: String(Date.now()),
         status: 'failed',
         error: error instanceof Error ? error.message : 'Video generation failed',
+      };
+    }
+  }
+
+  async recoverVideo(
+    requestId: string,
+    endpoint: string,
+    onProgress?: (progress: VideoGenerationProgress) => void
+  ): Promise<VideoGenerationResult> {
+    try {
+      await fal.queue.subscribeToStatus(endpoint, {
+        requestId,
+        logs: true,
+        mode: 'polling',
+        pollInterval: 3000,
+        onQueueUpdate: (update) => {
+          if (!onProgress) return;
+          if (update.status === 'IN_QUEUE') {
+            onProgress({ status: 'IN_QUEUE' });
+          } else if (update.status === 'IN_PROGRESS') {
+            const logs =
+              'logs' in update
+                ? (update.logs || []).map((log: { message: string }) => log.message)
+                : [];
+            onProgress({ status: 'IN_PROGRESS', logs });
+          } else if (update.status === 'COMPLETED') {
+            onProgress({ status: 'COMPLETED' });
+          }
+        },
+      });
+
+      const result = await fal.queue.result(endpoint, { requestId });
+      console.log('[fal-video] recovery result:', result);
+
+      type VideoFile = { url?: string; file_name?: string; content_type?: string };
+      type FalResult = { data?: { video?: VideoFile; videos?: VideoFile[] } };
+      const data = (result as unknown as FalResult).data;
+      const video: VideoFile | undefined = data?.video ?? data?.videos?.[0] ?? undefined;
+
+      if (!video?.url) {
+        return { id: requestId, status: 'failed', error: 'No video URL in response' };
+      }
+
+      return {
+        id: requestId,
+        status: 'completed',
+        videoUrl: video.url,
+        fileName: video.file_name || 'output.mp4',
+        contentType: video.content_type || 'video/mp4',
+      };
+    } catch (error) {
+      return {
+        id: requestId,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Video recovery failed',
       };
     }
   }
