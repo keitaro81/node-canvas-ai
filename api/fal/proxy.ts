@@ -23,8 +23,11 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonResponse({ error: 'Forbidden' }, 403)
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
+  // VITE_ 変数はクライアントバンドルに埋め込まれると同時にEdge Functionでも参照可能。
+  // 環境ごとに正しいSupabaseプロジェクトを向くよう VITE_SUPABASE_URL を使う。
+  // （SUPABASE_URL は All Environments で本番を向いているため beta では使えない）
+  const supabaseUrl = process.env.VITE_SUPABASE_URL
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return jsonResponse({ error: 'Server configuration error' }, 500)
