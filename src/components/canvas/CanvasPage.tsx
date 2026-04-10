@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { CircleNotch } from '@phosphor-icons/react'
-import { initFalClient } from '../../lib/ai/fal-client'
 import { Canvas } from './Canvas'
 import { FloatingToolbar } from '../layout/FloatingToolbar'
 import { RightPanel } from '../panels/RightPanel'
@@ -38,10 +37,6 @@ export function CanvasPage() {
   const [initError, setInitError] = useState<string | null>(null)
 
   useAutoSave()
-
-  useEffect(() => {
-    initFalClient()
-  }, [])
 
   useEffect(() => {
     if (!workflowId) {
