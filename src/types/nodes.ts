@@ -89,6 +89,8 @@ export interface VideoGenerationNodeData {
   videoUrl: string | null
   fileName: string | null
   error: string | null
+  requestId: string | null        // fal.ai queue request ID for recovery on reload
+  requestEndpoint: string | null  // fal.ai endpoint used (required for recovery)
   capsuleFields?: Record<string, CapsuleFieldDef>
 }
 

@@ -80,6 +80,12 @@ export interface VideoProvider {
   name: string;
   generateVideo(
     request: VideoGenerationRequest,
+    onProgress?: (progress: VideoGenerationProgress) => void,
+    onRequestId?: (requestId: string, endpoint: string) => void
+  ): Promise<VideoGenerationResult>;
+  recoverVideo(
+    requestId: string,
+    endpoint: string,
     onProgress?: (progress: VideoGenerationProgress) => void
   ): Promise<VideoGenerationResult>;
   getAvailableVideoModels(): VideoModelDefinition[];

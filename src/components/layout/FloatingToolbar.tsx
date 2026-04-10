@@ -75,7 +75,7 @@ let nodeIdCounter = 1000
 
 function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   if (type === 'videoGen') {
-    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null }
+    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null }
   }
   if (type === 'referenceImage') {
     return { label, imageUrl: null, uploadedImagePreview: null }

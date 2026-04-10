@@ -39,6 +39,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const updateNode = useCanvasStore((s) => s.updateNode)
   const nodeData = data as unknown as VideoGenerationNodeData
   const videoRef = useRef<HTMLVideoElement>(null)
+  const isRecoveringRef = useRef(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [loop, setLoop] = useState(true)
@@ -104,7 +105,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     const mode = connectedVideoUrl ? 'video-to-video' : connectedImageUrl ? 'image-to-video' : 'text-to-video'
     const modelForMode = currentModel
 
-    upd(updateNode, id, { status: 'queued', progress: 'キュー待ち...', videoUrl: null, error: null })
+    upd(updateNode, id, { status: 'queued', progress: 'キュー待ち...', videoUrl: null, error: null, requestId: null, requestEndpoint: null })
 
     const request: VideoGenerationRequest = {
       prompt,
@@ -129,8 +130,14 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       }
     }
 
+    const onRequestId = (requestId: string, endpoint: string) => {
+      upd(updateNode, id, { requestId, requestEndpoint: endpoint })
+      // 生成中はデバウンスがリセットされ続けるため、requestId取得直後に即時保存する
+      useWorkflowStore.getState().saveCurrentWorkflow()
+    }
+
     try {
-      const result = await falVideoProvider.generateVideo(request, onProgress)
+      const result = await falVideoProvider.generateVideo(request, onProgress, onRequestId)
 
       if (result.status === 'completed' && result.videoUrl) {
         upd(updateNode, id, {
@@ -139,6 +146,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           videoUrl: result.videoUrl,
           fileName: result.fileName ?? null,
           error: null,
+          requestId: null,
+          requestEndpoint: null,
         })
 
         uploadVideoFromUrl(result.videoUrl, id).then((storedUrl) => {
@@ -164,7 +173,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           },
         })
       } else {
-        upd(updateNode, id, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
+        upd(updateNode, id, { status: 'failed', progress: '', error: result.error || '生成に失敗しました', requestId: null, requestEndpoint: null })
         saveGeneration({
           nodeId: id,
           nodeType: 'video-generation',
@@ -177,7 +186,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '予期しないエラー'
-      upd(updateNode, id, { status: 'failed', progress: '', error: errorMessage })
+      upd(updateNode, id, { status: 'failed', progress: '', error: errorMessage, requestId: null, requestEndpoint: null })
       saveGeneration({
         nodeId: id,
         nodeType: 'video-generation',
@@ -214,6 +223,71 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     }
     updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
   }
+
+  // ページリロード後のリカバリー: queued/processing かつ requestId がある場合にポーリングを再開する
+  useEffect(() => {
+    if (isRecoveringRef.current) return
+    const snap = useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as unknown as VideoGenerationNodeData & { requestEndpoint?: string | null } | undefined
+    const initStatus = snap?.status
+    const initRequestId = snap?.requestId
+    const initEndpoint = snap?.requestEndpoint ?? null
+
+    if (
+      (initStatus === 'queued' || initStatus === 'processing') &&
+      initRequestId &&
+      initEndpoint
+    ) {
+      isRecoveringRef.current = true
+      upd(updateNode, id, { progress: '復元中...' })
+
+      const onProgress = (progress: VideoGenerationProgress) => {
+        if (progress.status === 'IN_QUEUE') {
+          upd(updateNode, id, { status: 'queued', progress: 'キュー待ち（復元）...' })
+        } else if (progress.status === 'IN_PROGRESS') {
+          const latestLog = progress.logs?.[progress.logs.length - 1] || '生成中（復元）...'
+          upd(updateNode, id, { status: 'processing', progress: latestLog })
+        }
+      }
+
+      falVideoProvider.recoverVideo(initRequestId, initEndpoint, onProgress)
+        .then((result) => {
+          if (result.status === 'completed' && result.videoUrl) {
+            upd(updateNode, id, {
+              status: 'completed',
+              progress: '完了',
+              videoUrl: result.videoUrl,
+              fileName: result.fileName ?? null,
+              error: null,
+              requestId: null,
+              requestEndpoint: null,
+            })
+            uploadVideoFromUrl(result.videoUrl, id).then((storedUrl) => {
+              upd(updateNode, id, { videoUrl: storedUrl })
+            }).catch(() => {})
+            useWorkflowStore.getState().updateThumbnail(result.videoUrl)
+          } else {
+            upd(updateNode, id, {
+              status: 'failed',
+              progress: '',
+              error: result.error || '生成に失敗しました',
+              requestId: null,
+              requestEndpoint: null,
+            })
+          }
+        })
+        .catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : '復元に失敗しました'
+          upd(updateNode, id, {
+            status: 'failed',
+            progress: '',
+            error: errorMessage,
+            requestId: null,
+            requestEndpoint: null,
+          })
+        })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   // capsuleFields に未登録のフィールドを 'visible' で初期化する
   useEffect(() => {
