@@ -11,44 +11,17 @@ function jsonResponse(data: object, status: number): Response {
 }
 
 export default async function handler(req: Request): Promise<Response> {
-  // 1. fal クライアントが "Authorization: Key <token>" で送ってくるトークンを取り出す
-  //    本番では token = Supabase JWT、開発では VITE_FAL_KEY をそのまま送ってくるだけ
-  const authHeader = req.headers.get('authorization')
-  const token = authHeader?.startsWith('Key ') ? authHeader.slice(4) : null
-
-  if (!token) {
-    return jsonResponse({ error: 'Unauthorized' }, 401)
-  }
-
-  // 2. Supabase でトークンを検証（ログイン済みユーザーのみ通す）
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
+  const falKey = process.env.FAL_KEY
+  if (!falKey) {
     return jsonResponse({ error: 'Server configuration error' }, 500)
   }
 
-  try {
-    const verifyRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: supabaseAnonKey,
-      },
-    })
-    if (!verifyRes.ok) {
-      return jsonResponse({ error: 'Invalid or expired token' }, 401)
-    }
-  } catch {
-    return jsonResponse({ error: 'Auth verification failed' }, 500)
-  }
-
-  // 3. fal クライアントが x-fal-target-url ヘッダーで実際の宛先 URL を指定してくる
   const targetUrl = req.headers.get(FAL_TARGET_URL_HEADER)
   if (!targetUrl) {
     return jsonResponse({ error: 'Missing x-fal-target-url header' }, 400)
   }
 
-  // 4. SSRF 対策：fal.ai のドメインのみ許可
+  // SSRF対策：fal.aiのドメインのみ許可
   let parsedTarget: URL
   try {
     parsedTarget = new URL(targetUrl)
@@ -57,12 +30,6 @@ export default async function handler(req: Request): Promise<Response> {
   }
   if (!ALLOWED_FAL_HOSTS.includes(parsedTarget.hostname)) {
     return jsonResponse({ error: 'Target URL not allowed' }, 400)
-  }
-
-  // 5. サーバーサイドの FAL_KEY を付けて fal.ai に転送
-  const falKey = process.env.FAL_KEY
-  if (!falKey) {
-    return jsonResponse({ error: 'Server configuration error' }, 500)
   }
 
   const forwardHeaders = new Headers()
