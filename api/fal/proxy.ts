@@ -11,6 +11,39 @@ function jsonResponse(data: object, status: number): Response {
 }
 
 export default async function handler(req: Request): Promise<Response> {
+  // fal SDK は credentials を "Authorization: Key <token>" で送ってくる
+  // PromptEnhancer の直接 fetch も同形式で送る
+  const authHeader = req.headers.get('authorization')
+  const token = authHeader?.startsWith('Key ') ? authHeader.slice(4)
+              : authHeader?.startsWith('Bearer ') ? authHeader.slice(7)
+              : null
+
+  // 403を返す（401はブラウザがネイティブのBasic Auth ダイアログを出すため）
+  if (!token) {
+    return jsonResponse({ error: 'Forbidden' }, 403)
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return jsonResponse({ error: 'Server configuration error' }, 500)
+  }
+
+  try {
+    const verifyRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: supabaseAnonKey,
+      },
+    })
+    if (!verifyRes.ok) {
+      return jsonResponse({ error: 'Forbidden' }, 403)
+    }
+  } catch {
+    return jsonResponse({ error: 'Auth verification failed' }, 500)
+  }
+
   const falKey = process.env.FAL_KEY
   if (!falKey) {
     return jsonResponse({ error: 'Server configuration error' }, 500)
@@ -21,7 +54,6 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonResponse({ error: 'Missing x-fal-target-url header' }, 400)
   }
 
-  // SSRF対策：fal.aiのドメインのみ許可
   let parsedTarget: URL
   try {
     parsedTarget = new URL(targetUrl)
