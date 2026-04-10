@@ -29,10 +29,8 @@ export default async function handler(req: Request): Promise<Response> {
   const supabaseUrl = process.env.VITE_SUPABASE_URL
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
 
-  console.log('[proxy] auth:', authHeader?.slice(0, 20), 'token:', token?.slice(0, 20), 'supabaseUrl:', supabaseUrl ? 'set' : 'missing')
-
   if (!supabaseUrl || !supabaseAnonKey) {
-    return jsonResponse({ error: 'Server configuration error: supabase env missing' }, 500)
+    return jsonResponse({ error: 'Server configuration error' }, 500)
   }
 
   try {
