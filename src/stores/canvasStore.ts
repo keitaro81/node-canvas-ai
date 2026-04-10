@@ -319,6 +319,22 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
   limit: 50,
 }))
 
+/**
+ * ワークフロー読み込み時に呼ぶ。nodes/edges/capsuleGroupId を原子的にセットし、
+ * 読み込みで生じたundoスナップショット（エッジ空状態等）をすべてクリアする。
+ */
+export function loadCanvasState(
+  nodes: AppNode[],
+  edges: Edge[],
+  capsuleGroupId: string | null
+): void {
+  const tp = useCanvasStore.temporal.getState()
+  tp.pause()
+  useCanvasStore.setState({ nodes, edges, capsuleGroupId })
+  tp.resume()
+  tp.clear()
+}
+
 /** Cmd+Z: 構造的変更をundo。生成結果（videoUrl等）は現在の値を保持する */
 export function undoCanvas(): void {
   const tp = useCanvasStore.temporal.getState()
