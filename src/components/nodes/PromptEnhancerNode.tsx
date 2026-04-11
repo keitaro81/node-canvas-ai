@@ -11,13 +11,6 @@ type Tab = 'input' | 'output'
 const MODELS = [
   { value: 'anthropic/claude-haiku-4.5',  label: 'Claude Haiku 4.5' },
   { value: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
-  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'anthropic/claude-3-5-haiku',  label: 'Claude 3.5 Haiku' },
-  { value: 'openai/gpt-5-mini',           label: 'GPT-5 Mini' },
-  { value: 'openai/gpt-4o-mini',          label: 'GPT-4o Mini' },
-  { value: 'openai/gpt-4o',              label: 'GPT-4o' },
-  { value: 'google/gemini-2.5-flash',    label: 'Gemini 2.5 Flash' },
-  { value: 'google/gemini-flash-1.5',    label: 'Gemini 1.5 Flash' },
 ]
 
 const EXPORT_OPTIONS = [
