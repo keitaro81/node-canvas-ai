@@ -137,9 +137,6 @@ const initialNodes: AppNode[] = [
   },
 ]
 
-<<<<<<< HEAD
-export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
-=======
 export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
   /**
    * ドラッグ開始前の状態（ドラッグ終了時に手動でスナップショットを作るため）
@@ -163,7 +160,6 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
   let preDeletionState: PartialCanvasState | null = null
 
   return {
->>>>>>> main
   nodes: initialNodes,
   edges: [],
   selectedNodeId: null,
