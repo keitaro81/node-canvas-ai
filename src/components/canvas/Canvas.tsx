@@ -11,14 +11,14 @@ import {
   type NodeTypes,
   type ReactFlowInstance,
   type Edge,
-  type NodeChange,
+
   type OnConnectStartParams,
   type FinalConnectionState,
   type Viewport,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import { useCanvasStore, undoCanvas, redoCanvas, type AppNode } from '../../stores/canvasStore'
+import { useCanvasStore, undoCanvas, redoCanvas, pushSnapshot, type AppNode, type PartialCanvasState } from '../../stores/canvasStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { ContextMenu } from './ContextMenu'
@@ -319,6 +319,7 @@ export function Canvas() {
   const connectingHandle = useRef<string | null>(null)
   const lastFitWorkflowId = useRef<string | null>(null)
   const altDragActiveRef = useRef(false)
+  const altDragSnapshotRef = useRef<PartialCanvasState | null>(null)
   const dragToBackupIdRef = useRef<Map<string, string>>(new Map())
   const originalEdgesRef = useRef<Edge[]>([])
   const spacePanRef = useRef<{ startX: number; startY: number; vpX: number; vpY: number; zoom: number } | null>(null)
@@ -382,7 +383,6 @@ export function Canvas() {
         if (clipboardRef.current.nodes.length === 0) return
         e.preventDefault()
         const OFFSET = 30
-        const { onNodesChange: storeOnNodesChange, nodes: currentNodes, edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
         // 旧ID → 新IDのマップを作成
         const idMap = new Map<string, string>()
         const newNodes: AppNode[] = clipboardRef.current.nodes.map((n) => {
@@ -404,21 +404,8 @@ export function Canvas() {
           source: idMap.get(edge.source)!,
           target: idMap.get(edge.target)!,
         }))
-        // onNodesChange 経由で適用:
-        //   1. 既存の選択ノードを deselect
-        //   2. 新ノードを add（selected: true 付き）
-        const changes: NodeChange<AppNode>[] = [
-          ...currentNodes
-            .filter((n) => n.selected)
-            .map((n) => ({ type: 'select' as const, id: n.id, selected: false })),
-          ...newNodes.map((n) => ({ type: 'add' as const, item: n })),
-        ]
-        storeOnNodesChange(changes)
-        // 既存の選択エッジを deselect し、新エッジを追加（selected エッジが残ると Delete で消されるため）
-        storeSetEdges([
-          ...currentEdges.map((e) => e.selected ? { ...e, selected: false } : e),
-          ...newEdges,
-        ])
+        // ノード+エッジを原子的に追加（1スナップショット）
+        useCanvasStore.getState().pasteNodes(newNodes, newEdges)
         // 次のペーストでさらにオフセットするようクリップボードを更新
         clipboardRef.current = { nodes: newNodes, edges: newEdges }
       }
@@ -675,8 +662,16 @@ export function Canvas() {
       }
       altDragActiveRef.current = true
 
+      const { nodes: currentNodes, edges: currentEdges } = useCanvasStore.getState()
+
+      // alt+drag 開始前の状態を保存（dragStop で1スナップショットとして push）
+      altDragSnapshotRef.current = { nodes: currentNodes, edges: currentEdges }
+
+      // 中間の set() がスナップショットを作らないよう pause する
+      useCanvasStore.temporal.getState().pause()
+
       // ドラッグ開始直後にオリジナルをその場に残す（バックアップ作成）
-      const { nodes: currentNodes, setNodes: storeSetNodes, edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
+      const { setNodes: storeSetNodes, setEdges: storeSetEdges } = useCanvasStore.getState()
       const dragToBackup = new Map<string, string>()
       const draggedIds = new Set(draggedNodes.map((n) => n.id))
       const backupNodes: AppNode[] = draggedNodes.map((n) => {
@@ -713,7 +708,7 @@ export function Canvas() {
           ...e,
           source: srcInDrag ? dragToBackup.get(e.source)! : e.source,
           target: tgtInDrag ? dragToBackup.get(e.target)! : e.target,
-          selected: false, // 選択状態を引き継がない（backup エッジが selected のまま Delete で消えるのを防ぐ）
+          selected: false,
         }
       })
 
@@ -778,6 +773,13 @@ export function Canvas() {
 
       originalEdgesRef.current = []
       storeSetEdges([...currentEdges, ...copyEdges])
+
+      // pause を解除し、drag開始前の状態を1スナップショットとして push
+      useCanvasStore.temporal.getState().resume()
+      if (altDragSnapshotRef.current) {
+        pushSnapshot(altDragSnapshotRef.current)
+        altDragSnapshotRef.current = null
+      }
     },
     []
   )

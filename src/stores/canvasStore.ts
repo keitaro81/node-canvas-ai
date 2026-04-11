@@ -26,7 +26,7 @@ const GEN_FIELDS = new Set([
   'outputText', 'uploadedImagePreview',
 ])
 
-type PartialCanvasState = Pick<CanvasState, 'nodes' | 'edges'>
+export type PartialCanvasState = Pick<CanvasState, 'nodes' | 'edges'>
 
 /** 生成系フィールドのみ抽出（undo後に再適用するため） */
 function extractGenData(node: AppNode): Record<string, unknown> {
@@ -100,6 +100,8 @@ interface CanvasState {
   ungroupNodes: (groupId: string) => void
   /** ノードをグループに追加し、必要に応じてグループを拡張する */
   addNodeToGroup: (nodeId: string, groupId: string) => void
+  /** ノード+エッジを原子的に追加する（コピーペースト用：1スナップショット） */
+  pasteNodes: (nodes: AppNode[], edges: Edge[]) => void
 }
 
 const COMPATIBLE: Record<PortType, PortType[]> = {
@@ -135,7 +137,29 @@ const initialNodes: AppNode[] = [
   },
 ]
 
-export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
+export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
+  /**
+   * ドラッグ開始前の状態（ドラッグ終了時に手動でスナップショットを作るため）
+   *
+   * 問題: zundo は set() 呼び出し直前の state を pastState として毎回キャプチャする。
+   * ドラッグ終了時の pastState = 最後の dragging:true 更新後の state（位置は finalPos と同じ）。
+   * areStatesEqual が "位置変化なし" と判断してスナップショットが作られない。
+   * 解決策: ドラッグ開始時に状態を保存し、ドラッグ終了後に手動で pastStates へ push する。
+   */
+  let preDragSnapshot: PartialCanvasState | null = null
+
+  /**
+   * エッジ削除前の状態（ノード削除と組み合わせたスナップショット作成のため）
+   *
+   * 問題: React Flow はノード削除時に onEdgesChange → onNodesChange の順で呼ぶ。
+   * onEdgesChange でスナップショット {nodes:全, edges:削除済み} が作られ、
+   * onNodesChange でさらに {nodes:削除済み, edges:削除済み} が作られる → 2回のundoが必要。
+   * 解決策: onEdgesChange では pause() でスナップショットを抑制し状態を保存。
+   * onNodesChange でまとめて1つのスナップショットを push する。
+   */
+  let preDeletionState: PartialCanvasState | null = null
+
+  return {
   nodes: initialNodes,
   edges: [],
   selectedNodeId: null,
@@ -144,8 +168,58 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
   appMode: 'graph',
   capsuleGroupId: null,
 
-  onNodesChange: (changes) =>
-    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })),
+  onNodesChange: (changes) => {
+    const removedIds = changes
+      .filter((c) => c.type === 'remove')
+      .map((c) => (c as { id: string }).id)
+
+    // ドラッグ開始を検出 → preDragSnapshot を保存
+    const isDragStart = changes.some(
+      (c) => c.type === 'position' && (c as { dragging?: boolean }).dragging === true
+    )
+    if (isDragStart && !preDragSnapshot) {
+      const s = get()
+      preDragSnapshot = { nodes: s.nodes, edges: s.edges }
+    }
+
+    // ノード削除 + 先行する onEdgesChange がある場合 → まとめて1スナップショット
+    if (removedIds.length > 0 && preDeletionState) {
+      const snapshot = preDeletionState
+      preDeletionState = null
+      const tp = useCanvasStore.temporal.getState()
+      tp.pause()
+      set((state) => ({
+        nodes: applyNodeChanges(changes, state.nodes),
+        edges: state.edges.filter((e) => !removedIds.includes(e.source) && !removedIds.includes(e.target)),
+      }))
+      tp.resume()
+      pushSnapshot(snapshot)
+      return
+    }
+
+    // ドラッグ終了 → preDragSnapshot を1スナップショットとして push
+    const isDragEnd = changes.some(
+      (c) => c.type === 'position' && (c as { dragging?: boolean }).dragging === false
+    )
+    if (isDragEnd && preDragSnapshot) {
+      const snapshot = preDragSnapshot
+      preDragSnapshot = null
+      const tp = useCanvasStore.temporal.getState()
+      tp.pause()
+      set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }))
+      tp.resume()
+      pushSnapshot(snapshot)
+      return
+    }
+
+    // 通常の変更（ノード削除単体 / 選択変化 / その他）
+    set((state) => ({
+      nodes: applyNodeChanges(changes, state.nodes),
+      ...(removedIds.length > 0
+        ? { edges: state.edges.filter((e) => !removedIds.includes(e.source) && !removedIds.includes(e.target)) }
+        : {}),
+    }))
+  },
 
   onEdgesChange: (changes) => {
     // in-image 接続が切断された時、imageSource === 'connection' のノードをクリア
@@ -161,6 +235,14 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
           nodesToClear.push(edge.target)
         }
       })
+
+      // エッジ削除前の状態を保存（ノード削除と組み合わせるため）
+      const s = get()
+      preDeletionState = { nodes: s.nodes, edges: s.edges }
+
+      // pause してスナップショット抑制（onNodesChange か microtask でまとめて push）
+      const tp = useCanvasStore.temporal.getState()
+      tp.pause()
       if (nodesToClear.length > 0) {
         set((state) => ({
           edges: applyEdgeChanges(changes, state.edges),
@@ -170,8 +252,23 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
               : n
           ),
         }))
-        return
+      } else {
+        set((state) => ({ edges: applyEdgeChanges(changes, state.edges) }))
       }
+      tp.resume()
+
+      // マイクロタスク: onNodesChange が来なかった = ユーザーによる単体エッジ削除
+      queueMicrotask(() => {
+        if (preDeletionState) {
+          const snapshot = preDeletionState
+          preDeletionState = null
+          // エッジ数が変わっていれば削除が成立 → スナップショットを push
+          if (snapshot.edges.length !== useCanvasStore.getState().edges.length) {
+            pushSnapshot(snapshot)
+          }
+        }
+      })
+      return
     }
     set((state) => ({ edges: applyEdgeChanges(changes, state.edges) }))
   },
@@ -313,11 +410,34 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => ({
       }
     })
   },
-}), {
+
+  pasteNodes: (newNodes, newEdges) => {
+    set((state) => ({
+      nodes: [
+        ...state.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        ...newNodes,
+      ],
+      edges: [
+        ...state.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
+        ...newEdges,
+      ],
+    }))
+  },
+  } // return
+}, {
   partialize: (state): PartialCanvasState => ({ nodes: state.nodes, edges: state.edges }),
   equality: areStatesEqual,
   limit: 50,
 }))
+
+/** pastStates に手動でスナップショットを追加する（limit=50 を考慮）*/
+export function pushSnapshot(snapshot: PartialCanvasState): void {
+  const tp = useCanvasStore.temporal.getState()
+  const prev = tp.pastStates
+  const pastStates = prev.length >= 50 ? [...prev.slice(1), snapshot] : [...prev, snapshot]
+  useCanvasStore.temporal.setState({ pastStates, futureStates: [] })
+}
+
 
 /**
  * ワークフロー読み込み時に呼ぶ。nodes/edges/capsuleGroupId を原子的にセットし、
@@ -328,11 +448,8 @@ export function loadCanvasState(
   edges: Edge[],
   capsuleGroupId: string | null
 ): void {
-  const tp = useCanvasStore.temporal.getState()
-  tp.pause()
   useCanvasStore.setState({ nodes, edges, capsuleGroupId })
-  tp.resume()
-  tp.clear()
+  useCanvasStore.temporal.getState().clear()
 }
 
 /** Cmd+Z: 構造的変更をundo。生成結果（videoUrl等）は現在の値を保持する */
