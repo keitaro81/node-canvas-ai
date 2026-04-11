@@ -24,9 +24,9 @@ export interface AIProvider {
 
 // ===== ビデオ生成関連の型 =====
 
-export type VideoDuration = '3' | '5' | '6' | '8' | '10' | '12' | '14' | '15' | '16' | '18' | '20';
-export type VideoResolution = '1080p' | '1440p' | '2160p';
-export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | 'auto';
+export type VideoDuration = '3' | '4' | '5' | '6' | '8' | '10' | '12' | '14' | '15' | '16' | '18' | '20';
+export type VideoResolution = '480p' | '720p' | '1080p' | '1440p' | '2160p';
+export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' | 'auto';
 export type VideoFps = 25 | 50;
 
 export interface VideoGenerationRequest {
@@ -71,7 +71,7 @@ export interface VideoModelDefinition {
   supportedAspectRatios: VideoAspectRatio[];
   i2vSupportedAspectRatios?: VideoAspectRatio[]; // i2v時のアスペクト比（省略時はsupportedAspectRatiosを使用）
   features: string[];              // 例: ['audio', '4k']
-  paramStyle: 'ltx' | 'kling' | 'kling-v2v';    // API パラメータの組み立て方式
+  paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'seedance' | 'seedance-r2v';    // API パラメータの組み立て方式
   supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];
 }
 

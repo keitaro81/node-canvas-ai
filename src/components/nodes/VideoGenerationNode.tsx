@@ -411,6 +411,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 if (!newModel.supportedDurations.includes(nodeData.duration)) {
                   patch.duration = newModel.supportedDurations[0]
                 }
+                if (!newModel.supportedResolutions.includes(nodeData.resolution as never)) {
+                  patch.resolution = newModel.supportedResolutions[0]
+                }
                 if (!newModel.supportedAspectRatios.includes(nodeData.aspectRatio as never)) {
                   patch.aspectRatio = newModel.supportedAspectRatios[0]
                 }
