@@ -94,10 +94,11 @@ const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
   requestId: null,
   requestEndpoint: null,
   capsuleFields: {
-    model:       { id: 'model',       capsuleVisibility: 'visible' },
-    duration:    { id: 'duration',    capsuleVisibility: 'visible' },
-    resolution:  { id: 'resolution',  capsuleVisibility: 'visible' },
-    aspectRatio: { id: 'aspectRatio', capsuleVisibility: 'visible' },
+    model:        { id: 'model',        capsuleVisibility: 'visible' },
+    duration:     { id: 'duration',     capsuleVisibility: 'visible' },
+    resolution:   { id: 'resolution',   capsuleVisibility: 'visible' },
+    aspectRatio:  { id: 'aspectRatio',  capsuleVisibility: 'visible' },
+    audioEnabled: { id: 'audioEnabled', capsuleVisibility: 'visible' },
   },
 }
 
@@ -150,6 +151,7 @@ interface ContextMenuState {
   sourceNodeId?: string
   sourceHandleId?: string | null
   sourcePortType?: PortType
+  sourceIsInput?: boolean
   groupNodeId?: string      // グループノード右クリック時
   targetGroupId?: string    // 新規ノードを追加するグループID
 }
@@ -219,6 +221,17 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   imageGen:       { text: 'in-text', image: 'in-image' },
   videoGen:       { text: 'in-text', image: 'in-image' },
   utility:        { text: 'in-text-in' },
+}
+
+// ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
+const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
+  textPrompt:     'out-text-text-out',
+  promptEnhancer: 'out-text-enhanced',
+  imageGen:       'out-image-image-out',
+  referenceImage: 'out-image',
+  videoGen:       'out-video',
+  referenceVideo: 'out-video',
+  utility:        'out-text-out',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -293,7 +306,7 @@ function groupSelectedNodes(
 }
 
 export function Canvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom, toolMode } =
     useCanvasStore()
 
   const { theme } = useTheme()
@@ -356,10 +369,11 @@ export function Canvas() {
         const selectedGroup = sel.find((n) => n.type === 'groupNode')
         if (selectedGroup) useCanvasStore.getState().ungroupNodes(selectedGroup.id)
       }
-      // Cmd+Z: Undo / Cmd+Shift+Z: Redo
+      // Cmd+Z: Undo / Cmd+Shift+Z: Redo（App モード時は無効）
       if (e.code === 'KeyZ' && e.metaKey) {
         const activeEl = document.activeElement as HTMLElement | null
         if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.isContentEditable) return
+        if (useCanvasStore.getState().appMode !== 'graph') return
         e.preventDefault()
         if (e.shiftKey) redoCanvas()
         else undoCanvas()
@@ -510,14 +524,27 @@ export function Canvas() {
       const targetGroupId = contextMenu.targetGroupId
       const autoConnect = () => {
         if (contextMenu.sourceNodeId && contextMenu.sourcePortType) {
-          const targetHandle = NODE_DEFAULT_INPUT_HANDLE[type]?.[contextMenu.sourcePortType] ?? null
-          if (targetHandle) {
-            onConnect({
-              source: contextMenu.sourceNodeId,
-              sourceHandle: contextMenu.sourceHandleId ?? null,
-              target: id,
-              targetHandle,
-            })
+          if (contextMenu.sourceIsInput) {
+            // 入力ハンドルからのドラッグ → 新ノード(source) → 元ノードの入力ハンドル(target)
+            const sourceHandle = NODE_DEFAULT_OUTPUT_HANDLE[type] ?? null
+            if (sourceHandle) {
+              onConnect({
+                source: id,
+                sourceHandle,
+                target: contextMenu.sourceNodeId,
+                targetHandle: contextMenu.sourceHandleId ?? null,
+              })
+            }
+          } else {
+            const targetHandle = NODE_DEFAULT_INPUT_HANDLE[type]?.[contextMenu.sourcePortType] ?? null
+            if (targetHandle) {
+              onConnect({
+                source: contextMenu.sourceNodeId,
+                sourceHandle: contextMenu.sourceHandleId ?? null,
+                target: id,
+                targetHandle,
+              })
+            }
           }
         }
       }
@@ -621,6 +648,7 @@ export function Canvas() {
           sourceNodeId: connectingNode.current ?? undefined,
           sourceHandleId: connectingHandle.current,
           sourcePortType: parsePortType(connectingHandle.current) as PortType,
+          sourceIsInput: connectingHandle.current?.startsWith('in-') ?? false,
           targetGroupId: targetGroup?.id,
         })
       }
@@ -976,7 +1004,7 @@ export function Canvas() {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {isSpacePressed && (
+      {(isSpacePressed || toolMode === 'hand') && (
         <div
           style={{
             position: 'absolute',
@@ -1240,6 +1268,7 @@ export function Canvas() {
           onSelect={handleNodeSelect}
           onClose={() => setContextMenu(null)}
           sourcePortType={contextMenu.sourcePortType}
+          sourceIsInput={contextMenu.sourceIsInput}
           groupNodeId={contextMenu.groupNodeId}
           onUngroup={(groupId) => {
             useCanvasStore.getState().ungroupNodes(groupId)

@@ -118,18 +118,14 @@ export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, 
     <>
     <div
       onClick={handleCardClick}
-      className="group flex flex-col rounded-xl overflow-hidden cursor-pointer transition-all duration-150"
-      style={{
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--border)',
-      }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+      className="group flex flex-col cursor-pointer"
     >
-      {/* Thumbnail */}
+      {/* Thumbnail box */}
       <div
-        className="relative w-full overflow-hidden"
-        style={{ aspectRatio: '16/10', background: getGradient(workflow.id) }}
+        className="relative w-full overflow-hidden rounded-xl transition-all duration-150"
+        style={{ aspectRatio: '16/10', background: getGradient(workflow.id), border: '1px solid var(--border)' }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
         {thumbnailUrl && !isVideo && (
           <img src={thumbnailUrl} alt={workflow.name} className="w-full h-full object-cover" />
@@ -165,8 +161,8 @@ export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, 
         </div>
       </div>
 
-      {/* Info */}
-      <div className="flex items-start justify-between px-3 py-2.5 gap-2">
+      {/* Info — outside the box */}
+      <div className="flex items-start justify-between pt-2.5 gap-2">
         <div className="min-w-0 flex-1">
           {isRenaming ? (
             <input
@@ -207,7 +203,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, 
 
           {menuOpen && (
             <div
-              className="absolute right-0 bottom-8 z-50 flex flex-col rounded-lg overflow-hidden py-1 min-w-[120px]"
+              className="absolute right-0 top-8 z-50 flex flex-col rounded-lg overflow-hidden py-1 min-w-[120px]"
               style={{
                 background: 'var(--bg-surface)',
                 border: '1px solid var(--border)',

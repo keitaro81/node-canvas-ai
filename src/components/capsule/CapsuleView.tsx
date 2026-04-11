@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check } from 'lucide-react'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
@@ -9,12 +9,11 @@ import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type
 import type { CapsuleFieldDef } from '../../types/nodes'
 import type { VideoModelDefinition } from '../../lib/ai/types'
 
-const FLUX_MODELS = [
-  { value: 'black-forest-labs/flux-schnell', label: 'FLUX Schnell' },
-  { value: 'black-forest-labs/flux-dev',     label: 'FLUX Dev' },
-  { value: 'black-forest-labs/flux-1.1-pro', label: 'FLUX 1.1 Pro' },
-  { value: 'fal-ai/flux-2',                  label: 'FLUX.2' },
-  { value: 'fal-ai/nano-banana-2',            label: 'Nano Banana 2' },
+const T2I_MODELS = [
+  { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
+  { value: 'fal-ai/nano-banana-pro',              label: 'Nano Banana Pro' },
+  { value: 'fal-ai/recraft/v4/text-to-image',     label: 'Recraft V4' },
+  { value: 'fal-ai/recraft/v4/pro/text-to-image', label: 'Recraft V4 Pro' },
 ]
 
 const IMAGE_ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
@@ -414,6 +413,20 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
 function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldDef }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const updateNode = useCanvasStore((s) => s.updateNode)
+  const hasImageInput = useCanvasStore((s) => {
+    const n = s.nodes.find((node) => node.id === nodeId)
+    if (n?.type !== 'imageGenerationNode') return false
+    return s.edges.some(
+      (e) => e.target === nodeId &&
+        (e.targetHandle === 'in-image' || e.targetHandle === 'in-image-1' ||
+         e.targetHandle === 'in-image-reference' || e.targetHandle === 'in-image-2')
+    )
+  })
+  const hasConnectedVideo = useCanvasStore((s) => {
+    const n = s.nodes.find((node) => node.id === nodeId)
+    if (n?.type !== 'videoGenerationNode') return false
+    return s.edges.some((e) => e.target === nodeId && e.targetHandle === 'in-video')
+  })
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   const d = node.data as Record<string, unknown>
@@ -429,6 +442,12 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   const isEditable = field.capsuleVisibility !== 'hidden'
   const isVideoGenNode = node.type === 'videoGenerationNode'
   const isImageGenNode = node.type === 'imageGenerationNode'
+
+  // editModel フィールドは画像入力がある時のみ表示、model フィールドは画像入力がない時のみ表示
+  if (field.id === 'editModel' && isImageGenNode && !hasImageInput) return null
+  if (field.id === 'model' && isImageGenNode && hasImageInput) return null
+  // seed フィールドは非表示
+  if (field.id === 'seed' && isImageGenNode) return null
 
   // ReferenceImageNode の imageUrl フィールドは専用UIを使う
   if (field.id === 'imageUrl' && node.type === 'referenceImageNode') {
@@ -494,7 +513,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
           value={value}
           onChange={(e) => updateField(e.target.value)}
         >
-          {FLUX_MODELS.map((m) => (
+          {T2I_MODELS.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </select>
@@ -590,6 +609,9 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   // VideoGenerationNode: モデル選択
   if (field.id === 'model' && isVideoGenNode) {
+    const availableVideoModels = hasConnectedVideo
+      ? allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
+      : allVideoModels.filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
@@ -599,7 +621,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
           value={value}
           onChange={(e) => updateField(e.target.value)}
         >
-          {allVideoModels.map((m) => (
+          {availableVideoModels.map((m) => (
             <option key={m.id} value={m.id}>{m.name} (${m.pricePerSecond}/s)</option>
           ))}
         </select>
@@ -683,6 +705,28 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
+      </div>
+    )
+  }
+
+  // VideoGenerationNode: audioEnabled トグル
+  if (field.id === 'audioEnabled' && isVideoGenNode) {
+    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    if (!currentVideoModel?.features.includes('audio')) return null
+    const enabled = d.audioEnabled === true || d.audioEnabled === 'true'
+    return (
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-[11px] text-[var(--text-secondary)] font-medium">{label}</div>
+        <button
+          className="relative w-8 h-4 rounded-full transition-colors"
+          style={{ background: enabled ? '#EC4899' : 'var(--border-active)' }}
+          onClick={() => updateField(!enabled)}
+        >
+          <div
+            className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform"
+            style={{ left: enabled ? '18px' : '2px' }}
+          />
+        </button>
       </div>
     )
   }
@@ -908,12 +952,20 @@ function ImagePreview({ src }: { src: string }) {
 function VideoPreview({ src }: { src: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(true)
+  const [muted, setMuted] = useState(false)
 
   function togglePlay() {
     const v = videoRef.current
     if (!v) return
     if (v.paused) { v.play(); setPlaying(true) }
     else { v.pause(); setPlaying(false) }
+  }
+
+  function toggleMute() {
+    const v = videoRef.current
+    if (!v) return
+    v.muted = !v.muted
+    setMuted(v.muted)
   }
 
   return (
@@ -925,13 +977,20 @@ function VideoPreview({ src }: { src: string }) {
         style={{ objectFit: 'contain' }}
         autoPlay
         loop
-        muted
         playsInline
       />
       <div
         className="absolute inset-0 rounded-lg opacity-0 group-hover/vid:opacity-100 transition-opacity duration-150 flex items-end justify-end p-3 gap-2"
         style={{ background: 'linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.5) 100%)' }}
       >
+        <button
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={toggleMute}
+          title={muted ? '音声オン' : '音声オフ'}
+        >
+          {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </button>
         <button
           className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors"
           style={{ background: 'rgba(0,0,0,0.6)' }}

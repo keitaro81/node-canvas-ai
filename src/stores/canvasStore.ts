@@ -73,6 +73,8 @@ function areStatesEqual(past: PartialCanvasState, curr: PartialCanvasState): boo
   return true
 }
 
+export type ToolMode = 'select' | 'hand'
+
 interface CanvasState {
   nodes: AppNode[]
   edges: Edge[]
@@ -81,6 +83,7 @@ interface CanvasState {
   zoom: number
   appMode: AppMode
   capsuleGroupId: string | null   // Capsuleビューで表示するグループノードのid
+  toolMode: ToolMode
 
   onNodesChange: OnNodesChange<AppNode>
   onEdgesChange: OnEdgesChange
@@ -97,6 +100,7 @@ interface CanvasState {
   resetCanvas: () => void
   setAppMode: (mode: AppMode) => void
   setCapsuleGroupId: (id: string | null) => void
+  setToolMode: (mode: ToolMode) => void
   ungroupNodes: (groupId: string) => void
   /** ノードをグループに追加し、必要に応じてグループを拡張する */
   addNodeToGroup: (nodeId: string, groupId: string) => void
@@ -167,6 +171,9 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
   zoom: 1,
   appMode: 'graph',
   capsuleGroupId: null,
+  toolMode: 'select',
+
+  setToolMode: (mode) => set({ toolMode: mode }),
 
   onNodesChange: (changes) => {
     const removedIds = changes
@@ -447,7 +454,7 @@ export function loadCanvasState(
   edges: Edge[],
   capsuleGroupId: string | null
 ): void {
-  useCanvasStore.setState({ nodes, edges, capsuleGroupId })
+  useCanvasStore.setState({ nodes, edges, capsuleGroupId, appMode: 'graph' })
   useCanvasStore.temporal.getState().clear()
 }
 
