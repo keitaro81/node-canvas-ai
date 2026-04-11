@@ -88,6 +88,32 @@ export function ProjectsPage() {
           </div>
         ) : (
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+            {/* Create new project card */}
+            <button
+              onClick={handleNew}
+              disabled={creating}
+              className="flex flex-col text-left disabled:opacity-60"
+            >
+              {/* Thumbnail box */}
+              <div
+                className="relative w-full flex items-center justify-center rounded-xl overflow-hidden transition-all duration-150"
+                style={{ aspectRatio: '16/10', background: '#ffffff', border: '1px solid var(--border)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+              >
+                {creating
+                  ? <CircleNotch size={28} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
+                  : <Plus size={28} weight="light" style={{ color: 'var(--text-tertiary)' }} />
+                }
+              </div>
+              {/* Info */}
+              <div className="pt-2.5">
+                <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Create new project
+                </p>
+              </div>
+            </button>
+
             {workflows.map((w) => (
               <WorkflowCard
                 key={w.id}

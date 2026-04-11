@@ -65,7 +65,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     supportedResolutions: ['1080p'],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
-    features: [],
+    features: ['audio'],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
   },
@@ -80,7 +80,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     supportedResolutions: ['1080p'],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
-    features: [],
+    features: ['audio'],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
   },
@@ -210,6 +210,7 @@ async function buildInput(
     if (aspectRatio) input.aspect_ratio = aspectRatio
     if (request.imageUrl) input.image_url = request.imageUrl
     if (request.seed != null) input.seed = request.seed
+    if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
     return input
   }
 

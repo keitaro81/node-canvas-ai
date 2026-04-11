@@ -112,6 +112,11 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 /* React Flow overrides */
@@ -196,24 +201,32 @@ svg.react-flow__connectionline {
 .handle-video { background: radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 
 /* Styled scrollbar for node textareas */
+/* NOTE: scrollbar-width / scrollbar-color を外すことで Chrome on macOS が
+   ::-webkit-scrollbar ルールを優先し、常時表示のクラシックモードになる。
+   両方を定義すると標準 CSS Scrollbars 仕様が優先されオーバーレイモードになる。 */
 .node-textarea {
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-active) transparent;
+  overflow-y: scroll;
 }
 .node-textarea::-webkit-scrollbar {
   width: 6px;
 }
 .node-textarea::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
 }
 .node-textarea::-webkit-scrollbar-thumb {
-  background: var(--border-active);
+  background: rgba(82, 82, 91, 0.5);
   border-radius: 3px;
 }
 .node-textarea::-webkit-scrollbar-thumb:hover {
-  background: #52525B;
+  background: rgba(113, 113, 122, 0.5);
+}
+/* Firefox fallback (doesn't support ::-webkit-scrollbar) */
+@supports not selector(::-webkit-scrollbar) {
+  .node-textarea {
+    scrollbar-width: thin;
+    scrollbar-color: #52525B rgba(255, 255, 255, 0.04);
+  }
 }
 
 /* Node pop-in animation */
@@ -257,6 +270,19 @@ svg.react-flow__connectionline {
 }
 .react-flow__node-group:active {
   cursor: grabbing !important;
+}
+
+/* ノード内のボタン・リンク・入力はポインターカーソルを維持 */
+.react-flow__node button,
+.react-flow__node a,
+.react-flow__node [role="button"],
+.react-flow__node select,
+.react-flow__node label[for] {
+  cursor: pointer !important;
+}
+.react-flow__node input,
+.react-flow__node textarea {
+  cursor: text !important;
 }
 
 /* Marquee selection box */

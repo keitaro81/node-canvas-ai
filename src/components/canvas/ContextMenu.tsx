@@ -21,6 +21,18 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   utility:        ['text'],
 }
 
+// ノードタイプが出力するポートタイプ（空配列 = 出力なし）
+const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
+  textPrompt:     ['text'],
+  promptEnhancer: ['text'],
+  imageGen:       ['image'],
+  referenceImage: ['image'],
+  videoGen:       ['video'],
+  referenceVideo: ['video'],
+  note:           [],
+  utility:        ['text'],
+}
+
 const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
   {
     category: 'Text',
@@ -59,11 +71,12 @@ interface ContextMenuProps {
   onSelect: (type: NodeType, label: string) => void
   onClose: () => void
   sourcePortType?: PortType
+  sourceIsInput?: boolean
   groupNodeId?: string
   onUngroup?: (groupId: string) => void
 }
 
-export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, groupNodeId, onUngroup }: ContextMenuProps) {
+export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, sourceIsInput, groupNodeId, onUngroup }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -87,6 +100,12 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, groupNode
     ? MENU_ITEMS.map((group) => ({
         ...group,
         items: group.items.filter((item) => {
+          if (sourceIsInput) {
+            // 入力ハンドルからのドラッグ → そのポートタイプを出力するノードを表示
+            const outputs = NODE_OUTPUTS[item.type]
+            return outputs && outputs.includes(sourcePortType)
+          }
+          // 出力ハンドルからのドラッグ → そのポートタイプを受け付けるノードを表示
           const accepts = NODE_ACCEPTS[item.type]
           return accepts && accepts.includes(sourcePortType)
         }),

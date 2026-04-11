@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
+import { useStore } from 'zustand'
 import {
   Plus,
   FolderOpen,
   NotePencil,
-  Gear,
   X,
   TextT,
   Sparkle,
@@ -19,8 +19,12 @@ import {
   Pencil,
   Trash,
   Video,
+  Cursor,
+  Hand,
+  ArrowCounterClockwise,
+  ArrowClockwise,
 } from '@phosphor-icons/react'
-import { useCanvasStore } from '../../stores/canvasStore'
+import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import type { NodeType } from '../../types/nodes'
@@ -75,7 +79,7 @@ let nodeIdCounter = 1000
 
 function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   if (type === 'videoGen') {
-    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null }
+    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, capsuleFields: { model: { id: 'model', capsuleVisibility: 'visible' }, duration: { id: 'duration', capsuleVisibility: 'visible' }, resolution: { id: 'resolution', capsuleVisibility: 'visible' }, aspectRatio: { id: 'aspectRatio', capsuleVisibility: 'visible' }, audioEnabled: { id: 'audioEnabled', capsuleVisibility: 'visible' } } }
   }
   if (type === 'referenceImage') {
     return { label, imageUrl: null, uploadedImagePreview: null }
@@ -84,7 +88,7 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
     return { label, videoUrl: null, uploadedVideoPreview: null }
   }
   if (type === 'imageGen') {
-    return { type: 'imageGen', label, params: { model: 'black-forest-labs/flux-schnell', aspectRatio: '1:1', seed: '' }, status: 'idle' }
+    return { type: 'imageGen', label, params: { model: 'fal-ai/nano-banana-2', aspectRatio: '1:1', seed: '' }, status: 'idle' }
   }
   if (type === 'promptEnhancer') {
     return { type: 'promptEnhancer', label, params: {}, status: 'idle', inputText: '', outputText: '', model: 'anthropic/claude-haiku-4.5' }
@@ -474,6 +478,10 @@ type Panel = 'nodes' | 'workflows' | null
 export function FloatingToolbar() {
   const [activePanel, setActivePanel] = useState<Panel>(null)
   const addNode = useCanvasStore((s) => s.addNode)
+  const toolMode = useCanvasStore((s) => s.toolMode)
+  const setToolMode = useCanvasStore((s) => s.setToolMode)
+  const canUndo = useStore(useCanvasStore.temporal, (s) => s.pastStates.length > 0)
+  const canRedo = useStore(useCanvasStore.temporal, (s) => s.futureStates.length > 0)
   const containerRef = useRef<HTMLDivElement>(null)
 
   function toggle(panel: Panel) {
@@ -543,28 +551,33 @@ export function FloatingToolbar() {
     icon,
     title,
     active,
+    disabled,
   }: {
     panel?: Panel
     onClick?: () => void
     icon: React.ReactNode
     title: string
     active?: boolean
+    disabled?: boolean
   }) {
     const isActive = panel ? activePanel === panel : active
     return (
       <button
+        disabled={disabled}
         style={{
           ...btnBase,
           background: isActive ? 'var(--accent)' : 'transparent',
-          color: isActive ? '#fff' : 'var(--text-secondary)',
+          color: isActive ? '#fff' : disabled ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.4 : 1,
         }}
         onMouseEnter={(e) => {
-          if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'
+          if (!isActive && !disabled) (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'
         }}
         onMouseLeave={(e) => {
           if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'
         }}
-        onClick={onClick ?? (() => panel && toggle(panel))}
+        onClick={disabled ? undefined : (onClick ?? (() => panel && toggle(panel)))}
         title={title}
       >
         {icon}
@@ -580,7 +593,7 @@ export function FloatingToolbar() {
         left: 16,
         top: '50%',
         transform: 'translateY(-50%)',
-        zIndex: 20,
+        zIndex: 10000,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -601,14 +614,41 @@ export function FloatingToolbar() {
       {/* 区切り */}
       <div style={{ width: 24, height: 1, background: 'var(--border)', margin: '2px 0' }} />
 
-      {/* Workflows */}
+      {/* 選択ツール */}
       <ToolBtn
-        panel="workflows"
-        icon={<FolderOpen size={18} />}
-        title="Workflows"
+        onClick={() => setToolMode('select')}
+        active={toolMode === 'select'}
+        icon={<Cursor size={18} />}
+        title="選択ツール"
       />
 
-      {/* Note追加 */}
+      {/* ハンドツール */}
+      <ToolBtn
+        onClick={() => setToolMode('hand')}
+        active={toolMode === 'hand'}
+        icon={<Hand size={18} />}
+        title="ハンドツール（キャンバス移動）"
+      />
+
+      {/* Undo */}
+      <ToolBtn
+        onClick={canUndo ? undoCanvas : undefined}
+        active={false}
+        disabled={!canUndo}
+        icon={<ArrowCounterClockwise size={18} />}
+        title="元に戻す (⌘Z)"
+      />
+
+      {/* Redo */}
+      <ToolBtn
+        onClick={canRedo ? redoCanvas : undefined}
+        active={false}
+        disabled={!canRedo}
+        icon={<ArrowClockwise size={18} />}
+        title="やり直す (⌘⇧Z)"
+      />
+
+      {/* メモノード追加 */}
       <ToolBtn
         onClick={handleAddNote}
         icon={<NotePencil size={18} />}
@@ -618,11 +658,11 @@ export function FloatingToolbar() {
       {/* 区切り */}
       <div style={{ width: 24, height: 1, background: 'var(--border)', margin: '2px 0' }} />
 
-      {/* 設定 */}
+      {/* Workflows */}
       <ToolBtn
-        onClick={() => {}}
-        icon={<Gear size={18} />}
-        title="設定"
+        panel="workflows"
+        icon={<FolderOpen size={18} />}
+        title="Workflows"
       />
 
       {/* フローティングパネル */}

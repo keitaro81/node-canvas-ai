@@ -291,7 +291,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   // capsuleFields に未登録のフィールドを 'visible' で初期化する
   useEffect(() => {
-    const defaultFields = ['model', 'duration', 'resolution', 'aspectRatio']
+    const defaultFields = ['model', 'duration', 'resolution', 'aspectRatio', 'audioEnabled']
     const current = ((useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as unknown as NodeData | undefined)
       ?.capsuleFields as Record<string, CapsuleFieldDef> | undefined) ?? {}
     const missing = defaultFields.filter((f) => !(f in current))

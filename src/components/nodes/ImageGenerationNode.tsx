@@ -6,7 +6,6 @@ import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import type { NodeData, CapsuleFieldDef, CapsuleVisibility } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
-import { getDefaultProvider } from '../../lib/ai/provider-registry'
 import { saveGeneration } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
@@ -30,11 +29,7 @@ function getImageUrlFromNode(node: AppNode): string | null {
   return getImageUrlFromNodeData(node.data)
 }
 
-const FLUX_MODELS = [
-  { value: 'black-forest-labs/flux-schnell',          label: 'FLUX Schnell' },
-  { value: 'black-forest-labs/flux-dev',              label: 'FLUX Dev' },
-  { value: 'black-forest-labs/flux-1.1-pro',          label: 'FLUX 1.1 Pro' },
-  { value: 'fal-ai/flux-2',                           label: 'FLUX.2' },
+const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                    label: 'Nano Banana 2' },
   { value: 'fal-ai/nano-banana-pro',                  label: 'Nano Banana Pro' },
   { value: 'fal-ai/recraft/v4/text-to-image',         label: 'Recraft V4' },
@@ -77,7 +72,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const storeNodes = useCanvasStore((s) => s.nodes)
   const storeEdges = useCanvasStore((s) => s.edges)
 
-  const model = (nodeData.params?.model as string) ?? 'black-forest-labs/flux-schnell'
+  const model = (nodeData.params?.model as string) ?? 'fal-ai/nano-banana-2'
   const editModel = (nodeData.params?.editModel as string) ?? 'fal-ai/nano-banana-2'
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
   const resolution = (nodeData.params?.resolution as string) ?? '1K'
@@ -103,7 +98,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   // capsuleFields に未登録のフィールドを 'visible' で初期化する
   // （未登録のままだと capsuleUtils が Object.values で列挙できずAppモードに表示されない）
   useEffect(() => {
-    const defaultFields = ['model', 'editModel', 'aspectRatio', 'resolution', 'seed']
+    const defaultFields = ['model', 'editModel', 'aspectRatio', 'resolution']
     const current = (useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as NodeData | undefined)
       ?.capsuleFields as Record<string, CapsuleFieldDef> | undefined ?? {}
     const missing = defaultFields.filter((f) => !(f in current))
@@ -174,41 +169,22 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       // auto + 画像なし → 1:1 フォールバック
       const resolvedAspectRatio = aspectRatio === 'auto' ? '1:1' : aspectRatio
 
-      const NB_T2I_MODELS = ['fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro']
       if (connectedImageUrls.length === 0 && RECRAFT_MODELS.has(model)) {
-        // Recraft T2I（直接呼び出し）
+        // Recraft T2I
         usedModel = model
         const recraftInput: Record<string, unknown> = { prompt, image_size: recraftImageSize }
         if (seed) recraftInput.seed = Number(seed)
         const result = await fal.subscribe(model, { input: recraftInput, logs: false })
         outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
         if (!outputImageUrl) throw new Error('生成に失敗しました')
-      } else if (connectedImageUrls.length === 0 && NB_T2I_MODELS.includes(model)) {
-        // Nano Banana T2I（Edge Functionを経由せず直接呼び出し）
+      } else if (connectedImageUrls.length === 0) {
+        // Nano Banana T2I
         usedModel = model
         const nbInput: Record<string, unknown> = { prompt, aspect_ratio: resolvedAspectRatio, resolution }
         if (seed) nbInput.seed = Number(seed)
-        const result = await fal.subscribe(model, {
-          input: nbInput,
-          logs: false,
-        })
+        const result = await fal.subscribe(model, { input: nbInput, logs: false })
         outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
         if (!outputImageUrl) throw new Error('生成に失敗しました')
-      } else if (connectedImageUrls.length === 0) {
-        // FLUX系 text-to-image（Edge Function経由）
-        usedModel = model
-        const provider = getDefaultProvider()
-        const result = await provider.generateImage({
-          prompt,
-          aspectRatio: resolvedAspectRatio as '1:1' | '16:9' | '9:16' | '4:3' | '3:4',
-          model,
-          seed: seed ? Number(seed) : undefined,
-        })
-        if (result.status === 'completed' && result.outputUrl) {
-          outputImageUrl = result.outputUrl
-        } else {
-          throw new Error(result.error ?? '生成に失敗しました')
-        }
       } else {
         // 画像あり → 選択されたNano Banana Edit
         // auto の場合は aspect_ratio を省略して API に参照画像の寸法を使わせる
@@ -403,7 +379,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     }
                     disabled={isGenerating}
                   >
-                    {FLUX_MODELS.map((m) => (
+                    {T2I_MODELS.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>
@@ -513,23 +489,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             )
           })()}
 
-          {/* Seed: T2Iモードのみ */}
-          {!hasImages && (
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">Seed</label>
-              <input
-                type="number"
-                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none transition-colors nodrag"
-                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-                placeholder="空欄 = ランダム"
-                value={seed}
-                onChange={(e) =>
-                  updateNode(id, { params: { ...nodeData.params, seed: e.target.value } })
-                }
-                disabled={isGenerating}
-              />
-            </div>
-          )}
 
           {/* Error */}
           {nodeData.status === 'error' && errorMsg && (
