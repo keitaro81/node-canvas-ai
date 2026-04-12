@@ -16,7 +16,21 @@ const T2I_MODELS = [
   { value: 'fal-ai/recraft/v4/pro/text-to-image', label: 'Recraft V4 Pro' },
 ]
 
-const IMAGE_ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
+const NB_ASPECT_RATIOS: Record<string, string[]> = {
+  'fal-ai/nano-banana-2':   ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16', '4:1', '1:4', '8:1', '1:8'],
+  'fal-ai/nano-banana-pro': ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'],
+}
+const NB_ASPECT_RATIOS_DEFAULT = NB_ASPECT_RATIOS['fal-ai/nano-banana-2']
+
+const RECRAFT_IMAGE_SIZES_CAPSULE = [
+  { value: 'square_hd',      label: '1:1 HD' },
+  { value: 'square',         label: '1:1' },
+  { value: 'landscape_16_9', label: '16:9' },
+  { value: 'portrait_16_9',  label: '9:16' },
+  { value: 'landscape_4_3',  label: '4:3' },
+  { value: 'portrait_4_3',   label: '3:4' },
+]
+const RECRAFT_MODEL_SET = new Set(['fal-ai/recraft/v4/text-to-image', 'fal-ai/recraft/v4/pro/text-to-image'])
 
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
 
@@ -521,31 +535,40 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     )
   }
 
-  // ImageGenerationNode: アスペクト比ボタングループ
+  // ImageGenerationNode: アスペクト比セレクト（モデル別）
   if (field.id === 'aspectRatio' && isImageGenNode) {
+    const activeModel = (params.editModel as string) || (params.model as string) || ''
+    const isRecraft = RECRAFT_MODEL_SET.has(params.model as string)
+    if (isRecraft) {
+      return (
+        <div className="mb-3">
+          <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
+          <select
+            className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+            style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+            value={(params.recraftImageSize as string) || 'square'}
+            onChange={(e) => updateNode(nodeId, { params: { ...params, recraftImageSize: e.target.value } } as never)}
+          >
+            {RECRAFT_IMAGE_SIZES_CAPSULE.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+      )
+    }
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
-        <div className="flex gap-1 flex-wrap">
-          {IMAGE_ASPECT_RATIOS.map((ratio) => {
-            const active = value === ratio
-            return (
-              <button
-                key={ratio}
-                className="flex-1 py-1 rounded text-[11px] font-medium transition-colors"
-                style={{
-                  background: active ? '#8B5CF6' : 'var(--bg-elevated)',
-                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
-                  minWidth: 0,
-                }}
-                onClick={() => updateField(ratio)}
-              >
-                {ratio}
-              </button>
-            )
-          })}
-        </div>
+        <select
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+          value={value}
+          onChange={(e) => updateField(e.target.value)}
+        >
+          {(NB_ASPECT_RATIOS[activeModel] ?? NB_ASPECT_RATIOS_DEFAULT).map((ratio) => (
+            <option key={ratio} value={ratio}>{ratio}</option>
+          ))}
+        </select>
       </div>
     )
   }
@@ -629,39 +652,28 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     )
   }
 
-  // VideoGenerationNode: アスペクト比ボタングループ
+  // VideoGenerationNode: アスペクト比セレクト
   if (field.id === 'aspectRatio' && isVideoGenNode) {
     const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
-    const edges = useCanvasStore.getState().edges
-    const hasConnectedImage = edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
+    const hasConnectedImage = useCanvasStore.getState().edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
     const ratios = (
-      hasConnectedImage && (currentVideoModel as VideoModelDefinition | undefined)?.i2vSupportedAspectRatios
-        ? (currentVideoModel as VideoModelDefinition).i2vSupportedAspectRatios!
+      hasConnectedImage && currentVideoModel?.i2vSupportedAspectRatios
+        ? currentVideoModel.i2vSupportedAspectRatios
         : currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
     ) as string[]
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
-        <div className="flex gap-1.5 flex-wrap">
-          {ratios.map((ar) => {
-            const active = value === ar
-            return (
-              <button
-                key={ar}
-                className="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors"
-                style={{
-                  background: active ? 'rgba(236,72,153,0.2)' : 'var(--bg-elevated)',
-                  color: active ? '#EC4899' : 'var(--text-secondary)',
-                  border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : 'var(--border)'}`,
-                  minWidth: '3rem',
-                }}
-                onClick={() => updateField(ar)}
-              >
-                {ar}
-              </button>
-            )
-          })}
-        </div>
+        <select
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+          value={value}
+          onChange={(e) => updateField(e.target.value)}
+        >
+          {ratios.map((ar) => (
+            <option key={ar} value={ar}>{ar}</option>
+          ))}
+        </select>
       </div>
     )
   }
@@ -680,7 +692,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
           onChange={(e) => updateField(e.target.value)}
         >
           {durations.map((dur) => (
-            <option key={dur} value={dur}>{dur}秒</option>
+            <option key={dur} value={dur}>{dur === 'auto' ? 'auto' : `${dur}秒`}</option>
           ))}
         </select>
       </div>
