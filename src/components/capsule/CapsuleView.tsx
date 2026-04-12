@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX } from 'lucide-react'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
@@ -631,9 +631,15 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   // VideoGenerationNode: モデル選択
   if (field.id === 'model' && isVideoGenNode) {
+    const hasConnectedImage = useCanvasStore.getState().edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
     const availableVideoModels = hasConnectedVideo
       ? allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
-      : allVideoModels.filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
+      : allVideoModels.filter((m) =>
+          !m.supportedModes.every((mode) => mode === 'video-to-video') &&
+          (hasConnectedImage
+            ? m.supportedModes.includes('image-to-video')
+            : !m.supportedModes.every((mode) => mode === 'image-to-video'))
+        )
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
@@ -644,7 +650,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
           onChange={(e) => updateField(e.target.value)}
         >
           {availableVideoModels.map((m) => (
-            <option key={m.id} value={m.id}>{m.name} (${m.pricePerSecond}/s)</option>
+            <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
       </div>
@@ -1044,6 +1050,9 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
   const d = (node?.data ?? {}) as Record<string, unknown>
   const status = (d.status as string) ?? 'idle'
   const isGenerating = status === 'generating' || status === 'queued' || status === 'processing'
+  const isFailed = status === 'failed' || status === 'error'
+  const errorMessage = (d.error as string | undefined)
+    ?? ((d.params as Record<string, unknown> | undefined)?.error as string | undefined)
 
   // 出力URLをノードタイプ別に解決
   // videoGen は d.videoUrl を使う（d.output には上流 imageGen の画像URLが伝播している場合があるため）
@@ -1066,6 +1075,15 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
             {(d.progress as string) || '生成中...'}
           </span>
         </div>
+      ) : isFailed ? (
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-[#EF4444]">
+            <AlertCircle size={32} strokeWidth={1.5} />
+          </div>
+          <div className="text-[12px] text-[#EF4444] text-center max-w-xs">
+            {errorMessage || '生成に失敗しました'}
+          </div>
+        </div>
       ) : outputUrl ? (
         stage.nodeType === 'videoGen' ? (
           <VideoPreview src={outputUrl} />
@@ -1081,8 +1099,10 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 text-[var(--border-active)]">
-          <div className="text-4xl opacity-30">
-            {stage.nodeType === 'videoGen' ? '🎬' : '🖼'}
+          <div className="opacity-30">
+            {stage.nodeType === 'videoGen'
+              ? <Film size={48} strokeWidth={1} />
+              : <ImageIcon size={48} strokeWidth={1} />}
           </div>
           <div className="text-[12px]">まだ生成されていません</div>
         </div>

@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router'
 import { CircleNotch } from '@phosphor-icons/react'
 import { Canvas } from './Canvas'
 import { FloatingToolbar } from '../layout/FloatingToolbar'
-import { RightPanel } from '../panels/RightPanel'
 import { StatusBar } from '../layout/StatusBar'
 import { Header } from '../layout/Header'
 import { CapsuleView } from '../capsule/CapsuleView'
@@ -95,7 +94,8 @@ export function CanvasPage() {
           <main className="flex-1 min-w-0 h-full relative">
             <Canvas />
             {isOwned && <FloatingToolbar />}
-            {isOwned && <RightPanel />}
+            {/* TODO: RightPanel（ノード選択時の詳細パネル）は一旦非表示。必要に応じて復活させる */}
+            {/* {isOwned && <RightPanel />} */}
           </main>
         </div>
         {appMode === 'capsule' && <CapsuleView />}

@@ -118,7 +118,7 @@ const IMAGE_GEN_DEFAULT_DATA = {
   type: 'imageGen' as const,
   label: 'Image Generation',
   params: {
-    model: 'black-forest-labs/flux-schnell',
+    model: 'fal-ai/nano-banana-2',
     aspectRatio: '1:1',
     resolution: '1K',
     seed: '',
@@ -219,7 +219,7 @@ function expandGroupIfNeeded(
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
   promptEnhancer: {},
   imageGen:       { text: 'in-text', image: 'in-image' },
-  videoGen:       { text: 'in-text', image: 'in-image' },
+  videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video' },
   utility:        { text: 'in-text-in' },
 }
 
@@ -623,18 +623,25 @@ export function Canvas() {
             return hid.startsWith('in-') && el.style.display !== 'none'
           })
 
-          for (const handleEl of handles) {
-            const handleId = handleEl.getAttribute('data-handleid')
-            if (isCompatiblePorts(srcPortType, parsePortType(handleId))) {
-              onConnect({
-                source: connectingNode.current!,
-                sourceHandle: connectingHandle.current,
-                target: targetNodeId,
-                targetHandle: handleId,
-              })
-              connectingNode.current = null
-              return
-            }
+          // 完全一致（同じポートタイプ）を優先し、なければ互換ポートにフォールバック
+          const exactHandle = handles.find((el) => {
+            const hid = el.getAttribute('data-handleid')
+            return parsePortType(hid) === srcPortType
+          })
+          const fallbackHandle = exactHandle ? null : handles.find((el) => {
+            const hid = el.getAttribute('data-handleid')
+            return isCompatiblePorts(srcPortType, parsePortType(hid))
+          })
+          const matchedHandle = exactHandle ?? fallbackHandle
+          if (matchedHandle) {
+            onConnect({
+              source: connectingNode.current!,
+              sourceHandle: connectingHandle.current,
+              target: targetNodeId,
+              targetHandle: matchedHandle.getAttribute('data-handleid'),
+            })
+            connectingNode.current = null
+            return
           }
         }
       } else if (!nodeElement && !isOnHandle) {

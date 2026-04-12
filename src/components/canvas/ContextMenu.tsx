@@ -16,7 +16,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   referenceVideo: [],
   promptEnhancer: [],
   imageGen:       ['text', 'image'],
-  videoGen:       ['text', 'image'],
+  videoGen:       ['text', 'image', 'video'],
   note:           [],
   utility:        ['text'],
 }
