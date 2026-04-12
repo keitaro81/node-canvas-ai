@@ -29,7 +29,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   const outputText = (nodeData.outputText as string) ?? ''
   const rawModel = (nodeData.model as string) ?? 'anthropic/claude-haiku-4.5'
   const validModelIds = MODELS.map((m) => m.value)
-  const model = validModelIds.includes(rawModel) ? rawModel : 'anthropic/claude-haiku-4.5'
+  const model = validModelIds.includes(rawModel) ? rawModel : MODELS[0].value
   const isGenerating = (nodeData.status as string) === 'generating'
 
   const [tab, setTab] = useState<Tab>('input')
