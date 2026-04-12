@@ -24,10 +24,10 @@ export interface AIProvider {
 
 // ===== ビデオ生成関連の型 =====
 
-export type VideoDuration = '3' | '4' | '5' | '6' | '8' | '10' | '12' | '14' | '15' | '16' | '18' | '20';
+export type VideoDuration = 'auto' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | '11' | '12' | '13' | '14' | '15' | '16' | '18' | '20';
 export type VideoResolution = '480p' | '720p' | '1080p' | '1440p' | '2160p';
 export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' | 'auto';
-export type VideoFps = 25 | 50;
+export type VideoFps = 24 | 25 | 48 | 50;
 
 export interface VideoGenerationRequest {
   prompt: string;
@@ -73,6 +73,7 @@ export interface VideoModelDefinition {
   features: string[];              // 例: ['audio', '4k']
   paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'seedance' | 'seedance-r2v';    // API パラメータの組み立て方式
   supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];
+  supportedFps?: number[];           // 例: [24, 25, 48, 50]（省略時はfps設定不可）
 }
 
 // AIProvider インターフェースにビデオメソッドを追加するための型

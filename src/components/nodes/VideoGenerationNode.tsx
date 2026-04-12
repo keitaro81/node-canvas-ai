@@ -417,6 +417,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 if (!newModel.supportedAspectRatios.includes(nodeData.aspectRatio as never)) {
                   patch.aspectRatio = newModel.supportedAspectRatios[0]
                 }
+                if (newModel.supportedFps && !newModel.supportedFps.includes(nodeData.fps)) {
+                  patch.fps = newModel.supportedFps[0]
+                }
                 upd(updateNode, id, patch)
               }}
               disabled={isGenerating}
@@ -444,7 +447,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 disabled={isGenerating}
               >
                 {currentModel.supportedDurations.map((d) => (
-                  <option key={d} value={d}>{d}秒</option>
+                  <option key={d} value={d}>{d === 'auto' ? 'auto' : `${d}秒`}</option>
                 ))}
               </select>
             </div>
@@ -471,6 +474,26 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             </div>
           )}
 
+          {/* FPS: LTX系モデルのみ */}
+          {currentModel?.supportedFps && currentModel.supportedFps.length > 1 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-[var(--text-secondary)]">FPS</label>
+              </div>
+              <select
+                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                value={nodeData.fps ?? 25}
+                onChange={(e) => upd(updateNode, id, { fps: Number(e.target.value) })}
+                disabled={isGenerating}
+              >
+                {currentModel.supportedFps.map((f) => (
+                  <option key={f} value={f}>{f} fps</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Aspect Ratio */}
           {currentModel && (
             <div>
@@ -478,30 +501,20 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
                 <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
               </div>
-              <div className="flex gap-1.5 flex-wrap">
-                {(connectedImageUrl && (currentModel as VideoModelDefinition).i2vSupportedAspectRatios
-                  ? (currentModel as VideoModelDefinition).i2vSupportedAspectRatios!
+              <select
+                className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                value={nodeData.aspectRatio}
+                onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
+                disabled={isGenerating}
+              >
+                {(connectedImageUrl && currentModel.i2vSupportedAspectRatios
+                  ? currentModel.i2vSupportedAspectRatios
                   : currentModel.supportedAspectRatios
-                ).map((ar) => {
-                  const active = nodeData.aspectRatio === ar
-                  return (
-                    <button
-                      key={ar}
-                      className="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors nodrag"
-                      style={{
-                        background: active ? 'rgba(236,72,153,0.2)' : 'var(--bg-elevated)',
-                        color: active ? '#EC4899' : 'var(--text-secondary)',
-                        border: `1px solid ${active ? 'rgba(236,72,153,0.5)' : 'var(--border)'}`,
-                        minWidth: '3rem',
-                      }}
-                      onClick={() => upd(updateNode, id, { aspectRatio: ar })}
-                      disabled={isGenerating}
-                    >
-                      {ar}
-                    </button>
-                  )
-                })}
-              </div>
+                ).map((ar) => (
+                  <option key={ar} value={ar}>{ar}</option>
+                ))}
+              </select>
             </div>
           )}
 

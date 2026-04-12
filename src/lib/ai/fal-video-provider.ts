@@ -8,6 +8,10 @@ import type {
   VideoDuration,
 } from './types';
 
+const KLING_V3_DURATIONS = ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
+const SEEDANCE_DURATIONS  = ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
+const SEEDANCE_ASPECTS    = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] as const;
+
 const VIDEO_MODELS: VideoModelDefinition[] = [
   {
     id: 'ltx-2.3-fast',
@@ -23,6 +27,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     features: ['audio'],
     paramStyle: 'ltx',
     supportedModes: ['text-to-video', 'image-to-video'],
+    supportedFps: [24, 25, 48, 50],
   },
   {
     id: 'ltx-2.3-pro',
@@ -30,24 +35,25 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     endpoint: 'fal-ai/ltx-2.3/text-to-video',
     i2vEndpoint: 'fal-ai/ltx-2.3/image-to-video',
     pricePerSecond: 0.06,
-    maxDuration: '20',
-    supportedDurations: ['6', '8', '10', '12', '14', '16', '18', '20'],
+    maxDuration: '10',
+    supportedDurations: ['6', '8', '10'],
     supportedResolutions: ['1080p', '1440p', '2160p'],
     supportedAspectRatios: ['16:9', '9:16'],
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: ['audio', '4k'],
     paramStyle: 'ltx',
     supportedModes: ['text-to-video', 'image-to-video'],
+    supportedFps: [24, 25, 48, 50],
   },
   {
     id: 'kling-2.5-turbo',
-    name: 'Kling 2.5 Turbo',
+    name: 'Kling 2.5 Turbo Pro',
     endpoint: 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video',
     i2vEndpoint: 'fal-ai/kling-video/v2.5-turbo/pro/image-to-video',
     pricePerSecond: 0.07,
     maxDuration: '10',
     supportedDurations: ['5', '10'],
-    supportedResolutions: ['1080p'],
+    supportedResolutions: [],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: [],
@@ -61,8 +67,8 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     i2vEndpoint: 'fal-ai/kling-video/v3/standard/image-to-video',
     pricePerSecond: 0.07,
     maxDuration: '15',
-    supportedDurations: ['3', '5', '10', '15'],
-    supportedResolutions: ['1080p'],
+    supportedDurations: KLING_V3_DURATIONS,
+    supportedResolutions: [],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: ['audio'],
@@ -76,8 +82,8 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     i2vEndpoint: 'fal-ai/kling-video/v3/pro/image-to-video',
     pricePerSecond: 0.1,
     maxDuration: '15',
-    supportedDurations: ['3', '5', '10', '15'],
-    supportedResolutions: ['1080p'],
+    supportedDurations: KLING_V3_DURATIONS,
+    supportedResolutions: [],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: ['audio'],
@@ -90,9 +96,9 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     endpoint: 'bytedance/seedance-2.0/text-to-video',
     pricePerSecond: 0.05,
     maxDuration: '15',
-    supportedDurations: ['5', '8', '10', '15'],
+    supportedDurations: SEEDANCE_DURATIONS,
     supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    supportedAspectRatios: [...SEEDANCE_ASPECTS],
     features: ['audio'],
     paramStyle: 'seedance',
     supportedModes: ['text-to-video'],
@@ -103,9 +109,9 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     endpoint: 'bytedance/seedance-2.0/image-to-video',
     pricePerSecond: 0.05,
     maxDuration: '15',
-    supportedDurations: ['5', '8', '10', '15'],
+    supportedDurations: SEEDANCE_DURATIONS,
     supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    supportedAspectRatios: [...SEEDANCE_ASPECTS],
     features: ['audio'],
     paramStyle: 'seedance',
     supportedModes: ['image-to-video'],
@@ -116,9 +122,9 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     endpoint: 'bytedance/seedance-2.0/reference-to-video',
     pricePerSecond: 0.06,
     maxDuration: '15',
-    supportedDurations: ['5', '8', '10', '15'],
+    supportedDurations: SEEDANCE_DURATIONS,
     supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    supportedAspectRatios: [...SEEDANCE_ASPECTS],
     features: ['audio'],
     paramStyle: 'seedance-r2v',
     supportedModes: ['video-to-video'],
@@ -128,9 +134,9 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     name: 'Kling O3 Standard V2V',
     endpoint: 'fal-ai/kling-video/o3/standard/video-to-video/reference',
     pricePerSecond: 0.07,
-    maxDuration: '10',
-    supportedDurations: ['5', '10'],
-    supportedResolutions: ['1080p'],
+    maxDuration: '15',
+    supportedDurations: KLING_V3_DURATIONS,
+    supportedResolutions: [],
     supportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: [],
     paramStyle: 'kling-v2v',
@@ -141,9 +147,9 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     name: 'Kling O3 Pro V2V',
     endpoint: 'fal-ai/kling-video/o3/pro/video-to-video/reference',
     pricePerSecond: 0.1,
-    maxDuration: '10',
-    supportedDurations: ['5', '10'],
-    supportedResolutions: ['1080p'],
+    maxDuration: '15',
+    supportedDurations: KLING_V3_DURATIONS,
+    supportedResolutions: [],
     supportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: [],
     paramStyle: 'kling-v2v',
@@ -268,18 +274,24 @@ export class FalVideoProvider implements VideoProvider {
       return { id: '', status: 'failed', error: `Unknown video model: ${request.model}` };
     }
 
-    const requestedDuration = parseInt(request.duration || modelDef.supportedDurations[0], 10);
+    // 'auto' はそのまま渡す（Seedance が対応）
+    const isAutoDuration = request.duration === 'auto'
+    const requestedDuration = isAutoDuration ? 0 : parseInt(request.duration || modelDef.supportedDurations[0], 10);
     const maxDuration = parseInt(modelDef.maxDuration, 10);
-    const clampedDuration = String(Math.min(requestedDuration, maxDuration));
+    const clampedDuration = isAutoDuration ? 'auto' : String(Math.min(requestedDuration, maxDuration));
     // supportedDurations に含まれない値はリストの最近傍値にスナップ
     const safeDuration = (modelDef.supportedDurations.includes(clampedDuration)
       ? clampedDuration
-      : modelDef.supportedDurations.reduce((prev, cur) =>
+      : modelDef.supportedDurations.filter((d) => d !== 'auto').reduce((prev, cur) =>
           Math.abs(parseInt(cur, 10) - requestedDuration) < Math.abs(parseInt(prev, 10) - requestedDuration) ? cur : prev
         )
     ) as VideoDuration;
 
-    const safeFps = request.fps === 50 && requestedDuration > 10 ? 25 : (request.fps ?? 25);
+    // 48/50fps は 10秒以下のみ（それ以上は 24/25fps にダウングレード）
+    const reqFps = request.fps ?? 25;
+    const safeFps = (reqFps === 50 || reqFps === 48) && !isAutoDuration && requestedDuration > 10
+      ? (reqFps === 50 ? 25 : 24)
+      : reqFps;
 
     try {
       const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v' || modelDef.paramStyle === 'seedance-r2v';
