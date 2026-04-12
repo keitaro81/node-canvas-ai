@@ -7,7 +7,6 @@ import { fal } from '../../lib/ai/fal-client'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import type { CapsuleFieldDef } from '../../types/nodes'
-import type { VideoModelDefinition } from '../../lib/ai/types'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
