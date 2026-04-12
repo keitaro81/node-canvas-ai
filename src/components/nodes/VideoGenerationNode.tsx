@@ -59,6 +59,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     return getImageUrlFromNodeData(sourceNode.data)
   })()
 
+  // 画像ノードが接続されているか（画像未アップロードでもtrueになる）
+  const hasConnectedImageNode = rfEdges.some((e) => e.target === id && e.targetHandle === 'in-image')
+
   // 接続されている参照動画URLをリアクティブに取得
   const connectedVideoUrl = (() => {
     const videoEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-video')
@@ -71,8 +74,16 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const isV2VMode = !!connectedVideoUrl
 
-  // V2Vモード時はv2vモデルのみ、通常時はv2v以外のモデルを使用
-  const availableModels = isV2VMode ? v2vModels : nonV2vModels
+  // V2Vモード時はv2vモデルのみ
+  // 画像ノード接続時は image-to-video をサポートするモデルのみ（text-to-video 専用を除外）
+  // 画像未接続時は image-to-video 専用モデルを除外
+  const availableModels = isV2VMode
+    ? v2vModels
+    : nonV2vModels.filter((m) =>
+        hasConnectedImageNode
+          ? m.supportedModes.includes('image-to-video')
+          : !m.supportedModes.every((mode) => mode === 'image-to-video')
+      )
   const currentModel = (() => {
     const found = availableModels.find((m) => m.id === nodeData.model)
     if (found) return found
@@ -98,7 +109,11 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const handleGenerate = useCallback(async () => {
     const prompt = getConnectedPrompt()
     if (!prompt) {
-      upd(updateNode, id, { status: 'failed', error: 'テキストプロンプトノードを接続してください' })
+      upd(updateNode, id, { status: 'failed', error: 'プロンプトを入力してください' })
+      return
+    }
+    if (hasConnectedImageNode && !connectedImageUrl) {
+      upd(updateNode, id, { status: 'failed', error: '参照画像をアップロードしてください' })
       return
     }
 
@@ -208,9 +223,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     return () => window.removeEventListener('capsule:generate', onCapsuleGenerate)
   }, [id, handleGenerate])
 
-  const estimatedCost = currentModel
-    ? (currentModel.pricePerSecond * parseInt(nodeData.duration || currentModel.supportedDurations[0], 10)).toFixed(2)
-    : '0.00'
 
   const capsuleFields = ((data as unknown as NodeData).capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
   function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
@@ -384,7 +396,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               参照動画あり → Video to Video
             </div>
           )}
-          {!connectedVideoUrl && connectedImageUrl && (
+          {!connectedVideoUrl && hasConnectedImageNode && (
             <div
               className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
               style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', color: '#8B5CF6' }}
@@ -426,7 +438,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             >
               {availableModels.map((model) => (
                 <option key={model.id} value={model.id}>
-                  {model.name} (${model.pricePerSecond}/s)
+                  {model.name}
                 </option>
               ))}
             </select>
@@ -508,7 +520,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
                 disabled={isGenerating}
               >
-                {(connectedImageUrl && currentModel.i2vSupportedAspectRatios
+                {(hasConnectedImageNode && currentModel.i2vSupportedAspectRatios
                   ? currentModel.i2vSupportedAspectRatios
                   : currentModel.supportedAspectRatios
                 ).map((ar) => (
@@ -535,11 +547,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               </button>
             </div>
           )}
-
-          {/* Estimated cost */}
-          <div className="text-[11px] text-[var(--text-tertiary)]">
-            概算コスト: ~${estimatedCost}
-          </div>
 
           {/* Progress */}
           {isGenerating && (

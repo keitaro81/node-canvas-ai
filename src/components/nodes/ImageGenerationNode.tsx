@@ -148,7 +148,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     if (!prompt?.trim()) {
       updateNode(id, {
         status: 'error',
-        params: { ...nodeData.params, error: 'TextPromptノードを接続してプロンプトを入力してください' },
+        params: { ...nodeData.params, error: 'プロンプトを入力してください' },
       })
       return
     }
@@ -166,6 +166,14 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         return n ? getImageUrlFromNode(n) : null
       })
       .filter(Boolean) as string[]
+
+    if (hasImages && connectedImageUrls.length === 0) {
+      updateNode(id, {
+        status: 'error',
+        params: { ...nodeData.params, error: '参照画像をアップロードしてください' },
+      })
+      return
+    }
 
     try {
       let outputImageUrl: string | undefined
