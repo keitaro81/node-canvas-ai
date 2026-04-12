@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Sparkles, Loader2, Download, Maximize2, X, ChevronDown } from 'lucide-react'
+import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
+import { Sparkles, Loader2, Download, Maximize2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import type { NodeData, CapsuleFieldDef, CapsuleVisibility } from '../../types/nodes'
@@ -68,6 +68,94 @@ const RECRAFT_IMAGE_SIZES = [
 
 
 
+/** ノード1件分の生成処理。バッチ・単体共用 */
+async function runGeneration(
+  nodeId: string,
+  prompt: string,
+  imageUrls: string[],
+  currentParams: Record<string, unknown>,
+  updateNode: (id: string, data: Partial<NodeData>) => void
+) {
+  const model = (currentParams.model as string) ?? 'fal-ai/nano-banana-2'
+  const editModel = (currentParams.editModel as string) ?? 'fal-ai/nano-banana-2'
+  const aspectRatio = (currentParams.aspectRatio as string) ?? '1:1'
+  const resolution = (currentParams.resolution as string) ?? '1K'
+  const seed = (currentParams.seed as string) ?? ''
+  const recraftImageSize = (currentParams.recraftImageSize as string) ?? 'square'
+  const isRecraftModel = RECRAFT_MODELS.has(model)
+
+  updateNode(nodeId, {
+    status: 'generating',
+    output: undefined,
+    params: { ...currentParams, error: undefined },
+  })
+
+  try {
+    let outputImageUrl: string | undefined
+    let usedModel: string
+
+    if (imageUrls.length === 0 && isRecraftModel) {
+      usedModel = model
+      const input: Record<string, unknown> = { prompt, image_size: recraftImageSize }
+      if (seed) input.seed = Number(seed)
+      const result = await fal.subscribe(model, { input, logs: false })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    } else if (imageUrls.length === 0) {
+      usedModel = model
+      const input: Record<string, unknown> = { prompt, aspect_ratio: aspectRatio, resolution }
+      if (seed) input.seed = Number(seed)
+      const result = await fal.subscribe(model, { input, logs: false })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    } else {
+      const editEndpoint = `${editModel}/edit`
+      usedModel = editEndpoint
+      const input: Record<string, unknown> = {
+        prompt,
+        image_urls: imageUrls,
+        resolution,
+        ...(aspectRatio !== 'auto' && { aspect_ratio: aspectRatio }),
+      }
+      const result = await fal.subscribe(editEndpoint, { input, logs: false })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    }
+
+    updateNode(nodeId, { status: 'done', output: outputImageUrl })
+
+    const { edges } = useCanvasStore.getState()
+    edges
+      .filter((e) => e.source === nodeId && e.sourceHandle === 'out-image-image-out')
+      .forEach((e) => updateNode(e.target, { output: outputImageUrl, status: 'done' }))
+
+    saveGeneration({
+      nodeId,
+      nodeType: 'image-generation',
+      provider: 'fal',
+      model: usedModel,
+      status: 'completed',
+      outputUrl: outputImageUrl,
+      inputParams: { prompt, model: usedModel },
+    })
+    useWorkflowStore.getState().updateThumbnail(outputImageUrl!)
+  } catch (err) {
+    updateNode(nodeId, {
+      status: 'error',
+      params: { ...currentParams, error: (err as Error).message },
+    })
+    saveGeneration({
+      nodeId,
+      nodeType: 'image-generation',
+      provider: 'fal',
+      model,
+      status: 'failed',
+      errorMessage: (err as Error).message,
+      inputParams: {},
+    })
+  }
+}
+
 function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
@@ -83,6 +171,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const resolution = (nodeData.params?.resolution as string) ?? '1K'
   const seed = (nodeData.params?.seed as string) ?? ''
   const recraftImageSize = (nodeData.params?.recraftImageSize as string) ?? 'square'
+  const count = Math.max(1, Math.min(10, (nodeData.params?.count as number) ?? 1))
   const isRecraftModel = RECRAFT_MODELS.has(model)
   const errorMsg = nodeData.params?.error as string | undefined
   const outputUrl = nodeData.output as string | undefined
@@ -153,12 +242,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    updateNode(id, {
-      status: 'generating',
-      output: undefined,
-      params: { ...nodeData.params, error: undefined },
-    })
-
     // 接続された画像URLを順番に収集
     const connectedImageUrls = imageEdges
       .map((e) => {
@@ -175,77 +258,99 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    try {
-      let outputImageUrl: string | undefined
-      let usedModel: string
+    if (count <= 1) {
+      // 単体生成（従来の挙動）
+      await runGeneration(id, prompt, connectedImageUrls, nodeData.params, updateNode)
+      return
+    }
 
-      if (connectedImageUrls.length === 0 && RECRAFT_MODELS.has(model)) {
-        // Recraft T2I
-        usedModel = model
-        const recraftInput: Record<string, unknown> = { prompt, image_size: recraftImageSize }
-        if (seed) recraftInput.seed = Number(seed)
-        const result = await fal.subscribe(model, { input: recraftInput, logs: false })
-        outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
-        if (!outputImageUrl) throw new Error('生成に失敗しました')
-      } else if (connectedImageUrls.length === 0) {
-        // Nano Banana T2I: 'auto' は API にそのまま渡す
-        usedModel = model
-        const nbInput: Record<string, unknown> = { prompt, aspect_ratio: aspectRatio, resolution }
-        if (seed) nbInput.seed = Number(seed)
-        const result = await fal.subscribe(model, { input: nbInput, logs: false })
-        outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
-        if (!outputImageUrl) throw new Error('生成に失敗しました')
-      } else {
-        // 画像あり → 選択されたNano Banana Edit
-        // auto の場合は aspect_ratio を省略して API に参照画像の寸法を使わせる
-        const editEndpoint = `${editModel}/edit`
-        usedModel = editEndpoint
-        const nbEditInput: Record<string, unknown> = {
-          prompt,
-          image_urls: connectedImageUrls,
-          resolution,
-          ...(aspectRatio !== 'auto' && { aspect_ratio: aspectRatio }),
-        }
-        const result = await fal.subscribe(editEndpoint, {
-          input: nbEditInput,
-          logs: false,
-        })
-        outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
-        if (!outputImageUrl) throw new Error('生成に失敗しました')
+    // ─── バッチ生成 ───────────────────────────────────────────
+    const existingBatchId = nodeData.params?.batchId as string | undefined
+    const { nodes: allNodes, addNode, edges: currentEdges, setEdges } = useCanvasStore.getState()
+
+    if (existingBatchId) {
+      // 既存のバッチ仲間ノードを探す
+      const siblings = allNodes.filter((n) => {
+        const p = (n.data as Record<string, unknown>).params as Record<string, unknown> | undefined
+        return p?.batchId === existingBatchId && n.id !== id
+      })
+      if (siblings.length > 0) {
+        // 再生成: 全バッチノードを並列実行
+        const allIds = [id, ...siblings.map((n) => n.id)]
+        await Promise.all(
+          allIds.map((nodeId) => {
+            const node = allNodes.find((n) => n.id === nodeId)
+            const params = (node?.data as Record<string, unknown>)?.params as Record<string, unknown> ?? nodeData.params
+            return runGeneration(nodeId, prompt, connectedImageUrls, params, updateNode)
+          })
+        )
+        return
       }
+    }
 
-      updateNode(id, { status: 'done', output: outputImageUrl })
-      const { edges: currentEdges } = useCanvasStore.getState()
-      currentEdges
-        .filter((e) => e.source === id && e.sourceHandle === 'out-image-image-out')
-        .forEach((e) => updateNode(e.target, { output: outputImageUrl, status: 'done' }))
+    // 新規バッチ: count 個のノードを横並びに生成
+    const batchId = crypto.randomUUID()
+    const thisNode = allNodes.find((n) => n.id === id)
+    if (!thisNode) return
 
-      saveGeneration({
-        nodeId: id,
-        nodeType: 'image-generation',
-        provider: 'fal',
-        model: usedModel,
-        status: 'completed',
-        outputUrl: outputImageUrl,
-        inputParams: { prompt, model: usedModel },
-      })
-      useWorkflowStore.getState().updateThumbnail(outputImageUrl)
-    } catch (err) {
-      updateNode(id, {
-        status: 'error',
-        params: { ...nodeData.params, error: (err as Error).message },
-      })
-      saveGeneration({
-        nodeId: id,
-        nodeType: 'image-generation',
-        provider: 'fal',
-        model,
-        status: 'failed',
-        errorMessage: (err as Error).message,
-        inputParams: {},
+    const nodeWidth = 280
+    const gap = 10
+    // count を 1 にリセット（生成後は単体モードに戻す）
+    const batchParams = { ...nodeData.params, batchId, count: 1, error: undefined }
+
+    // 現ノードに batchId を付与し count をリセット
+    updateNode(id, { params: batchParams })
+
+    // 現ノードへの接続エッジを取得（テキスト・画像どちらも複製対象）
+    const incomingEdges = currentEdges.filter((e) => e.target === id)
+
+    const nodeIds: string[] = [id]
+    const newEdges: Edge[] = []
+
+    for (let i = 1; i < count; i++) {
+      const newId = `node-${Date.now()}-batch-${i}-${Math.random().toString(36).slice(2, 6)}`
+      nodeIds.push(newId)
+      addNode({
+        id: newId,
+        type: 'imageGenerationNode',
+        position: {
+          x: thisNode.position.x + i * (nodeWidth + gap),
+          y: thisNode.position.y,
+        },
+        data: {
+          type: 'imageGen',
+          label: nodeData.label,
+          params: { ...batchParams },
+          status: 'idle',
+          output: undefined,
+          capsuleFields: nodeData.capsuleFields,
+        } as NodeData,
+        ...(thisNode.parentId ? { parentId: thisNode.parentId } : {}),
+      } as AppNode)
+
+      // 元ノードへの接続エッジを新ノード向けに複製
+      incomingEdges.forEach((e) => {
+        newEdges.push({
+          ...e,
+          id: `e-${e.source}-${e.sourceHandle ?? ''}-${newId}-${e.targetHandle ?? ''}`,
+          target: newId,
+        })
       })
     }
-  }, [id, model, editModel, aspectRatio, resolution, seed, recraftImageSize, imageEdges, storeNodes, nodeData.params, updateNode, getConnectedPrompt])
+
+    // 新規エッジを一括追加
+    if (newEdges.length > 0) {
+      const { edges: latestEdges } = useCanvasStore.getState()
+      setEdges([...latestEdges, ...newEdges])
+    }
+
+    // 全ノードを並列生成
+    await Promise.all(
+      nodeIds.map((nodeId) =>
+        runGeneration(nodeId, prompt, connectedImageUrls, batchParams, updateNode)
+      )
+    )
+  }, [id, count, model, editModel, aspectRatio, resolution, seed, recraftImageSize, imageEdges, storeNodes, hasImages, nodeData.params, nodeData.label, nodeData.capsuleFields, updateNode, getConnectedPrompt])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -515,6 +620,30 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               </div>
             </div>
           )}
+
+          {/* Count stepper */}
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-medium text-[var(--text-secondary)]">Count</label>
+            <div className="flex items-center gap-1">
+              <button
+                className="w-6 h-6 rounded flex items-center justify-center nodrag transition-colors"
+                style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+                onClick={() => updateNode(id, { params: { ...nodeData.params, count: Math.max(1, count - 1) } })}
+                disabled={isGenerating}
+              >
+                <Minus size={10} />
+              </button>
+              <span className="text-[12px] font-semibold text-[var(--text-primary)] w-6 text-center tabular-nums">{count}</span>
+              <button
+                className="w-6 h-6 rounded flex items-center justify-center nodrag transition-colors"
+                style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+                onClick={() => updateNode(id, { params: { ...nodeData.params, count: Math.min(10, count + 1) } })}
+                disabled={isGenerating}
+              >
+                <Plus size={10} />
+              </button>
+            </div>
+          </div>
 
           {/* Generate button */}
           <button

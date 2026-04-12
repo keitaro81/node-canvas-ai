@@ -15,6 +15,8 @@ export interface CapsuleInputInfo {
 
 export interface CapsuleStageInfo {
   nodeId: string
+  /** バッチ生成時: このステージに属する全ノードID（nodeId を含む）。1枚の場合は undefined */
+  batchNodeIds?: string[]
   nodeType: GenerationNodeType
   label: string
   order: number
@@ -140,23 +142,44 @@ export function buildCapsuleStages(
     })
   }
 
-  return sorted.map((node, i) => {
+  function buildStageInfo(node: AppNode, order: number, batchNodeIds?: string[]): CapsuleStageInfo {
     const d = node.data as Record<string, unknown>
     const capsuleFields = (d.capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
-    const fields = Object.values(capsuleFields).filter(
-      (f) => f.capsuleVisibility !== 'hidden'
-    )
+    const fields = Object.values(capsuleFields).filter((f) => f.capsuleVisibility !== 'hidden')
     fields.sort((a, b) => (a.capsuleOrder ?? 99) - (b.capsuleOrder ?? 99))
-
     return {
       nodeId: node.id,
+      ...(batchNodeIds && batchNodeIds.length > 1 ? { batchNodeIds } : {}),
       nodeType: GENERATION_RF_TYPES[node.type!] ?? 'imageGen',
       label: (d.label as string) ?? 'Stage',
-      order: i,
+      order,
       fields,
       stageInputs: getStageInputs(node.id),
     }
-  })
+  }
+
+  // batchId が同じノードをまとめて1ステージに集約する
+  const seenBatches = new Set<string>()
+  const resultStages: CapsuleStageInfo[] = []
+
+  for (const node of sorted) {
+    const d = node.data as Record<string, unknown>
+    const batchId = ((d.params as Record<string, unknown> | undefined)?.batchId) as string | undefined
+
+    if (batchId) {
+      if (seenBatches.has(batchId)) continue  // 既処理のバッチは skip
+      seenBatches.add(batchId)
+      const batchNodes = sorted.filter((n) => {
+        const nd = n.data as Record<string, unknown>
+        return ((nd.params as Record<string, unknown> | undefined)?.batchId) === batchId
+      })
+      resultStages.push(buildStageInfo(batchNodes[0], resultStages.length, batchNodes.map((n) => n.id)))
+    } else {
+      resultStages.push(buildStageInfo(node, resultStages.length))
+    }
+  }
+
+  return resultStages
 }
 
 /** グループ内に並列実行される生成ノードが存在するか判定 */

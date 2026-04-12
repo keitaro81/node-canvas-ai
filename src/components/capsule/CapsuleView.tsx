@@ -52,11 +52,29 @@ const ENHANCER_SYSTEM_PROMPT = `You are an expert at writing detailed, evocative
 // ────────────────────────────────────────────
 type StageStatus = 'waiting' | 'active' | 'done'
 
-function getStageStatus(nodeId: string, nodes: ReturnType<typeof useCanvasStore.getState>['nodes']): StageStatus {
+function getStageStatus(
+  nodeId: string,
+  nodes: ReturnType<typeof useCanvasStore.getState>['nodes'],
+  batchNodeIds?: string[]
+): StageStatus {
+  // バッチステージ: 全ノードが完了なら 'done'、1つでも生成中なら 'active'
+  if (batchNodeIds && batchNodeIds.length > 1) {
+    const statuses = batchNodeIds.map((bid) => {
+      const n = nodes.find((nd) => nd.id === bid)
+      if (!n) return 'waiting'
+      const d = n.data as Record<string, unknown>
+      const st = (d.status as string) ?? 'idle'
+      const hasOutput = !!(d.output)
+      if (st === 'done' || st === 'completed' || hasOutput) return 'done'
+      return 'active'
+    })
+    if (statuses.every((s) => s === 'done')) return 'done'
+    return 'active'
+  }
+  // 通常ステージ
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return 'waiting'
   const d = node.data as Record<string, unknown>
-  // ReferenceImageNode: 画像がアップ済みなら完了
   if (node.type === 'referenceImageNode') {
     return (d.imageUrl || d.uploadedImagePreview) ? 'done' : 'active'
   }
@@ -768,11 +786,13 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 // ────────────────────────────────────────────
 function StageGenerateButton({
   nodeId,
+  batchNodeIds,
   nodeType,
   stageIndex,
   stages,
 }: {
   nodeId: string
+  batchNodeIds?: string[]
   nodeType: CapsuleStageInfo['nodeType']
   stageIndex: number
   stages: CapsuleStageInfo[]
@@ -781,19 +801,27 @@ function StageGenerateButton({
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   if ((nodeType as string) === 'referenceImage') return null
-  const d = node.data as Record<string, unknown>
 
-  const isGenerating =
-    d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
+  const isBatch = batchNodeIds && batchNodeIds.length > 1
+  const isGenerating = isBatch
+    ? batchNodeIds.some((bid) => {
+        const d = (nodes.find((n) => n.id === bid)?.data ?? {}) as Record<string, unknown>
+        return d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
+      })
+    : (() => {
+        const d = node.data as Record<string, unknown>
+        return d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
+      })()
 
   // 前のステージが完了しているか（ステージ0は常にOK）
   const prevStage = stageIndex > 0 ? stages[stageIndex - 1] : null
-  const prevDone = prevStage ? getStageStatus(prevStage.nodeId, nodes) === 'done' : true
+  const prevDone = prevStage ? getStageStatus(prevStage.nodeId, nodes, prevStage.batchNodeIds) === 'done' : true
   const isLocked = !prevDone
 
   const label = nodeType === 'videoGen' ? '動画を生成' : '画像を生成'
 
   function handleClick() {
+    // バッチ時もプライマリノードにだけ dispatch — handleGenerate が仲間を検出して一括再生成する
     const event = new CustomEvent('capsule:generate', { detail: { nodeId } })
     window.dispatchEvent(event)
   }
@@ -847,7 +875,7 @@ function CapsuleStagePanel({
   const i = activePreviewIndex
   const stage = stages[i]
   if (!stage) return null
-  const status = getStageStatus(stage.nodeId, nodes)
+  const status = getStageStatus(stage.nodeId, nodes, stage.batchNodeIds)
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -921,7 +949,7 @@ function CapsuleStagePanel({
           <FieldRenderer key={field.id} nodeId={stage.nodeId} field={field} />
         ))}
 
-        <StageGenerateButton nodeId={stage.nodeId} nodeType={stage.nodeType} stageIndex={i} stages={stages} />
+        <StageGenerateButton nodeId={stage.nodeId} batchNodeIds={stage.batchNodeIds} nodeType={stage.nodeType} stageIndex={i} stages={stages} />
       </div>
     </div>
   )
@@ -1030,6 +1058,120 @@ function VideoPreview({ src }: { src: string }) {
 }
 
 // ────────────────────────────────────────────
+// バッチサムネイルグリッド（App モード右エリア）
+// ────────────────────────────────────────────
+function BatchThumbnailGrid({ stage }: { stage: CapsuleStageInfo }) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+  const batchNodes = (stage.batchNodeIds ?? [])
+    .map((bid) => nodes.find((n) => n.id === bid))
+    .filter(Boolean) as ReturnType<typeof useCanvasStore.getState>['nodes']
+
+  return (
+    <div className="flex-1 flex flex-col p-6 overflow-auto gap-4">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+      >
+        {batchNodes.map((node) => {
+          const d = node.data as Record<string, unknown>
+          const status = (d.status as string) ?? 'idle'
+          const outputUrl = d.output as string | undefined
+          const isGen = status === 'generating'
+          const isErr = status === 'error'
+          const errMsg = ((d.params as Record<string, unknown> | undefined)?.error as string | undefined)
+
+          return (
+            <div
+              key={node.id}
+              className="relative rounded-xl overflow-hidden"
+              style={{
+                aspectRatio: '1 / 1',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {isGen ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div
+                    className="w-8 h-8 rounded-full border-2"
+                    style={{
+                      borderColor: 'var(--border)',
+                      borderTopColor: '#8B5CF6',
+                      animation: 'spin 0.8s linear infinite',
+                    }}
+                  />
+                </div>
+              ) : isErr ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-2">
+                  <AlertCircle size={20} style={{ color: '#EF4444' }} />
+                  <div className="text-[10px] text-center" style={{ color: '#EF4444' }}>
+                    {errMsg || 'エラー'}
+                  </div>
+                </div>
+              ) : outputUrl ? (
+                <img
+                  src={outputUrl}
+                  alt="Generated"
+                  className="w-full h-full object-cover cursor-pointer"
+                  style={{ transition: 'opacity 0.15s' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+                  onClick={() => setLightboxUrl(outputUrl)}
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <ImageIcon size={24} style={{ color: 'var(--border-active)', opacity: 0.4 }} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {lightboxUrl && createPortal(
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.9)', zIndex: 99999 }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          <div
+            className="relative"
+            style={{ maxWidth: '90vw', maxHeight: '90vh' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={lightboxUrl}
+              alt="Generated"
+              style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'block', borderRadius: 12 }}
+            />
+            <div className="absolute top-3 right-3 flex gap-2">
+              <button
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+                style={{ background: 'rgba(0,0,0,0.6)' }}
+                onClick={(e) => { e.stopPropagation(); downloadFile(lightboxUrl, 'generated.png') }}
+                title="ダウンロード"
+              >
+                <Download size={16} />
+              </button>
+              <button
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+                style={{ background: 'rgba(0,0,0,0.6)' }}
+                onClick={() => setLightboxUrl(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
 // 右エリア: 大プレビュー
 // ────────────────────────────────────────────
 function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; activeIndex: number }) {
@@ -1044,6 +1186,11 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
         </div>
       </div>
     )
+  }
+
+  // バッチステージ: サムネイルグリッドを表示
+  if (stage.batchNodeIds && stage.batchNodeIds.length > 1) {
+    return <BatchThumbnailGrid stage={stage} />
   }
 
   const node = nodes.find((n) => n.id === stage.nodeId)
@@ -1128,7 +1275,7 @@ function StepTabs({
   return (
     <div className="flex items-center gap-0 px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
       {stages.map((stage, i) => {
-        const status = getStageStatus(stage.nodeId, nodes)
+        const status = getStageStatus(stage.nodeId, nodes, stage.batchNodeIds)
         const isActive = activeIndex === i
 
         return (
