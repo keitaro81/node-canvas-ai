@@ -1,9 +1,9 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
-import { MonitorPlay, Play, Pause, RotateCcw, Download, Maximize2, Video as VideoIcon, X, Volume2, VolumeX } from 'lucide-react'
+import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { MonitorPlay, Play, Pause, RotateCcw, Download, Maximize2, Video as VideoIcon, X, Volume2, VolumeX, Loader2, AlertCircle } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import type { VideoDisplayNodeData, VideoGenerationNodeData } from '../../types/nodes'
+import type { VideoDisplayNodeData } from '../../types/nodes'
 
 async function downloadFile(url: string, filename: string) {
   try {
@@ -27,22 +27,10 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const updateNode = useCanvasStore((s) => s.updateNode)
 
-  // 接続元 VideoGenerationNode の videoUrl をリアクティブに読む
-  // → 後から接続した場合や生成完了後に接続した場合でも表示される
-  const rfNodes = useNodes()
-  const rfEdges = useEdges()
-  const incomingEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-video')
-  const sourceNode = incomingEdge ? rfNodes.find((n) => n.id === incomingEdge.source) : null
-  const sourceVideoUrl = sourceNode
-    ? ((sourceNode.data as unknown as VideoGenerationNodeData).videoUrl ?? null)
-    : null
-  const sourceFileName = sourceNode
-    ? ((sourceNode.data as unknown as VideoGenerationNodeData).fileName as string | null ?? null)
-    : null
-
-  // 接続元の URL を優先し、なければノード自身に保存された URL を使う
-  const videoUrl = sourceVideoUrl ?? nodeData.videoUrl ?? null
-  const fileName = sourceFileName ?? nodeData.fileName ?? null
+  const videoUrl = nodeData.videoUrl ?? null
+  const fileName = nodeData.fileName ?? null
+  const isGenerating = nodeData.status === 'queued' || nodeData.status === 'processing'
+  const isError = nodeData.status === 'failed'
 
   useEffect(() => {
     if (videoUrl && videoRef.current && nodeData.autoPlay) {
@@ -94,7 +82,23 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
 
         {/* Body */}
         <div className="px-3 py-3 flex flex-col gap-2">
-          {videoUrl ? (
+          {isGenerating ? (
+            <div
+              className="flex flex-col items-center justify-center gap-2 rounded-lg py-8"
+              style={{ border: '1px dashed rgba(236,72,153,0.4)', minHeight: 140, background: 'rgba(236,72,153,0.04)' }}
+            >
+              <Loader2 size={24} className="animate-spin" style={{ color: '#EC4899' }} />
+              <span className="text-[11px]" style={{ color: '#EC4899' }}>{nodeData.progress || '生成中...'}</span>
+            </div>
+          ) : isError ? (
+            <div
+              className="flex flex-col items-center justify-center gap-2 rounded-lg py-8"
+              style={{ border: '1px dashed rgba(239,68,68,0.4)', minHeight: 140, background: 'rgba(239,68,68,0.04)' }}
+            >
+              <AlertCircle size={24} style={{ color: '#EF4444' }} />
+              <span className="text-[11px] text-center px-2" style={{ color: '#EF4444' }}>{nodeData.error || '生成に失敗しました'}</span>
+            </div>
+          ) : videoUrl ? (
             <>
               {/* Video player with hover overlay */}
               <div
@@ -139,7 +143,6 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
 
               {/* Controls */}
               <div className="flex items-center gap-1.5">
-                {/* Play/Pause */}
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{ background: 'var(--bg-elevated)' }}
@@ -153,7 +156,6 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
                   )}
                 </button>
 
-                {/* Loop */}
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{
@@ -167,7 +169,6 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
                   <RotateCcw size={12} />
                 </button>
 
-                {/* Mute */}
                 <button
                   className="w-7 h-7 rounded flex items-center justify-center transition-colors nodrag"
                   style={{
@@ -186,7 +187,6 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
                   {nodeData.muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
                 </button>
 
-                {/* Filename */}
                 {fileName && (
                   <span className="ml-auto text-[10px] text-[var(--text-tertiary)] truncate" style={{ maxWidth: 100 }}>
                     {fileName}
@@ -206,7 +206,7 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
         </div>
       </div>
 
-      {/* Lightbox — portal でスタッキングコンテキストを脱出 */}
+      {/* Lightbox */}
       {lightboxOpen && videoUrl && createPortal(
         <div
           className="fixed inset-0 flex items-center justify-center"

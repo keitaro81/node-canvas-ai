@@ -3,7 +3,7 @@ import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
-import type { NodeData, CapsuleFieldDef, CapsuleVisibility } from '../../types/nodes'
+import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -94,11 +94,24 @@ async function runGeneration(
     } else {
       const editEndpoint = `${editModel}/edit`
       usedModel = editEndpoint
+
+      // モデルがサポートしない resolution / aspect_ratio は安全な値にフォールバック
+      const supportedResolutions = NB_RESOLUTIONS[editModel]
+      const safeResolution =
+        supportedResolutions && !supportedResolutions.includes(resolution)
+          ? (supportedResolutions[0] ?? '1K')
+          : resolution
+      const supportedAspects = NB_ASPECT_RATIOS[editModel]
+      const safeAspectRatio =
+        supportedAspects && aspectRatio !== 'auto' && !supportedAspects.includes(aspectRatio)
+          ? '1:1'
+          : aspectRatio
+
       const input: Record<string, unknown> = {
         prompt,
         image_urls: imageUrls,
-        resolution,
-        ...(aspectRatio !== 'auto' && { aspect_ratio: aspectRatio }),
+        resolution: safeResolution,
+        ...(safeAspectRatio !== 'auto' && { aspect_ratio: safeAspectRatio }),
       }
       const result = await fal.subscribe(editEndpoint, { input, logs: false })
       outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
@@ -178,8 +191,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  // 単一の in-image ハンドルに接続されたすべての画像エッジを接続順で取得
-  // 旧ハンドルID (in-image-1, in-image-reference, in-image-2) は後方互換として含める
+  // 画像入力エッジ（旧ハンドルIDも後方互換として含める）
   const imageEdges = storeEdges.filter(
     (e) =>
       e.target === id &&
@@ -188,8 +200,45 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         e.targetHandle === 'in-image-reference' ||
         e.targetHandle === 'in-image-2')
   )
-  // 画像接続あり = NB2 Edit、なし = text-to-image
-  const hasImages = imageEdges.length > 0
+
+  // ListNode 専用の in-list ハンドルへの接続
+  const listNodeEdge = storeEdges.find(
+    (e) => e.target === id && e.targetHandle === 'in-list'
+  )
+  const isListMode = !!listNodeEdge
+  const listNodeSrc = isListMode ? storeNodes.find((n) => n.id === listNodeEdge!.source) : null
+  const listNodeMode = (listNodeSrc?.data as unknown as ListNodeData)?.mode ?? 'image'
+  const listSlotCount = isListMode
+    ? (() => {
+        const slotCount = Math.max(1, (listNodeSrc?.data as unknown as ListNodeData)?.slotCount ?? 1)
+        if (listNodeMode === 'text') {
+          // テキストモード: 有効なテキストを持つスロットをカウント
+          return Math.max(1, storeEdges
+            .filter((e) => e.target === listNodeEdge!.source && e.targetHandle?.startsWith('in-text-'))
+            .filter((e) => {
+              const i = parseInt(e.targetHandle!.replace('in-text-', ''), 10)
+              if (i < 0 || i >= slotCount) return false
+              const src = storeNodes.find((n) => n.id === e.source)
+              if (!src) return false
+              const d = src.data as Record<string, unknown>
+              const text = (d.outputText as string) || ((d.params as Record<string, unknown>)?.prompt as string)
+              return !!text?.trim()
+            }).length)
+        }
+        // 画像モード: 有効な画像URLを持つスロットをカウント
+        return Math.max(1, storeEdges
+          .filter((e) => e.target === listNodeEdge!.source && e.targetHandle?.startsWith('in-image-'))
+          .filter((e) => {
+            const i = parseInt(e.targetHandle!.replace('in-image-', ''), 10)
+            if (i < 0 || i >= slotCount) return false
+            const src = storeNodes.find((n) => n.id === e.source)
+            return !!src && !!getImageUrlFromNodeData(src.data)
+          }).length)
+      })()
+    : null
+
+  // 画像接続あり（ListNode 画像モード含む）= Edit mode、テキストモード・なし = T2I
+  const hasImages = imageEdges.length > 0 || (isListMode && listNodeMode === 'image')
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -209,7 +258,31 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const handleGenerate = useCallback(async () => {
     const prompt = getConnectedPrompt()
-    if (!prompt?.trim()) {
+
+    const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
+    const thisNode = allNodes.find((n) => n.id === id)
+    if (!thisNode) return
+
+    // in-image ハンドルへの接続をまとめて取得（getState 経由で最新状態）
+    const inImageEdges = allEdges.filter(
+      (e) =>
+        e.target === id &&
+        (e.targetHandle === 'in-image' ||
+          e.targetHandle === 'in-image-1' ||
+          e.targetHandle === 'in-image-reference' ||
+          e.targetHandle === 'in-image-2')
+    )
+
+    // ListNode 専用ハンドルへの接続を確認
+    const listEdge = allEdges.find(
+      (e) => e.target === id && e.targetHandle === 'in-list'
+    )
+
+    // テキストリストモードではスロットプロンプトが主役 → グローバルプロンプト不要
+    const isTextListMode = !!listEdge &&
+      ((allNodes.find((n) => n.id === listEdge.source)?.data as unknown as { mode?: string })?.mode === 'text')
+
+    if (!isTextListMode && !prompt?.trim()) {
       updateNode(id, {
         status: 'error',
         params: { ...nodeData.params, error: 'プロンプトを入力してください' },
@@ -217,25 +290,96 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    // 接続された参照画像URLを収集
-    const connectedImageUrls = imageEdges
-      .map((e) => {
-        const n = storeNodes.find((n) => n.id === e.source)
-        return n ? getImageUrlFromNode(n) : null
-      })
-      .filter(Boolean) as string[]
+    let effectiveCount: number
+    let perSlotImages: (string | null)[]
+    let perSlotPrompts: (string | null)[]   // テキストモード時のスロットごとプロンプト
+    let fixedImageUrls: string[]
 
-    if (hasImages && connectedImageUrls.length === 0) {
-      updateNode(id, {
-        status: 'error',
-        params: { ...nodeData.params, error: '参照画像をアップロードしてください' },
-      })
-      return
+    if (listEdge) {
+      // LIST MODE
+      const listSrc = allNodes.find((n) => n.id === listEdge.source)
+      const listData = listSrc?.data as unknown as ListNodeData
+      const slotCount = Math.max(1, listData?.slotCount ?? 1)
+      const listMode = listData?.mode ?? 'image'
+
+      if (listMode === 'text') {
+        // TEXT LIST MODE: スロットごとのプロンプトで生成
+        // テキストノードからプロンプトを取得
+        const slotTexts: (string | null)[] = Array<string | null>(slotCount).fill(null)
+        allEdges
+          .filter((e) => e.target === listEdge.source && e.targetHandle?.startsWith('in-text-'))
+          .forEach((e) => {
+            const i = parseInt(e.targetHandle!.replace('in-text-', ''), 10)
+            if (i >= 0 && i < slotCount) {
+              const src = allNodes.find((n) => n.id === e.source)
+              if (src) {
+                const d = src.data as Record<string, unknown>
+                slotTexts[i] = (d.outputText as string) || ((d.params as Record<string, unknown>)?.prompt as string) || null
+              }
+            }
+          })
+
+        // 有効テキストのあるスロットのみ（空・未接続は除外）
+        const validSlots = slotTexts
+          .map((text, i) => ({ text, i }))
+          .filter((s): s is { text: string; i: number } => !!s.text?.trim())
+
+        effectiveCount = Math.max(1, validSlots.length)
+        perSlotImages = validSlots.map(() => null)
+        perSlotPrompts = validSlots.map((s) => s.text)
+
+        // in-image 直接接続 = 全スロット共通の参照画像（任意）
+        fixedImageUrls = inImageEdges
+          .map((e) => {
+            const n = allNodes.find((n) => n.id === e.source)
+            return n ? getImageUrlFromNode(n) : null
+          })
+          .filter(Boolean) as string[]
+      } else {
+        // IMAGE LIST MODE: スロットごとの参照画像で生成（従来動作）
+        const slotImages: (string | null)[] = Array<string | null>(slotCount).fill(null)
+        allEdges
+          .filter((e) => e.target === listEdge.source && e.targetHandle?.startsWith('in-image-'))
+          .forEach((e) => {
+            const i = parseInt(e.targetHandle!.replace('in-image-', ''), 10)
+            if (i >= 0 && i < slotCount) {
+              const src = allNodes.find((n) => n.id === e.source)
+              if (src) slotImages[i] = getImageUrlFromNode(src)
+            }
+          })
+
+        const validSlotImages = slotImages.filter((url): url is string => !!url)
+        effectiveCount = Math.max(1, validSlotImages.length)
+        perSlotImages = validSlotImages
+        perSlotPrompts = Array<string | null>(effectiveCount).fill(null)
+
+        fixedImageUrls = inImageEdges
+          .map((e) => {
+            const n = allNodes.find((n) => n.id === e.source)
+            return n ? getImageUrlFromNode(n) : null
+          })
+          .filter(Boolean) as string[]
+      }
+    } else {
+      // FIXED MODE: 手動 Count を使用（従来の動作）
+      effectiveCount = count
+      fixedImageUrls = inImageEdges
+        .map((e) => {
+          const n = allNodes.find((n) => n.id === e.source)
+          return n ? getImageUrlFromNode(n) : null
+        })
+        .filter(Boolean) as string[]
+      perSlotImages = Array<string | null>(effectiveCount).fill(null)
+      perSlotPrompts = Array<string | null>(effectiveCount).fill(null)
+
+      if (inImageEdges.length > 0 && fixedImageUrls.length === 0) {
+        updateNode(id, {
+          status: 'error',
+          params: { ...nodeData.params, error: '参照画像をアップロードしてください' },
+        })
+        return
+      }
     }
-
-    const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
-    const thisNode = allNodes.find((n) => n.id === id)
-    if (!thisNode) return
 
     // 既存の接続済み ImageDisplayNode の最下端 y を求めて、新規ノードの配置開始位置を決める
     const existingDisplayNodes = allEdges
@@ -253,11 +397,11 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       ? Math.max(...existingDisplayNodes.map((n) => n.position.y)) + displayNodeEstimatedHeight + vGap
       : thisNode.position.y
 
-    // count 個の DisplayNode を新規作成
+    // effectiveCount 個の DisplayNode を新規作成
     const displayNodeIds: string[] = []
     const newEdges: Edge[] = []
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < effectiveCount; i++) {
       const displayId = `node-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`
       displayNodeIds.push(displayId)
 
@@ -301,9 +445,13 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
     // 全 DisplayNode を並列生成
     await Promise.all(
-      displayNodeIds.map((displayId) =>
-        runGeneration(displayId, prompt, connectedImageUrls, nodeData.params, updateNode)
-      )
+      displayNodeIds.map((displayId, i) => {
+        const slotImg = perSlotImages[i]
+        const imageUrls = slotImg ? [...fixedImageUrls, slotImg] : fixedImageUrls
+        // テキストモード: スロット固有プロンプト（なければグローバルプロンプト）
+        const effectivePrompt = perSlotPrompts[i] ?? prompt
+        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode)
+      })
     )
 
     updateNode(id, { status: 'done' })
@@ -381,6 +529,20 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             borderRadius: 0,
           }}
         />
+        {/* ListNode 専用ハンドル */}
+        <Handle
+          id="in-list"
+          type="target"
+          position={Position.Left}
+          style={{
+            top: '80%',
+            width: 20,
+            height: 20,
+            background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+            border: 'none',
+            borderRadius: 0,
+          }}
+        />
         {/* 旧ノードとの後方互換: BaseNode・旧カスタムレイアウト時代のハンドルID */}
         <Handle id="in-text-prompt"      type="target" position={Position.Left} style={{ top: '25%', ...hiddenHandleStyle }} />
         <Handle id="in-image-1"          type="target" position={Position.Left} style={{ top: '65%', ...hiddenHandleStyle }} />
@@ -395,6 +557,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             <div className="flex flex-wrap gap-1">
               <span className="text-[10px] rounded-full px-1.5 py-0.5" style={{ background: 'rgba(99,102,241,0.2)', color: '#6366F1' }}>Prompt ←</span>
               <span className="text-[10px] rounded-full px-1.5 py-0.5" style={{ background: 'rgba(139,92,246,0.2)', color: '#8B5CF6' }}>Images ←</span>
+              <span className="text-[10px] rounded-full px-1.5 py-0.5" style={{ background: 'rgba(139,92,246,0.2)', color: '#8B5CF6' }}>List ←</span>
             </div>
             <span
               className="text-[10px] rounded-full px-1.5 py-0.5 font-medium"
@@ -419,9 +582,16 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                   className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
                   style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
                   value={editModel}
-                  onChange={(e) =>
-                    updateNode(id, { params: { ...nodeData.params, editModel: e.target.value } })
-                  }
+                  onChange={(e) => {
+                    const newEditModel = e.target.value
+                    const currentRes = nodeData.params?.resolution as string ?? '1K'
+                    const supportedRes = NB_RESOLUTIONS[newEditModel]
+                    const safeRes = supportedRes && !supportedRes.includes(currentRes) ? supportedRes[0] : currentRes
+                    const currentAR = nodeData.params?.aspectRatio as string ?? '1:1'
+                    const supportedAR = NB_ASPECT_RATIOS[newEditModel]
+                    const safeAR = supportedAR && currentAR !== 'auto' && !supportedAR.includes(currentAR) ? '1:1' : currentAR
+                    updateNode(id, { params: { ...nodeData.params, editModel: newEditModel, resolution: safeRes, aspectRatio: safeAR } })
+                  }}
                   disabled={isGenerating}
                 >
                   {NB_EDIT_MODELS.map((m) => (
@@ -546,28 +716,37 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             </div>
           )}
 
-          {/* Count stepper */}
+          {/* Count stepper (List Mode時はスロット数を表示) */}
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-medium text-[var(--text-secondary)]">Count</label>
-            <div className="flex items-center gap-1">
-              <button
-                className="w-6 h-6 rounded flex items-center justify-center nodrag transition-colors"
-                style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
-                onClick={() => updateNode(id, { params: { ...nodeData.params, count: Math.max(1, count - 1) } })}
-                disabled={isGenerating}
+            {isListMode ? (
+              <span
+                className="text-[11px] rounded-full px-1.5 py-0.5 font-medium"
+                style={{ background: 'rgba(139,92,246,0.15)', color: '#8B5CF6' }}
               >
-                <Minus size={10} />
-              </button>
-              <span className="text-[12px] font-semibold text-[var(--text-primary)] w-6 text-center tabular-nums">{count}</span>
-              <button
-                className="w-6 h-6 rounded flex items-center justify-center nodrag transition-colors"
-                style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
-                onClick={() => updateNode(id, { params: { ...nodeData.params, count: Math.min(10, count + 1) } })}
-                disabled={isGenerating}
-              >
-                <Plus size={10} />
-              </button>
-            </div>
+                List × {listSlotCount}
+              </span>
+            ) : (
+              <div className="flex items-center gap-1">
+                <button
+                  className="w-6 h-6 rounded flex items-center justify-center nodrag transition-colors"
+                  style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+                  onClick={() => updateNode(id, { params: { ...nodeData.params, count: Math.max(1, count - 1) } })}
+                  disabled={isGenerating}
+                >
+                  <Minus size={10} />
+                </button>
+                <span className="text-[12px] font-semibold text-[var(--text-primary)] w-6 text-center tabular-nums">{count}</span>
+                <button
+                  className="w-6 h-6 rounded flex items-center justify-center nodrag transition-colors"
+                  style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+                  onClick={() => updateNode(id, { params: { ...nodeData.params, count: Math.min(10, count + 1) } })}
+                  disabled={isGenerating}
+                >
+                  <Plus size={10} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Generate button */}

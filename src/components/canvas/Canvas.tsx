@@ -36,7 +36,8 @@ import { ReferenceImageNode } from '../nodes/ReferenceImageNode'
 import { ReferenceVideoNode } from '../nodes/ReferenceVideoNode'
 import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
-import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData } from '../../types/nodes'
+import { ListNode } from '../nodes/ListNode'
+import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
 import { uploadVideoFile } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
@@ -59,6 +60,7 @@ const nodeTypes: NodeTypes = {
   noteNode: NoteNode,
   promptEnhancerNode: PromptEnhancerNode,
   groupNode: GroupNode,
+  listNode: ListNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -76,6 +78,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   note:            'noteNode',
   promptEnhancer:  'promptEnhancerNode',
   group:           'groupNode',
+  list:            'listNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -87,6 +90,7 @@ const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
   fps: 25,
   audioEnabled: true,
   seed: null,
+  count: 1,
   status: 'idle',
   progress: '',
   videoUrl: null,
@@ -94,6 +98,7 @@ const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
   error: null,
   requestId: null,
   requestEndpoint: null,
+  activeDisplayNodeId: null,
   capsuleFields: {
     model:        { id: 'model',        capsuleVisibility: 'visible' },
     duration:     { id: 'duration',     capsuleVisibility: 'visible' },
@@ -132,6 +137,12 @@ const IMAGE_GEN_DEFAULT_DATA = {
     resolution:  { id: 'resolution',  capsuleVisibility: 'visible' },
     seed:        { id: 'seed',        capsuleVisibility: 'visible' },
   },
+}
+
+const LIST_NODE_DEFAULT_DATA: ListNodeData = {
+  label: 'List',
+  slotCount: 2,
+  mode: 'unset',
 }
 
 const PROMPT_ENHANCER_DEFAULT_DATA = {
@@ -220,9 +231,10 @@ function expandGroupIfNeeded(
 // ノードタイプ別のデフォルト入力ハンドルID（ポートタイプ → ハンドルID）
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
   promptEnhancer: {},
-  imageGen:       { text: 'in-text', image: 'in-image' },
+  imageGen:       { text: 'in-text', image: 'in-image', list: 'in-list' },
   videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video' },
   utility:        { text: 'in-text-in' },
+  list:           { image: 'in-image-0', text: 'in-text-0' },
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
@@ -234,6 +246,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   videoGen:       'out-video',
   referenceVideo: 'out-video',
   utility:        'out-text-out',
+  list:           'out-list',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -241,6 +254,7 @@ const PORT_COMPATIBLE: Record<string, string[]> = {
   image: ['image'],
   video: ['video', 'image'],
   style: ['style', 'text'],
+  list:  ['list'],
 }
 
 function parsePortType(handleId: string | null): string {
@@ -339,6 +353,7 @@ export function Canvas() {
   const altDragSnapshotRef = useRef<PartialCanvasState | null>(null)
   const dragToBackupIdRef = useRef<Map<string, string>>(new Map())
   const originalEdgesRef = useRef<Edge[]>([])
+  const draggedIdsRef = useRef<Set<string>>(new Set())
   const spacePanRef = useRef<{ startX: number; startY: number; vpX: number; vpY: number; zoom: number } | null>(null)
   const clipboardRef = useRef<{ nodes: AppNode[]; edges: Edge[] }>({ nodes: [], edges: [] })
 
@@ -349,7 +364,11 @@ export function Canvas() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) setIsSpacePressed(true)
       if (e.key === 'Alt' && !e.repeat) {
-        altStyle.textContent = '.react-flow__node { cursor: copy !important; }'
+        const groupedIds = useCanvasStore.getState().nodes.filter((n) => n.parentId).map((n) => n.id)
+        const excludeSelectors = groupedIds.map((id) => `[data-id="${id}"]`).join(', ')
+        let css = '.react-flow__node { cursor: copy !important; }'
+        if (groupedIds.length > 0) css += ` ${excludeSelectors} { cursor: default !important; }`
+        altStyle.textContent = css
         document.head.appendChild(altStyle)
       }
       if (e.code === 'Digit0' && e.metaKey && e.altKey) {
@@ -386,7 +405,8 @@ export function Canvas() {
       if (e.code === 'KeyC' && e.metaKey) {
         const activeEl = document.activeElement as HTMLElement | null
         if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.isContentEditable) return
-        const sel = selectionRef.current.filter((n) => n.type !== 'groupNode')
+        const sel = selectionRef.current
+        if (sel.some((n) => n.type === 'groupNode' || n.parentId)) return
         if (sel.length === 0) return
         const selIds = new Set(sel.map((n) => n.id))
         // コピー対象ノード間のエッジのみ抽出
@@ -521,6 +541,8 @@ export function Canvas() {
         data = { ...IMAGE_GEN_DEFAULT_DATA, label }
       } else if (type === 'promptEnhancer') {
         data = { ...PROMPT_ENHANCER_DEFAULT_DATA, label }
+      } else if (type === 'list') {
+        data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -699,6 +721,10 @@ export function Canvas() {
         altDragActiveRef.current = false
         return
       }
+      if (draggedNodes.some((n) => n.type === 'groupNode' || n.parentId)) {
+        altDragActiveRef.current = false
+        return
+      }
       altDragActiveRef.current = true
 
       const { nodes: currentNodes, edges: currentEdges } = useCanvasStore.getState()
@@ -713,6 +739,7 @@ export function Canvas() {
       const { setNodes: storeSetNodes, setEdges: storeSetEdges } = useCanvasStore.getState()
       const dragToBackup = new Map<string, string>()
       const draggedIds = new Set(draggedNodes.map((n) => n.id))
+      draggedIdsRef.current = draggedIds
       const backupNodes: AppNode[] = draggedNodes.map((n) => {
         const backupId = `node-${Date.now()}-${nodeIdCounter++}`
         dragToBackup.set(n.id, backupId)
@@ -787,9 +814,11 @@ export function Canvas() {
 
       const { edges: currentEdges, setEdges: storeSetEdges } = useCanvasStore.getState()
 
-      // ドラッグ開始時に記録した元エッジを、コピーノード（ドラッグしたノード）にも追加する
-      // バックアップノード側のエッジはすでに dragStart で付け替え済み
-      const copyEdges: Edge[] = originalEdgesRef.current.map((e) => ({
+      // ドラッグ開始時に記録した元エッジのうち、ドラッグしたノード間のエッジのみをコピーに追加する
+      // 外部ノードへの接続は含めない（単体コピー時は接続なし、複数コピー時は内部接続のみ維持）
+      const copyEdges: Edge[] = originalEdgesRef.current
+        .filter((e) => draggedIdsRef.current.has(e.source) && draggedIdsRef.current.has(e.target))
+        .map((e) => ({
         id: `edge-${Date.now()}-${nodeIdCounter++}`,
         source: e.source,
         target: e.target,
@@ -969,6 +998,8 @@ export function Canvas() {
         data = { ...IMAGE_GEN_DEFAULT_DATA, label }
       } else if (type === 'promptEnhancer') {
         data = { ...PROMPT_ENHANCER_DEFAULT_DATA, label }
+      } else if (type === 'list') {
+        data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }

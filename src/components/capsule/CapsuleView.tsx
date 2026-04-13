@@ -187,26 +187,24 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
           value={inputText}
           onChange={(e) => updateNode(nodeId, { inputText: e.target.value } as never)}
         />
-      ) : (
+      ) : isGenerating ? (
         <div
-          className="w-full rounded-md px-3 py-2 text-[12px] overflow-y-auto"
-          style={{
-            background: 'var(--bg-canvas)',
-            border: '1px solid var(--border)',
-            minHeight: 80,
-            lineHeight: 1.6,
-            color: outputText ? 'var(--text-primary)' : 'var(--text-tertiary)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
+          className="w-full rounded-md px-3 py-2 text-[12px]"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 80, lineHeight: 1.6, color: 'var(--text-tertiary)' }}
         >
-          {isGenerating ? (
-            <span className="flex items-center gap-2 text-[var(--text-tertiary)]">
-              <Loader2 size={12} className="animate-spin" />
-              変換中...
-            </span>
-          ) : outputText || 'まだ変換されていません'}
+          <span className="flex items-center gap-2">
+            <Loader2 size={12} className="animate-spin" />
+            変換中...
+          </span>
         </div>
+      ) : (
+        <textarea
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none resize-y"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 80, lineHeight: 1.6 }}
+          placeholder="まだ変換されていません"
+          value={outputText}
+          onChange={(e) => updateNode(nodeId, { outputText: e.target.value } as never)}
+        />
       )}
 
       {/* フッター: モデル選択 + コピー + Enhanceボタン */}
@@ -797,13 +795,51 @@ function StageGenerateButton({
   stages: CapsuleStageInfo[]
 }) {
   const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   if ((nodeType as string) === 'referenceImage') return null
 
   const updateNode = useCanvasStore((s) => s.updateNode)
   const d = node.data as Record<string, unknown>
-  const count = Math.max(1, Math.min(10, ((d.params as Record<string, unknown> | undefined)?.count as number) ?? 1))
+  const count = nodeType === 'videoGen'
+    ? Math.max(1, Math.min(10, (d.count as number) ?? 1))
+    : Math.max(1, Math.min(10, ((d.params as Record<string, unknown> | undefined)?.count as number) ?? 1))
+
+  // ListNode が in-list ハンドルに繋がっているか確認
+  const listEdge = edges.find((e) => e.target === nodeId && e.targetHandle === 'in-list')
+  const listNode = listEdge ? nodes.find((n) => n.id === listEdge.source) : null
+  const isListMode = !!listNode
+  const listValidCount = isListMode
+    ? (() => {
+        const ld = listNode!.data as Record<string, unknown>
+        const slotCount = Math.max(1, (ld.slotCount as number) ?? 1)
+        const listNodeMode = (ld.mode as string) ?? 'image'
+        if (listNodeMode === 'text') {
+          return Math.max(1, edges
+            .filter((e) => e.target === listNode!.id && e.targetHandle?.startsWith('in-text-'))
+            .filter((e) => {
+              const i = parseInt(e.targetHandle!.replace('in-text-', ''), 10)
+              if (i < 0 || i >= slotCount) return false
+              const src = nodes.find((n) => n.id === e.source)
+              if (!src) return false
+              const sd = src.data as Record<string, unknown>
+              const text = (sd.outputText as string) || ((sd.params as Record<string, unknown>)?.prompt as string)
+              return !!text?.trim()
+            }).length)
+        }
+        return Math.max(1, edges
+          .filter((e) => e.target === listNode!.id && e.targetHandle?.startsWith('in-image-'))
+          .filter((e) => {
+            const i = parseInt(e.targetHandle!.replace('in-image-', ''), 10)
+            if (i < 0 || i >= slotCount) return false
+            const src = nodes.find((n) => n.id === e.source)
+            if (!src) return false
+            const sd = src.data as Record<string, unknown>
+            return !!(sd.imageUrl || sd.uploadedImagePreview || sd.output)
+          }).length)
+      })()
+    : null
 
   // GenNode 自体が generating か、DisplayNodes のいずれかが generating なら true
   const genNodeGenerating = d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
@@ -829,29 +865,44 @@ function StageGenerateButton({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Count ステッパー（imageGen のみ） */}
-      {nodeType === 'imageGen' && (
+      {/* Count ステッパー（imageGen / videoGen）— ListMode 時は非表示 */}
+      {(nodeType === 'imageGen' || nodeType === 'videoGen') && (
         <div className="flex items-center justify-between">
           <label className="text-[11px] font-medium text-[var(--text-secondary)]">Count</label>
-          <div className="flex items-center gap-1">
-            <button
-              className="w-6 h-6 rounded flex items-center justify-center transition-colors"
-              style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
-              onClick={() => updateNode(nodeId, { params: { ...(d.params as Record<string, unknown>), count: Math.max(1, count - 1) } } as Partial<NodeData>)}
-              disabled={isDisabled}
+          {isListMode ? (
+            <span
+              className="text-[11px] font-semibold rounded-full px-2 py-0.5"
+              style={{ background: 'rgba(139,92,246,0.15)', color: '#8B5CF6' }}
             >
-              <Minus size={10} />
-            </button>
-            <span className="text-[12px] font-semibold text-[var(--text-primary)] w-6 text-center tabular-nums">{count}</span>
-            <button
-              className="w-6 h-6 rounded flex items-center justify-center transition-colors"
-              style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
-              onClick={() => updateNode(nodeId, { params: { ...(d.params as Record<string, unknown>), count: Math.min(10, count + 1) } } as Partial<NodeData>)}
-              disabled={isDisabled}
-            >
-              <Plus size={10} />
-            </button>
-          </div>
+              List × {listValidCount}
+            </span>
+          ) : (
+            <div className="flex items-center gap-1">
+              <button
+                className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+                onClick={() => nodeType === 'videoGen'
+                  ? updateNode(nodeId, { count: Math.max(1, count - 1) } as Partial<NodeData>)
+                  : updateNode(nodeId, { params: { ...(d.params as Record<string, unknown>), count: Math.max(1, count - 1) } } as Partial<NodeData>)
+                }
+                disabled={isDisabled}
+              >
+                <Minus size={10} />
+              </button>
+              <span className="text-[12px] font-semibold text-[var(--text-primary)] w-6 text-center tabular-nums">{count}</span>
+              <button
+                className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+                onClick={() => nodeType === 'videoGen'
+                  ? updateNode(nodeId, { count: Math.min(10, count + 1) } as Partial<NodeData>)
+                  : updateNode(nodeId, { params: { ...(d.params as Record<string, unknown>), count: Math.min(10, count + 1) } } as Partial<NodeData>)
+                }
+                disabled={isDisabled}
+              >
+                <Plus size={10} />
+              </button>
+            </div>
+          )}
         </div>
       )}
       <button
@@ -882,6 +933,72 @@ function StageGenerateButton({
 }
 
 // ────────────────────────────────────────────
+// ListNode スロットパネル（App モード内でのスロット表示・入力）
+// ────────────────────────────────────────────
+function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
+  const listNode = nodes.find((n) => n.id === listNodeId)
+  if (!listNode) return null
+
+  const d = listNode.data as Record<string, unknown>
+  const slotCount = Math.max(1, d.slotCount as number ?? 1)
+  const mode = (d.mode as string) ?? 'image'
+
+  const slots = Array.from({ length: slotCount }, (_, i) => {
+    if (mode === 'text') {
+      const edge = edges.find((e) => e.target === listNodeId && e.targetHandle === `in-text-${i}`)
+      const textNode = edge ? nodes.find((n) => n.id === edge.source) : null
+      return { index: i, type: 'text' as const, nodeId: textNode?.id ?? null, nodeType: textNode?.type ?? null }
+    } else {
+      const edge = edges.find((e) => e.target === listNodeId && e.targetHandle === `in-image-${i}`)
+      const refNode = edge ? nodes.find((n) => n.id === edge.source) : null
+      return { index: i, type: 'image' as const, nodeId: refNode?.id ?? null, nodeType: refNode?.type ?? null }
+    }
+  })
+
+  const accentColor = mode === 'text' ? '#6366F1' : '#8B5CF6'
+  const sectionLabel = mode === 'text' ? 'リストプロンプト' : 'リスト画像'
+  const disconnectedLabel = '未接続（グラフで接続してください）'
+
+  return (
+    <div className="mb-3">
+      <div className="text-[11px] font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>{sectionLabel}</div>
+      <div className="flex flex-col gap-2">
+        {slots.map(({ index, type, nodeId, nodeType }) => (
+          <div key={index} className="flex items-start gap-2">
+            <span
+              className="text-[10px] font-semibold w-4 text-center flex-shrink-0 mt-2"
+              style={{ color: accentColor }}
+            >
+              {index + 1}
+            </span>
+            <div className="flex-1">
+              {nodeId ? (
+                type === 'image' ? (
+                  <ImageUploadField nodeId={nodeId} label="" />
+                ) : nodeType === 'promptEnhancerNode' ? (
+                  <PromptEnhancerField nodeId={nodeId} label="" />
+                ) : (
+                  <TextPromptField nodeId={nodeId} label="" />
+                )
+              ) : (
+                <div
+                  className="flex items-center justify-center rounded-lg"
+                  style={{ border: '1px dashed var(--border)', minHeight: 40 }}
+                >
+                  <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{disconnectedLabel}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
 // 左パネル: 現在のステージの入力・操作
 // ────────────────────────────────────────────
 function CapsuleStagePanel({
@@ -896,10 +1013,24 @@ function CapsuleStagePanel({
   onPreviewChange: (i: number) => void
 }) {
   const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
   const i = activePreviewIndex
   const stage = stages[i]
   if (!stage) return null
   const status = getStageStatus(stage.nodeId, nodes, stage.displayNodeIds)
+
+  // ListNode が in-list ハンドルに繋がっているか確認
+  const listEdge = edges.find((e) => e.target === stage.nodeId && e.targetHandle === 'in-list')
+  const listNodeId = listEdge?.source ?? null
+
+  // ListNode のスロットに接続されているノードID（画像・テキスト両方、重複表示防止）
+  const listSlotNodeIds = listNodeId
+    ? new Set(
+        edges
+          .filter((e) => e.target === listNodeId && (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-')))
+          .map((e) => e.source)
+      )
+    : new Set<string>()
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -946,27 +1077,28 @@ function CapsuleStagePanel({
 
       {/* ステージコンテンツ */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* グローバル入力（どのステージにも繋がっていない入力ノード） */}
-        {globalInputs.map((input) =>
-          input.nodeType === 'referenceImage' ? (
-            <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-          ) : input.nodeType === 'promptEnhancer' ? (
-            <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-          ) : (
-            <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+        {(() => {
+          // globalInputs + stageInputs を統合してから ListNode スロット分を除外
+          const allInputs = [...globalInputs, ...stage.stageInputs]
+            .filter((input) => !listSlotNodeIds.has(input.nodeId))
+          // TextPrompt・PromptEnhancer を先頭、ReferenceImage を後ろに並べ替え
+          const sorted = [
+            ...allInputs.filter((i) => i.nodeType === 'textPrompt' || i.nodeType === 'promptEnhancer'),
+            ...allInputs.filter((i) => i.nodeType === 'referenceImage'),
+          ]
+          return sorted.map((input) =>
+            input.nodeType === 'referenceImage' ? (
+              <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+            ) : input.nodeType === 'promptEnhancer' ? (
+              <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+            ) : (
+              <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+            )
           )
-        )}
+        })()}
 
-        {/* このステージに繋がっている入力ノード */}
-        {stage.stageInputs.map((input) =>
-          input.nodeType === 'referenceImage' ? (
-            <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-          ) : input.nodeType === 'promptEnhancer' ? (
-            <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-          ) : (
-            <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-          )
-        )}
+        {/* ListNode スロット（接続済み・未接続含めてすべて表示） */}
+        {listNodeId && <ListNodeSlotsPanel listNodeId={listNodeId} />}
 
         {/* フィールド（モデル・アスペクト比など） */}
         {stage.fields.map((field) => (
@@ -1084,27 +1216,179 @@ function VideoPreview({ src }: { src: string }) {
 // ────────────────────────────────────────────
 // 複数 DisplayNode サムネイルグリッド（App モード右エリア）
 // ────────────────────────────────────────────
-function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[] }) {
+function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [muted, setMuted] = useState(false)
+
+  useEffect(() => {
+    videoRef.current?.play().catch(() => {})
+  }, [])
+
+  function togglePlay() {
+    if (!videoRef.current) return
+    if (videoRef.current.paused) { videoRef.current.play(); setIsPlaying(true) }
+    else { videoRef.current.pause(); setIsPlaying(false) }
+  }
+
+  function toggleMute() {
+    if (!videoRef.current) return
+    videoRef.current.muted = !muted
+    setMuted((v) => !v)
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.9)', zIndex: 99999 }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-xl overflow-hidden"
+        style={{ maxWidth: '90vw', maxHeight: '90vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <video
+          ref={videoRef}
+          src={src}
+          loop
+          playsInline
+          style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'block' }}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+        />
+        {/* 右上: 閉じるボタン */}
+        <div className="absolute top-3 right-3">
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {/* 右下: コントロール */}
+        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={(e) => { e.stopPropagation(); toggleMute() }}
+            title={muted ? 'ミュート解除' : 'ミュート'}
+          >
+            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </button>
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={(e) => { e.stopPropagation(); togglePlay() }}
+            title={isPlaying ? '一時停止' : '再生'}
+          >
+            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+          </button>
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={(e) => { e.stopPropagation(); downloadFile(src, 'video.mp4') }}
+            title="ダウンロード"
+          >
+            <Download size={16} />
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/** 下流ステージへの接続情報（どの DisplayNode が次の Gen に繋がっているか） */
+type DownstreamLink = {
+  displayNodeId: string   // 現在接続中の DisplayNode
+  genNodeId: string       // 接続先の生成ノード
+  targetHandle: string    // 'in-image' など
+}
+
+function DisplayNodeThumbnailGrid({
+  displayNodeIds,
+  downstreamLinks = [],
+}: {
+  displayNodeIds: string[]
+  downstreamLinks?: DownstreamLink[]
+}) {
   const nodes = useCanvasStore((s) => s.nodes)
+  const setEdges = useCanvasStore((s) => s.setEdges)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [lightboxVideoUrl, setLightboxVideoUrl] = useState<string | null>(null)
 
   const batchNodes = displayNodeIds
     .map((did) => nodes.find((n) => n.id === did))
     .filter(Boolean) as ReturnType<typeof useCanvasStore.getState>['nodes']
 
+  const hasDownstream = downstreamLinks.length > 0
+  const selectedDisplayIds = new Set(downstreamLinks.map((l) => l.displayNodeId))
+
+  /** 選択した DisplayNode に下流エッジを繋ぎ替える */
+  function handleSelectForDownstream(displayNodeId: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!hasDownstream) return
+    const { edges: latestEdges } = useCanvasStore.getState()
+
+    const displayIdSet = new Set(displayNodeIds)
+    const downstreamGenIds = new Set(downstreamLinks.map((l) => l.genNodeId))
+
+    // 現在のステージの DisplayNode → 下流 GenNode へのエッジを削除
+    const filteredEdges = latestEdges.filter(
+      (edge) => !(displayIdSet.has(edge.source) && downstreamGenIds.has(edge.target))
+    )
+
+    // 選択した DisplayNode から下流 GenNode へ新しいエッジを追加
+    // 同じ GenNode への重複は除外
+    const seenGens = new Set<string>()
+    const newEdges = downstreamLinks
+      .filter((l) => {
+        if (seenGens.has(l.genNodeId)) return false
+        seenGens.add(l.genNodeId)
+        return true
+      })
+      .map((l) => ({
+        id: `e-disp-${displayNodeId}-gen-${l.genNodeId}`,
+        source: displayNodeId,
+        sourceHandle: 'out-image-image-out',
+        target: l.genNodeId,
+        targetHandle: l.targetHandle,
+        style: { stroke: '#8B5CF6', strokeWidth: 2 },
+        animated: false,
+        className: '',
+      }))
+
+    setEdges([...filteredEdges, ...newEdges])
+  }
+
   return (
     <div className="flex-1 flex flex-col p-6 overflow-auto gap-4">
+      {hasDownstream && (
+        <div className="text-[11px] text-center" style={{ color: 'var(--text-tertiary)' }}>
+          次のステージで使用する画像を選択
+        </div>
+      )}
       <div
         className="grid gap-3"
-        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
       >
         {batchNodes.map((node) => {
           const d = node.data as Record<string, unknown>
+          const isVideo = node.type === 'videoDisplayNode'
           const status = (d.status as string) ?? 'idle'
-          const outputUrl = d.output as string | undefined
-          const isGen = status === 'generating'
-          const isErr = status === 'error'
-          const errMsg = ((d.params as Record<string, unknown> | undefined)?.error as string | undefined)
+          const outputUrl = isVideo
+            ? (d.videoUrl as string | undefined)
+            : (d.output as string | undefined)
+          const isGen = isVideo
+            ? (status === 'queued' || status === 'processing')
+            : status === 'generating'
+          const isErr = isVideo ? status === 'failed' : status === 'error'
+          const errMsg = isVideo
+            ? (d.error as string | undefined)
+            : ((d.params as Record<string, unknown> | undefined)?.error as string | undefined)
+          const isSelected = selectedDisplayIds.has(node.id)
 
           return (
             <div
@@ -1113,7 +1397,9 @@ function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[]
               style={{
                 aspectRatio: '1 / 1',
                 background: 'var(--bg-surface)',
-                border: '1px solid var(--border)',
+                border: isSelected && hasDownstream
+                  ? '2px solid #8B5CF6'
+                  : '1px solid var(--border)',
               }}
             >
               {isGen ? (
@@ -1122,7 +1408,7 @@ function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[]
                     className="w-8 h-8 rounded-full border-2"
                     style={{
                       borderColor: 'var(--border)',
-                      borderTopColor: '#8B5CF6',
+                      borderTopColor: isVideo ? '#EC4899' : '#8B5CF6',
                       animation: 'spin 0.8s linear infinite',
                     }}
                   />
@@ -1132,6 +1418,26 @@ function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[]
                   <AlertCircle size={20} style={{ color: '#EF4444' }} />
                   <div className="text-[10px] text-center" style={{ color: '#EF4444' }}>
                     {errMsg || 'エラー'}
+                  </div>
+                </div>
+              ) : outputUrl && isVideo ? (
+                <div
+                  className="relative w-full h-full cursor-pointer group/thumb"
+                  onClick={() => setLightboxVideoUrl(outputUrl)}
+                >
+                  <video
+                    src={outputUrl}
+                    muted
+                    loop
+                    playsInline
+                    autoPlay
+                    className="w-full h-full object-cover"
+                  />
+                  <div
+                    className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-150 flex items-center justify-center"
+                    style={{ background: 'rgba(0,0,0,0.4)' }}
+                  >
+                    <Play size={28} style={{ color: '#fff' }} />
                   </div>
                 </div>
               ) : outputUrl ? (
@@ -1149,10 +1455,32 @@ function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[]
                   <ImageIcon size={24} style={{ color: 'var(--border-active)', opacity: 0.4 }} />
                 </div>
               )}
+
+              {/* 下流ステージへの参照選択ボタン */}
+              {hasDownstream && (
+                <button
+                  className="absolute top-2 right-2 flex items-center justify-center rounded-full transition-all duration-150"
+                  style={{
+                    width: 22,
+                    height: 22,
+                    background: isSelected ? '#8B5CF6' : 'rgba(0,0,0,0.45)',
+                    border: isSelected ? 'none' : '2px solid rgba(255,255,255,0.55)',
+                    backdropFilter: 'blur(4px)',
+                  }}
+                  onClick={(e) => handleSelectForDownstream(node.id, e)}
+                  title={isSelected ? '選択中（次のステージに使用）' : 'このステージの参照画像として使用'}
+                >
+                  {isSelected && <Check size={12} color="white" strokeWidth={2.5} />}
+                </button>
+              )}
             </div>
           )
         })}
       </div>
+
+      {lightboxVideoUrl && (
+        <VideoLightbox src={lightboxVideoUrl} onClose={() => setLightboxVideoUrl(null)} />
+      )}
 
       {lightboxUrl && createPortal(
         <div
@@ -1200,6 +1528,7 @@ function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[]
 // ────────────────────────────────────────────
 function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; activeIndex: number }) {
   const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
   const stage = stages[activeIndex]
   if (!stage) {
     return (
@@ -1214,18 +1543,45 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
 
   // DisplayNode 複数: サムネイルグリッドを表示
   if (stage.displayNodeIds && stage.displayNodeIds.length > 1) {
-    return <DisplayNodeThumbnailGrid displayNodeIds={stage.displayNodeIds} />
+    // 現ステージの DisplayNode から他の Gen ノードへの接続を収集（下流ステージの参照選択用）
+    const displayIdSet = new Set(stage.displayNodeIds)
+    const downstreamLinks: DownstreamLink[] = edges
+      .filter((e) => displayIdSet.has(e.source))
+      .map((e) => {
+        const targetNode = nodes.find((n) => n.id === e.target)
+        if (
+          targetNode?.type !== 'imageGenerationNode' &&
+          targetNode?.type !== 'videoGenerationNode'
+        ) return null
+        return {
+          displayNodeId: e.source,
+          genNodeId: e.target,
+          targetHandle: e.targetHandle ?? 'in-image',
+        } satisfies DownstreamLink
+      })
+      .filter((l): l is DownstreamLink => l !== null)
+
+    return <DisplayNodeThumbnailGrid displayNodeIds={stage.displayNodeIds} downstreamLinks={downstreamLinks} />
   }
 
   // DisplayNode 1件: その DisplayNode の状態を表示
   if (stage.displayNodeIds && stage.displayNodeIds.length === 1) {
     const dispNode = nodes.find((n) => n.id === stage.displayNodeIds![0])
     const dispD = (dispNode?.data ?? {}) as Record<string, unknown>
+    const isVideoDisp = dispNode?.type === 'videoDisplayNode'
     const dispStatus = (dispD.status as string) ?? 'idle'
-    const dispOutput = dispD.output as string | undefined
-    const dispError = (dispD.params as Record<string, unknown> | undefined)?.error as string | undefined
-    const dispGenerating = dispStatus === 'generating'
-    const dispFailed = dispStatus === 'error'
+    const dispOutput = isVideoDisp
+      ? (dispD.videoUrl as string | undefined)
+      : (dispD.output as string | undefined)
+    const dispError = isVideoDisp
+      ? (dispD.error as string | undefined)
+      : ((dispD.params as Record<string, unknown> | undefined)?.error as string | undefined)
+    const dispProgress = isVideoDisp ? (dispD.progress as string | undefined) : undefined
+    const dispGenerating = isVideoDisp
+      ? (dispStatus === 'queued' || dispStatus === 'processing')
+      : dispStatus === 'generating'
+    const dispFailed = isVideoDisp ? dispStatus === 'failed' : dispStatus === 'error'
+    const accentColor = isVideoDisp ? '#EC4899' : '#8B5CF6'
 
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">
@@ -1233,15 +1589,17 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
           <div className="flex flex-col items-center gap-3">
             <div
               className="w-10 h-10 rounded-full border-2 border-[var(--border)]"
-              style={{ borderTopColor: '#8B5CF6', animation: 'spin 0.8s linear infinite' }}
+              style={{ borderTopColor: accentColor, animation: 'spin 0.8s linear infinite' }}
             />
-            <span className="text-[12px] text-[var(--text-tertiary)]">生成中...</span>
+            <span className="text-[12px] text-[var(--text-tertiary)]">{dispProgress || '生成中...'}</span>
           </div>
         ) : dispFailed ? (
           <div className="flex flex-col items-center gap-2">
             <div className="text-[#EF4444]"><AlertCircle size={32} strokeWidth={1.5} /></div>
             <div className="text-[12px] text-[#EF4444] text-center max-w-xs">{dispError || '生成に失敗しました'}</div>
           </div>
+        ) : dispOutput && isVideoDisp ? (
+          <VideoPreview src={dispOutput} />
         ) : dispOutput ? (
           <ImagePreview src={dispOutput} />
         ) : (

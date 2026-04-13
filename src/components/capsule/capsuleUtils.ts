@@ -86,24 +86,8 @@ export function buildCapsuleStages(
     (e) => childIds.has(e.source) && childIds.has(e.target)
   )
 
-  // 入次数カウント（生成ノード間の依存）
-  // 内部接続がないgen nodeも対象に含める（外部からの接続で生成済みのケースをカバー）
-  const inDegree: Record<string, number> = {}
-  const deps: Record<string, string[]> = {}
-
-  genNodes.forEach((n) => {
-    inDegree[n.id] = 0
-    deps[n.id] = []
-  })
-
-  const genIds = new Set(genNodes.map((n) => n.id))
-
-  internalEdges.forEach((e) => {
-    if (genIds.has(e.source) && genIds.has(e.target)) {
-      inDegree[e.target] = (inDegree[e.target] ?? 0) + 1
-      deps[e.source].push(e.target)
-    }
-  })
+  // 入次数・依存関係をBFSで解決（DisplayNode等の非生成ノードを透過して検出）
+  const { inDegree, deps } = buildGenDependencies(genNodes, children, internalEdges)
 
   // Kahnのアルゴリズム（全gen nodeを対象）
   const queue = genNodes.filter((n) => inDegree[n.id] === 0)
@@ -177,6 +161,55 @@ export function buildCapsuleStages(
   return sorted.map((node, i) => buildStageInfo(node, i))
 }
 
+/**
+ * 生成ノード間の依存関係を、非生成ノードを透過して求める。
+ * 例: ImageGenNode → ImageDisplayNode → VideoGenNode の場合、
+ * ImageGenNode が VideoGenNode に依存していることを正しく検出する。
+ */
+function buildGenDependencies(
+  genNodes: AppNode[],
+  children: AppNode[],
+  internalEdges: Edge[]
+): { inDegree: Record<string, number>; deps: Record<string, string[]> } {
+  const genIds = new Set(genNodes.map((n) => n.id))
+
+  // グループ内全ノードの隣接リストを構築
+  const adj: Record<string, string[]> = {}
+  children.forEach((n) => { adj[n.id] = [] })
+  internalEdges.forEach((e) => {
+    if (adj[e.source] !== undefined) adj[e.source].push(e.target)
+  })
+
+  const inDegree: Record<string, number> = {}
+  const deps: Record<string, string[]> = {}
+  genNodes.forEach((n) => { inDegree[n.id] = 0; deps[n.id] = [] })
+
+  // 各生成ノードから BFS し、非生成ノードを透過して最初に到達する生成ノードを「直接依存先」とする
+  genNodes.forEach((start) => {
+    const queue = [...(adj[start.id] ?? [])]
+    const visited = new Set<string>([start.id])
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!
+      if (visited.has(cur)) continue
+      visited.add(cur)
+
+      if (genIds.has(cur)) {
+        // 生成ノードに到達 → 直接依存として登録（それより先は辿らない）
+        deps[start.id].push(cur)
+        inDegree[cur]++
+      } else {
+        // 非生成ノードは透過して辿り続ける
+        for (const next of adj[cur] ?? []) {
+          if (!visited.has(next)) queue.push(next)
+        }
+      }
+    }
+  })
+
+  return { inDegree, deps }
+}
+
 /** グループ内に並列実行される生成ノードが存在するか判定 */
 export function hasParallelGenerationNodes(
   groupId: string,
@@ -192,19 +225,7 @@ export function hasParallelGenerationNodes(
     (e) => childIds.has(e.source) && childIds.has(e.target)
   )
 
-  const inDegree: Record<string, number> = {}
-  const deps: Record<string, string[]> = {}
-  genNodes.forEach((n) => {
-    inDegree[n.id] = 0
-    deps[n.id] = []
-  })
-  const genIds = new Set(genNodes.map((n) => n.id))
-  internalEdges.forEach((e) => {
-    if (genIds.has(e.source) && genIds.has(e.target)) {
-      inDegree[e.target] = (inDegree[e.target] ?? 0) + 1
-      deps[e.source].push(e.target)
-    }
-  })
+  const { inDegree, deps } = buildGenDependencies(genNodes, children, internalEdges)
 
   // Kahnのキューに2つ以上入った瞬間 = 並列
   const queue = genNodes.filter((n) => inDegree[n.id] === 0)
