@@ -23,6 +23,7 @@ import {
   ArrowCounterClockwise,
   ArrowClockwise,
   Stack,
+  Camera,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -59,6 +60,7 @@ const PALETTE = [
     category: 'ユーティリティ',
     items: [
       { type: 'list' as NodeType, label: 'List', description: '複数入力をリストにまとめる', icon: <Stack size={15} />, color: '#8B5CF6' },
+      { type: 'cameraList' as NodeType, label: 'Camera List', description: 'カメラアングルを指定', icon: <Camera size={15} />, color: '#8B5CF6' },
       { type: 'note' as NodeType, label: 'Note', description: 'メモ・注釈を追加', icon: <Note size={15} />, color: '#F59E0B' },
     ],
   },
@@ -95,6 +97,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'list') {
     return { label, slotCount: 2, mode: 'unset' }
+  }
+  if (type === 'cameraList') {
+    return { label, selectedPresets: [], customAngles: [] }
   }
   return { type, label, params: {}, status: 'idle' }
 }
