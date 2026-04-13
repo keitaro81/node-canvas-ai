@@ -10,6 +10,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useAutoSave } from '../../hooks/useAutoSave'
 import { useTheme } from '../../hooks/useTheme'
+import { ToastContainer } from '../ui/ToastContainer'
 
 function LoadingScreen() {
   return (
@@ -102,6 +103,7 @@ export function CanvasPage() {
       </div>
 
       <StatusBar />
+      <ToastContainer />
     </div>
   )
 }

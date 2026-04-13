@@ -15,8 +15,8 @@ export interface CapsuleInputInfo {
 
 export interface CapsuleStageInfo {
   nodeId: string
-  /** バッチ生成時: このステージに属する全ノードID（nodeId を含む）。1枚の場合は undefined */
-  batchNodeIds?: string[]
+  /** 接続済みの ImageDisplay / VideoDisplay ノード ID リスト。App右パネルの表示に使用 */
+  displayNodeIds?: string[]
   nodeType: GenerationNodeType
   label: string
   order: number
@@ -142,14 +142,30 @@ export function buildCapsuleStages(
     })
   }
 
-  function buildStageInfo(node: AppNode, order: number, batchNodeIds?: string[]): CapsuleStageInfo {
+  // この GenNode に接続された DisplayNode を検索（グループ外も対象）
+  function getDisplayNodeIds(genNodeId: string): string[] {
+    return edges
+      .filter(
+        (e) =>
+          e.source === genNodeId &&
+          (e.sourceHandle === 'out-image-image-out' || e.sourceHandle === 'out-video')
+      )
+      .map((e) => e.target)
+      .filter((tid) => {
+        const n = nodes.find((nd) => nd.id === tid)
+        return n?.type === 'imageDisplayNode' || n?.type === 'videoDisplayNode'
+      })
+  }
+
+  function buildStageInfo(node: AppNode, order: number): CapsuleStageInfo {
     const d = node.data as Record<string, unknown>
     const capsuleFields = (d.capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
     const fields = Object.values(capsuleFields).filter((f) => f.capsuleVisibility !== 'hidden')
     fields.sort((a, b) => (a.capsuleOrder ?? 99) - (b.capsuleOrder ?? 99))
+    const displayNodeIds = getDisplayNodeIds(node.id)
     return {
       nodeId: node.id,
-      ...(batchNodeIds && batchNodeIds.length > 1 ? { batchNodeIds } : {}),
+      ...(displayNodeIds.length > 0 ? { displayNodeIds } : {}),
       nodeType: GENERATION_RF_TYPES[node.type!] ?? 'imageGen',
       label: (d.label as string) ?? 'Stage',
       order,
@@ -158,28 +174,7 @@ export function buildCapsuleStages(
     }
   }
 
-  // batchId が同じノードをまとめて1ステージに集約する
-  const seenBatches = new Set<string>()
-  const resultStages: CapsuleStageInfo[] = []
-
-  for (const node of sorted) {
-    const d = node.data as Record<string, unknown>
-    const batchId = ((d.params as Record<string, unknown> | undefined)?.batchId) as string | undefined
-
-    if (batchId) {
-      if (seenBatches.has(batchId)) continue  // 既処理のバッチは skip
-      seenBatches.add(batchId)
-      const batchNodes = sorted.filter((n) => {
-        const nd = n.data as Record<string, unknown>
-        return ((nd.params as Record<string, unknown> | undefined)?.batchId) === batchId
-      })
-      resultStages.push(buildStageInfo(batchNodes[0], resultStages.length, batchNodes.map((n) => n.id)))
-    } else {
-      resultStages.push(buildStageInfo(node, resultStages.length))
-    }
-  }
-
-  return resultStages
+  return sorted.map((node, i) => buildStageInfo(node, i))
 }
 
 /** グループ内に並列実行される生成ノードが存在するか判定 */

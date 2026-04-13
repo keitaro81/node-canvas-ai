@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle } from 'lucide-react'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
-import type { CapsuleFieldDef } from '../../types/nodes'
+import type { CapsuleFieldDef, NodeData } from '../../types/nodes'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -55,23 +55,22 @@ type StageStatus = 'waiting' | 'active' | 'done'
 function getStageStatus(
   nodeId: string,
   nodes: ReturnType<typeof useCanvasStore.getState>['nodes'],
-  batchNodeIds?: string[]
+  displayNodeIds?: string[]
 ): StageStatus {
-  // バッチステージ: 全ノードが完了なら 'done'、1つでも生成中なら 'active'
-  if (batchNodeIds && batchNodeIds.length > 1) {
-    const statuses = batchNodeIds.map((bid) => {
-      const n = nodes.find((nd) => nd.id === bid)
+  // DisplayNode がある場合: 全 DisplayNode が done なら 'done'
+  if (displayNodeIds && displayNodeIds.length > 0) {
+    const statuses = displayNodeIds.map((did) => {
+      const n = nodes.find((nd) => nd.id === did)
       if (!n) return 'waiting'
       const d = n.data as Record<string, unknown>
       const st = (d.status as string) ?? 'idle'
-      const hasOutput = !!(d.output)
-      if (st === 'done' || st === 'completed' || hasOutput) return 'done'
+      if (st === 'done' || st === 'completed' || !!(d.output || d.videoUrl)) return 'done'
       return 'active'
     })
     if (statuses.every((s) => s === 'done')) return 'done'
     return 'active'
   }
-  // 通常ステージ
+  // DisplayNode なし: GenNode 自身のステータスで判定（videoGen など旧来の動作）
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return 'waiting'
   const d = node.data as Record<string, unknown>
@@ -786,13 +785,13 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 // ────────────────────────────────────────────
 function StageGenerateButton({
   nodeId,
-  batchNodeIds,
+  displayNodeIds,
   nodeType,
   stageIndex,
   stages,
 }: {
   nodeId: string
-  batchNodeIds?: string[]
+  displayNodeIds?: string[]
   nodeType: CapsuleStageInfo['nodeType']
   stageIndex: number
   stages: CapsuleStageInfo[]
@@ -802,26 +801,26 @@ function StageGenerateButton({
   if (!node) return null
   if ((nodeType as string) === 'referenceImage') return null
 
-  const isBatch = batchNodeIds && batchNodeIds.length > 1
-  const isGenerating = isBatch
-    ? batchNodeIds.some((bid) => {
-        const d = (nodes.find((n) => n.id === bid)?.data ?? {}) as Record<string, unknown>
-        return d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
-      })
-    : (() => {
-        const d = node.data as Record<string, unknown>
-        return d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
-      })()
+  const updateNode = useCanvasStore((s) => s.updateNode)
+  const d = node.data as Record<string, unknown>
+  const count = Math.max(1, Math.min(10, ((d.params as Record<string, unknown> | undefined)?.count as number) ?? 1))
+
+  // GenNode 自体が generating か、DisplayNodes のいずれかが generating なら true
+  const genNodeGenerating = d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
+  const displayNodesGenerating = (displayNodeIds ?? []).some((did) => {
+    const dn = (nodes.find((n) => n.id === did)?.data ?? {}) as Record<string, unknown>
+    return dn.status === 'generating'
+  })
+  const isGenerating = genNodeGenerating || displayNodesGenerating
 
   // 前のステージが完了しているか（ステージ0は常にOK）
   const prevStage = stageIndex > 0 ? stages[stageIndex - 1] : null
-  const prevDone = prevStage ? getStageStatus(prevStage.nodeId, nodes, prevStage.batchNodeIds) === 'done' : true
+  const prevDone = prevStage ? getStageStatus(prevStage.nodeId, nodes, prevStage.displayNodeIds) === 'done' : true
   const isLocked = !prevDone
 
   const label = nodeType === 'videoGen' ? '動画を生成' : '画像を生成'
 
   function handleClick() {
-    // バッチ時もプライマリノードにだけ dispatch — handleGenerate が仲間を検出して一括再生成する
     const event = new CustomEvent('capsule:generate', { detail: { nodeId } })
     window.dispatchEvent(event)
   }
@@ -829,7 +828,32 @@ function StageGenerateButton({
   const isDisabled = isGenerating || isLocked
 
   return (
-    <div>
+    <div className="flex flex-col gap-2">
+      {/* Count ステッパー（imageGen のみ） */}
+      {nodeType === 'imageGen' && (
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-medium text-[var(--text-secondary)]">Count</label>
+          <div className="flex items-center gap-1">
+            <button
+              className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+              style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+              onClick={() => updateNode(nodeId, { params: { ...(d.params as Record<string, unknown>), count: Math.max(1, count - 1) } } as Partial<NodeData>)}
+              disabled={isDisabled}
+            >
+              <Minus size={10} />
+            </button>
+            <span className="text-[12px] font-semibold text-[var(--text-primary)] w-6 text-center tabular-nums">{count}</span>
+            <button
+              className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+              style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}
+              onClick={() => updateNode(nodeId, { params: { ...(d.params as Record<string, unknown>), count: Math.min(10, count + 1) } } as Partial<NodeData>)}
+              disabled={isDisabled}
+            >
+              <Plus size={10} />
+            </button>
+          </div>
+        </div>
+      )}
       <button
         className="w-full h-9 rounded-lg text-[13px] font-semibold text-white flex items-center justify-center gap-2 transition-all"
         style={{
@@ -875,7 +899,7 @@ function CapsuleStagePanel({
   const i = activePreviewIndex
   const stage = stages[i]
   if (!stage) return null
-  const status = getStageStatus(stage.nodeId, nodes, stage.batchNodeIds)
+  const status = getStageStatus(stage.nodeId, nodes, stage.displayNodeIds)
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -949,7 +973,7 @@ function CapsuleStagePanel({
           <FieldRenderer key={field.id} nodeId={stage.nodeId} field={field} />
         ))}
 
-        <StageGenerateButton nodeId={stage.nodeId} batchNodeIds={stage.batchNodeIds} nodeType={stage.nodeType} stageIndex={i} stages={stages} />
+        <StageGenerateButton nodeId={stage.nodeId} displayNodeIds={stage.displayNodeIds} nodeType={stage.nodeType} stageIndex={i} stages={stages} />
       </div>
     </div>
   )
@@ -1058,14 +1082,14 @@ function VideoPreview({ src }: { src: string }) {
 }
 
 // ────────────────────────────────────────────
-// バッチサムネイルグリッド（App モード右エリア）
+// 複数 DisplayNode サムネイルグリッド（App モード右エリア）
 // ────────────────────────────────────────────
-function BatchThumbnailGrid({ stage }: { stage: CapsuleStageInfo }) {
+function DisplayNodeThumbnailGrid({ displayNodeIds }: { displayNodeIds: string[] }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
-  const batchNodes = (stage.batchNodeIds ?? [])
-    .map((bid) => nodes.find((n) => n.id === bid))
+  const batchNodes = displayNodeIds
+    .map((did) => nodes.find((n) => n.id === did))
     .filter(Boolean) as ReturnType<typeof useCanvasStore.getState>['nodes']
 
   return (
@@ -1188,11 +1212,49 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
     )
   }
 
-  // バッチステージ: サムネイルグリッドを表示
-  if (stage.batchNodeIds && stage.batchNodeIds.length > 1) {
-    return <BatchThumbnailGrid stage={stage} />
+  // DisplayNode 複数: サムネイルグリッドを表示
+  if (stage.displayNodeIds && stage.displayNodeIds.length > 1) {
+    return <DisplayNodeThumbnailGrid displayNodeIds={stage.displayNodeIds} />
   }
 
+  // DisplayNode 1件: その DisplayNode の状態を表示
+  if (stage.displayNodeIds && stage.displayNodeIds.length === 1) {
+    const dispNode = nodes.find((n) => n.id === stage.displayNodeIds![0])
+    const dispD = (dispNode?.data ?? {}) as Record<string, unknown>
+    const dispStatus = (dispD.status as string) ?? 'idle'
+    const dispOutput = dispD.output as string | undefined
+    const dispError = (dispD.params as Record<string, unknown> | undefined)?.error as string | undefined
+    const dispGenerating = dispStatus === 'generating'
+    const dispFailed = dispStatus === 'error'
+
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">
+        {dispGenerating ? (
+          <div className="flex flex-col items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-full border-2 border-[var(--border)]"
+              style={{ borderTopColor: '#8B5CF6', animation: 'spin 0.8s linear infinite' }}
+            />
+            <span className="text-[12px] text-[var(--text-tertiary)]">生成中...</span>
+          </div>
+        ) : dispFailed ? (
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-[#EF4444]"><AlertCircle size={32} strokeWidth={1.5} /></div>
+            <div className="text-[12px] text-[#EF4444] text-center max-w-xs">{dispError || '生成に失敗しました'}</div>
+          </div>
+        ) : dispOutput ? (
+          <ImagePreview src={dispOutput} />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-[var(--border-active)]">
+            <div className="opacity-30"><ImageIcon size={48} strokeWidth={1} /></div>
+            <div className="text-[12px]">まだ生成されていません</div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // DisplayNode なし: GenNode 自身のステータスで表示（VideoGen など旧来の動作）
   const node = nodes.find((n) => n.id === stage.nodeId)
   const d = (node?.data ?? {}) as Record<string, unknown>
   const status = (d.status as string) ?? 'idle'
@@ -1275,7 +1337,7 @@ function StepTabs({
   return (
     <div className="flex items-center gap-0 px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
       {stages.map((stage, i) => {
-        const status = getStageStatus(stage.nodeId, nodes, stage.batchNodeIds)
+        const status = getStageStatus(stage.nodeId, nodes, stage.displayNodeIds)
         const isActive = activeIndex === i
 
         return (

@@ -1,7 +1,6 @@
-import { memo, useState, useCallback, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import { memo, useCallback, useEffect } from 'react'
 import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
-import { Sparkles, Loader2, Download, Maximize2, X, ChevronDown, Minus, Plus } from 'lucide-react'
+import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import type { NodeData, CapsuleFieldDef, CapsuleVisibility } from '../../types/nodes'
@@ -9,21 +8,6 @@ import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
-
-async function downloadFile(url: string, filename: string) {
-  try {
-    const response = await fetch(url)
-    const blob = await response.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(url, '_blank')
-  }
-}
 
 function getImageUrlFromNode(node: AppNode): string | null {
   return getImageUrlFromNodeData(node.data)
@@ -68,27 +52,26 @@ const RECRAFT_IMAGE_SIZES = [
 
 
 
-/** ノード1件分の生成処理。バッチ・単体共用 */
+/**
+ * DisplayNode 1件分の生成処理。
+ * GenNode の status は呼び出し元（handleGenerate）が管理する。
+ */
 async function runGeneration(
-  nodeId: string,
+  displayNodeId: string,
   prompt: string,
   imageUrls: string[],
-  currentParams: Record<string, unknown>,
+  params: Record<string, unknown>,
   updateNode: (id: string, data: Partial<NodeData>) => void
 ) {
-  const model = (currentParams.model as string) ?? 'fal-ai/nano-banana-2'
-  const editModel = (currentParams.editModel as string) ?? 'fal-ai/nano-banana-2'
-  const aspectRatio = (currentParams.aspectRatio as string) ?? '1:1'
-  const resolution = (currentParams.resolution as string) ?? '1K'
-  const seed = (currentParams.seed as string) ?? ''
-  const recraftImageSize = (currentParams.recraftImageSize as string) ?? 'square'
+  const model = (params.model as string) ?? 'fal-ai/nano-banana-2'
+  const editModel = (params.editModel as string) ?? 'fal-ai/nano-banana-2'
+  const aspectRatio = (params.aspectRatio as string) ?? '1:1'
+  const resolution = (params.resolution as string) ?? '1K'
+  const seed = (params.seed as string) ?? ''
+  const recraftImageSize = (params.recraftImageSize as string) ?? 'square'
   const isRecraftModel = RECRAFT_MODELS.has(model)
 
-  updateNode(nodeId, {
-    status: 'generating',
-    output: undefined,
-    params: { ...currentParams, error: undefined },
-  })
+  updateNode(displayNodeId, { status: 'generating', output: undefined, params: {} })
 
   try {
     let outputImageUrl: string | undefined
@@ -122,15 +105,10 @@ async function runGeneration(
       if (!outputImageUrl) throw new Error('生成に失敗しました')
     }
 
-    updateNode(nodeId, { status: 'done', output: outputImageUrl })
-
-    const { edges } = useCanvasStore.getState()
-    edges
-      .filter((e) => e.source === nodeId && e.sourceHandle === 'out-image-image-out')
-      .forEach((e) => updateNode(e.target, { output: outputImageUrl, status: 'done' }))
+    updateNode(displayNodeId, { status: 'done', output: outputImageUrl })
 
     saveGeneration({
-      nodeId,
+      nodeId: displayNodeId,
       nodeType: 'image-generation',
       provider: 'fal',
       model: usedModel,
@@ -140,12 +118,12 @@ async function runGeneration(
     })
     useWorkflowStore.getState().updateThumbnail(outputImageUrl!)
   } catch (err) {
-    updateNode(nodeId, {
+    updateNode(displayNodeId, {
       status: 'error',
-      params: { ...currentParams, error: (err as Error).message },
+      params: { error: (err as Error).message },
     })
     saveGeneration({
-      nodeId,
+      nodeId: displayNodeId,
       nodeType: 'image-generation',
       provider: 'fal',
       model,
@@ -159,7 +137,6 @@ async function runGeneration(
 function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
-  const [lightboxOpen, setLightboxOpen] = useState(false)
 
   // canvasStore から直接エッジ・ノードを購読（useEdges/useNodes より確実に最新状態を反映）
   const storeNodes = useCanvasStore((s) => s.nodes)
@@ -169,12 +146,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const editModel = (nodeData.params?.editModel as string) ?? 'fal-ai/nano-banana-2'
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
   const resolution = (nodeData.params?.resolution as string) ?? '1K'
-  const seed = (nodeData.params?.seed as string) ?? ''
   const recraftImageSize = (nodeData.params?.recraftImageSize as string) ?? 'square'
   const count = Math.max(1, Math.min(10, (nodeData.params?.count as number) ?? 1))
   const isRecraftModel = RECRAFT_MODELS.has(model)
   const errorMsg = nodeData.params?.error as string | undefined
-  const outputUrl = nodeData.output as string | undefined
   const isGenerating = nodeData.status === 'generating'
 
   const capsuleFields = (nodeData.capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
@@ -242,7 +217,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    // 接続された画像URLを順番に収集
+    // 接続された参照画像URLを収集
     const connectedImageUrls = imageEdges
       .map((e) => {
         const n = storeNodes.find((n) => n.id === e.source)
@@ -258,99 +233,81 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    if (count <= 1) {
-      // 単体生成（従来の挙動）
-      await runGeneration(id, prompt, connectedImageUrls, nodeData.params, updateNode)
-      return
-    }
-
-    // ─── バッチ生成 ───────────────────────────────────────────
-    const existingBatchId = nodeData.params?.batchId as string | undefined
-    const { nodes: allNodes, addNode, edges: currentEdges, setEdges } = useCanvasStore.getState()
-
-    if (existingBatchId) {
-      // 既存のバッチ仲間ノードを探す
-      const siblings = allNodes.filter((n) => {
-        const p = (n.data as Record<string, unknown>).params as Record<string, unknown> | undefined
-        return p?.batchId === existingBatchId && n.id !== id
-      })
-      if (siblings.length > 0) {
-        // 再生成: 全バッチノードを並列実行
-        const allIds = [id, ...siblings.map((n) => n.id)]
-        await Promise.all(
-          allIds.map((nodeId) => {
-            const node = allNodes.find((n) => n.id === nodeId)
-            const params = (node?.data as Record<string, unknown>)?.params as Record<string, unknown> ?? nodeData.params
-            return runGeneration(nodeId, prompt, connectedImageUrls, params, updateNode)
-          })
-        )
-        return
-      }
-    }
-
-    // 新規バッチ: count 個のノードを横並びに生成
-    const batchId = crypto.randomUUID()
+    const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
     const thisNode = allNodes.find((n) => n.id === id)
     if (!thisNode) return
 
-    const nodeWidth = 280
-    const gap = 10
-    // count を 1 にリセット（生成後は単体モードに戻す）
-    const batchParams = { ...nodeData.params, batchId, count: 1, error: undefined }
+    // 既存の接続済み ImageDisplayNode の最下端 y を求めて、新規ノードの配置開始位置を決める
+    const existingDisplayNodes = allEdges
+      .filter((e) => e.source === id && e.sourceHandle === 'out-image-image-out')
+      .map((e) => allNodes.find((n) => n.id === e.target))
+      .filter((n): n is AppNode => n?.type === 'imageDisplayNode')
 
-    // 現ノードに batchId を付与し count をリセット
-    updateNode(id, { params: batchParams })
+    const genWidth = 280
+    const hGap = 40
+    const vGap = 10
+    const displayNodeEstimatedHeight = 360
 
-    // 現ノードへの接続エッジを取得（テキスト・画像どちらも複製対象）
-    const incomingEdges = currentEdges.filter((e) => e.target === id)
+    // 既存ノードがあれば最下端の下から、なければ GenNode の上端から開始
+    const startY = existingDisplayNodes.length > 0
+      ? Math.max(...existingDisplayNodes.map((n) => n.position.y)) + displayNodeEstimatedHeight + vGap
+      : thisNode.position.y
 
-    const nodeIds: string[] = [id]
+    // count 個の DisplayNode を新規作成
+    const displayNodeIds: string[] = []
     const newEdges: Edge[] = []
 
-    for (let i = 1; i < count; i++) {
-      const newId = `node-${Date.now()}-batch-${i}-${Math.random().toString(36).slice(2, 6)}`
-      nodeIds.push(newId)
+    for (let i = 0; i < count; i++) {
+      const displayId = `node-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`
+      displayNodeIds.push(displayId)
+
       addNode({
-        id: newId,
-        type: 'imageGenerationNode',
+        id: displayId,
+        type: 'imageDisplayNode',
         position: {
-          x: thisNode.position.x + i * (nodeWidth + gap),
-          y: thisNode.position.y,
+          x: thisNode.position.x + genWidth + hGap,
+          y: startY + i * (displayNodeEstimatedHeight + vGap),
         },
         data: {
-          type: 'imageGen',
-          label: nodeData.label,
-          params: { ...batchParams },
-          status: 'idle',
+          type: 'imageDisplay' as const,
+          label: 'Result',
+          params: {},
+          status: 'idle' as const,
           output: undefined,
-          capsuleFields: nodeData.capsuleFields,
         } as NodeData,
         ...(thisNode.parentId ? { parentId: thisNode.parentId } : {}),
       } as AppNode)
 
-      // 元ノードへの接続エッジを新ノード向けに複製
-      incomingEdges.forEach((e) => {
-        newEdges.push({
-          ...e,
-          id: `e-${e.source}-${e.sourceHandle ?? ''}-${newId}-${e.targetHandle ?? ''}`,
-          target: newId,
-        })
+      newEdges.push({
+        id: `e-gen-${id}-disp-${displayId}`,
+        source: id,
+        sourceHandle: 'out-image-image-out',
+        target: displayId,
+        targetHandle: 'in-image-image-in',
+        style: { stroke: '#8B5CF6', strokeWidth: 2 },
+        animated: false,
+        className: '',
       })
     }
 
-    // 新規エッジを一括追加
-    if (newEdges.length > 0) {
-      const { edges: latestEdges } = useCanvasStore.getState()
-      setEdges([...latestEdges, ...newEdges])
-    }
+    const { edges: latestEdges } = useCanvasStore.getState()
+    setEdges([...latestEdges, ...newEdges])
 
-    // 全ノードを並列生成
+    // GenNode を generating 状態に
+    updateNode(id, {
+      status: 'generating',
+      params: { ...nodeData.params, error: undefined },
+    })
+
+    // 全 DisplayNode を並列生成
     await Promise.all(
-      nodeIds.map((nodeId) =>
-        runGeneration(nodeId, prompt, connectedImageUrls, batchParams, updateNode)
+      displayNodeIds.map((displayId) =>
+        runGeneration(displayId, prompt, connectedImageUrls, nodeData.params, updateNode)
       )
     )
-  }, [id, count, model, editModel, aspectRatio, resolution, seed, recraftImageSize, imageEdges, storeNodes, hasImages, nodeData.params, nodeData.label, nodeData.capsuleFields, updateNode, getConnectedPrompt])
+
+    updateNode(id, { status: 'done' })
+  }, [id, count, imageEdges, storeNodes, hasImages, nodeData.params, updateNode, getConnectedPrompt])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -579,45 +536,13 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           })()}
 
 
-          {/* Error */}
+          {/* Error（プロンプト未入力など GenNode レベルのエラー） */}
           {nodeData.status === 'error' && errorMsg && (
             <div
               className="px-2.5 py-2 rounded-md text-[11px] text-[#EF4444]"
               style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
             >
               {errorMsg}
-            </div>
-          )}
-
-          {/* Output image preview */}
-          {nodeData.status === 'done' && !!outputUrl && (
-            <div
-              className="relative rounded-lg overflow-hidden group/img cursor-pointer"
-              style={{ border: '1px solid var(--border)' }}
-              onClick={() => setLightboxOpen(true)}
-            >
-              <img src={outputUrl} alt="Generated" className="w-full h-auto block" />
-              <div
-                className="absolute inset-0 opacity-0 group-hover/img:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2"
-                style={{ background: 'rgba(0,0,0,0.6)' }}
-              >
-                <button
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white nodrag"
-                  style={{ background: 'rgba(255,255,255,0.15)' }}
-                  onClick={(e) => { e.stopPropagation(); downloadFile(outputUrl, 'generated.png') }}
-                  title="ダウンロード"
-                >
-                  <Download size={14} />
-                </button>
-                <button
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white nodrag"
-                  style={{ background: 'rgba(255,255,255,0.15)' }}
-                  onClick={(e) => { e.stopPropagation(); setLightboxOpen(true) }}
-                  title="拡大表示"
-                >
-                  <Maximize2 size={14} />
-                </button>
-              </div>
             </div>
           )}
 
@@ -686,44 +611,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         />
       </div>
 
-      {/* Lightbox */}
-      {lightboxOpen && outputUrl && createPortal(
-        <div
-          className="fixed inset-0 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.9)', zIndex: 99999 }}
-          onClick={() => setLightboxOpen(false)}
-        >
-          <div
-            className="relative rounded-xl overflow-hidden"
-            style={{ maxWidth: '90vw', maxHeight: '90vh' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={outputUrl}
-              alt="Generated"
-              style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'block' }}
-            />
-            <div className="absolute top-3 right-3 flex gap-2">
-              <button
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white"
-                style={{ background: 'rgba(0,0,0,0.6)' }}
-                onClick={(e) => { e.stopPropagation(); downloadFile(outputUrl, 'generated.png') }}
-                title="ダウンロード"
-              >
-                <Download size={14} />
-              </button>
-              <button
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white"
-                style={{ background: 'rgba(0,0,0,0.6)' }}
-                onClick={() => setLightboxOpen(false)}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </>
   )
 }

@@ -40,6 +40,7 @@ import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeDat
 import { fal } from '../../lib/ai/fal-client'
 import { uploadVideoFile } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
+import { showToast } from '../../hooks/useToast'
 import { useTheme } from '../../hooks/useTheme'
 
 const nodeTypes: NodeTypes = {
@@ -185,6 +186,7 @@ function checkAndDisableCapsuleIfNeeded(groupId: string) {
   if (capsuleGroupId !== groupId) return
   if (hasParallelGenerationNodes(groupId, nodes, edges)) {
     setCapsuleGroupId(null)
+    showToast('並列生成ノードが検出されたため、App モードが解除されました', 'warning')
   }
 }
 
@@ -308,6 +310,8 @@ function groupSelectedNodes(
 export function Canvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom, toolMode } =
     useCanvasStore()
+  const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
+  const setCapsuleGroupId = useCanvasStore((s) => s.setCapsuleGroupId)
 
   const { theme } = useTheme()
   const isDark = theme === 'dark'
@@ -1148,6 +1152,8 @@ export function Canvas() {
           selectedNonGroup.length >= 2 &&
           selectedNonGroup.every((n) => !n.parentId)
         const canUngroup = selectedGroups.length >= 1
+        const singleGroup = selectedGroups.length === 1 ? selectedGroups[0] : null
+        const isCapsuleTarget = singleGroup ? capsuleGroupId === singleGroup.id : false
         if (!canGroup && !canUngroup) return null
 
         // 選択ノードの絶対フロー座標バウンディングボックスを計算
@@ -1227,6 +1233,55 @@ export function Canvas() {
                 グループ化
               </button>
             )}
+            {singleGroup && (
+              <button
+                onClick={() => {
+                  if (isCapsuleTarget) {
+                    setCapsuleGroupId(null)
+                  } else {
+                    if (hasParallelGenerationNodes(singleGroup.id, nodes, edges)) {
+                      showToast('並列生成はAppモードでサポートされていません。直列接続のワークフローにしてください。', 'warning')
+                      return
+                    }
+                    setCapsuleGroupId(singleGroup.id)
+                  }
+                }}
+                title={isCapsuleTarget ? 'Appビューの対象から外す' : 'Appとして設定'}
+                style={{
+                  height: 30,
+                  padding: '0 14px',
+                  borderRadius: 9999,
+                  border: isCapsuleTarget ? '1px solid #7C3AED' : 'none',
+                  background: isCapsuleTarget ? '#4C1D95' : 'var(--bg-toolbar)',
+                  color: isCapsuleTarget ? '#C4B5FD' : 'var(--text-secondary)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  flexShrink: 0,
+                  transition: 'all 150ms ease-out',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1.15)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.filter = 'none' }}
+              >
+                {isCapsuleTarget ? (
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ flexShrink: 0 }}>
+                    <line x1="2.5" y1="2.5" x2="8.5" y2="8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <line x1="8.5" y1="2.5" x2="2.5" y2="8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                ) : (
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ flexShrink: 0 }}>
+                    <rect x="0.75" y="0.75" width="9.5" height="9.5" rx="2" stroke="currentColor" strokeWidth="1.3"/>
+                    <path d="M3 5.5h5M5.5 3v5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  </svg>
+                )}
+                App
+              </button>
+            )}
             {canUngroup && (
               <button
                 onClick={() => {
@@ -1256,10 +1311,9 @@ export function Canvas() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(0.93)' }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.filter = 'none' }}
               >
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
-                  <rect x="1" y="1" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2.5 1.5" opacity="0.4"/>
-                  <line x1="4" y1="4" x2="9" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  <line x1="9" y1="4" x2="4" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ flexShrink: 0 }}>
+                  <line x1="2.5" y1="2.5" x2="8.5" y2="8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1="8.5" y1="2.5" x2="2.5" y2="8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
                 グループ解除
               </button>

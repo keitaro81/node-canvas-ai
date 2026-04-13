@@ -392,9 +392,37 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       const clampedX = Math.max(padding, relX)
       const clampedY = Math.max(headerHeight + padding, relY)
 
-      // グループの必要サイズを計算
-      const requiredWidth = Math.max(groupWidth, clampedX + nodeWidth + padding)
-      const requiredHeight = Math.max(groupHeight, clampedY + nodeHeight + padding)
+      // ImageGenerationNode の場合: 接続済み ImageDisplayNode も一緒にグループに追加する
+      const connectedDisplayIds =
+        node.type === 'imageGenerationNode'
+          ? state.edges
+              .filter(
+                (e) =>
+                  e.source === nodeId &&
+                  e.sourceHandle === 'out-image-image-out' &&
+                  state.nodes.find((n) => n.id === e.target)?.type === 'imageDisplayNode' &&
+                  !state.nodes.find((n) => n.id === e.target)?.parentId
+              )
+              .map((e) => e.target)
+          : []
+
+      // グループの必要サイズを計算（DisplayNode 分も考慮）
+      let requiredWidth = Math.max(groupWidth, clampedX + nodeWidth + padding)
+      let requiredHeight = Math.max(groupHeight, clampedY + nodeHeight + padding)
+
+      // DisplayNode の相対座標を計算して必要サイズに反映
+      const displayPlacements: Record<string, { x: number; y: number }> = {}
+      for (const did of connectedDisplayIds) {
+        const dn = state.nodes.find((n) => n.id === did)
+        if (!dn) continue
+        const dRelX = Math.max(padding, dn.position.x - group.position.x)
+        const dRelY = Math.max(headerHeight + padding, dn.position.y - group.position.y)
+        const dW = (dn.measured?.width ?? (dn.width as number | undefined) ?? 280)
+        const dH = (dn.measured?.height ?? (dn.height as number | undefined) ?? 360)
+        displayPlacements[did] = { x: dRelX, y: dRelY }
+        requiredWidth = Math.max(requiredWidth, dRelX + dW + padding)
+        requiredHeight = Math.max(requiredHeight, dRelY + dH + padding)
+      }
 
       return {
         nodes: state.nodes.map((n) => {
@@ -404,6 +432,14 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
               parentId: groupId,
               extent: 'parent' as const,
               position: { x: clampedX, y: clampedY },
+            }
+          }
+          if (connectedDisplayIds.includes(n.id) && displayPlacements[n.id]) {
+            return {
+              ...n,
+              parentId: groupId,
+              extent: 'parent' as const,
+              position: displayPlacements[n.id],
             }
           }
           if (n.id === groupId && (requiredWidth > groupWidth || requiredHeight > groupHeight)) {
