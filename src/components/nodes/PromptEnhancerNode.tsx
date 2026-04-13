@@ -20,6 +20,8 @@ const EXPORT_OPTIONS = [
 
 const SYSTEM_PROMPT = `You are an expert at writing detailed, evocative prompts for AI image and video generation tools. When given a prompt, enhance it to be more detailed, specific, and professionally descriptive. Add cinematography terms, lighting descriptions, mood, camera angles, color grading, and technical details where appropriate. Maintain the core intent of the original prompt. Respond only with the enhanced prompt in the same language as the input—no explanations, no preamble.`
 
+const SYSTEM_PROMPT_FREE_ANGLE = `You are an expert at writing detailed, evocative prompts for AI image and video generation tools. When given a prompt, enhance it to be more detailed, specific, and professionally descriptive. Add lighting descriptions, mood, color grading, and technical details where appropriate. Do NOT add any instructions about camera angles or poses — these will be controlled separately. Maintain the core intent of the original prompt. Respond only with the enhanced prompt in the same language as the input—no explanations, no preamble.`
+
 function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   const updateNode = useCanvasStore((s) => s.updateNode)
   const removeNode = useCanvasStore((s) => s.removeNode)
@@ -67,12 +69,23 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
     const prompt = inputText
     if (!prompt.trim()) return
 
+    // 出力先 ImageGen に CameraListNode が接続されているか確認
+    const { edges, nodes: allNodes } = useCanvasStore.getState()
+    const downstreamImageGenIds = edges
+      .filter((e) => e.source === id && e.sourceHandle === 'out-text-enhanced')
+      .map((e) => e.target)
+    const hasCameraList = downstreamImageGenIds.some((genId) =>
+      edges.some((e) => e.target === genId && e.targetHandle === 'in-list' &&
+        allNodes.find((n) => n.id === e.source && n.type === 'cameraListNode'))
+    )
+    const systemPrompt = hasCameraList ? SYSTEM_PROMPT_FREE_ANGLE : SYSTEM_PROMPT
+
     updateNode(id, { status: 'generating' } as never)
 
     try {
       type LLMOutput = { output?: string }
       const result = await fal.subscribe('fal-ai/any-llm', {
-        input: { model, system_prompt: SYSTEM_PROMPT, prompt },
+        input: { model, system_prompt: systemPrompt, prompt },
         logs: false,
       })
       const data = (result as unknown as { data?: LLMOutput }).data

@@ -16,6 +16,7 @@ export type NodeType =
   | 'promptEnhancer'
   | 'group'
   | 'list'
+  | 'cameraList'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -74,6 +75,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   note:            '#F59E0B',
   promptEnhancer:  '#6366F1',
   list:            '#8B5CF6',
+  cameraList:      '#8B5CF6',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -104,6 +106,12 @@ export interface ListNodeData {
   slotCount: number
   /** 'unset' = 未接続で両方受け付け、最初の接続で自動確定 */
   mode: 'image' | 'text' | 'unset'
+}
+
+export interface CameraListNodeData {
+  label: string
+  selectedPresets: string[]
+  customAngles: string[]
 }
 
 export interface ReferenceImageNodeData {

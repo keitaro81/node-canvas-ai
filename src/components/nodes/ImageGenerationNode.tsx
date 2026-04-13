@@ -3,7 +3,8 @@ import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
-import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData } from '../../types/nodes'
+import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData, CameraListNodeData } from '../../types/nodes'
+import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -233,6 +234,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const listNodeMode = (listNodeSrc?.data as unknown as ListNodeData)?.mode ?? 'image'
   const listSlotCount = isListMode
     ? (() => {
+        if (listNodeSrc?.type === 'cameraListNode') {
+          const camData = listNodeSrc.data as unknown as CameraListNodeData
+          const presetCount = (camData.selectedPresets ?? []).length
+          const customCount = (camData.customAngles ?? []).filter((a) => a.trim()).length
+          return Math.max(1, presetCount + customCount)
+        }
         const slotCount = Math.max(1, (listNodeSrc?.data as unknown as ListNodeData)?.slotCount ?? 1)
         if (listNodeMode === 'text') {
           // テキストモード: 有効なテキストを持つスロットをカウント
@@ -336,6 +343,30 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     if (listEdge) {
       // LIST MODE
       const listSrc = allNodes.find((n) => n.id === listEdge.source)
+
+      if (listSrc?.type === 'cameraListNode') {
+        // CAMERA LIST MODE: 各アングルをメインプロンプトの末尾に追加
+        const camData = listSrc.data as unknown as CameraListNodeData
+        const presetAngles = CAMERA_PRESETS
+          .filter((p) => (camData.selectedPresets ?? []).includes(p.id))
+          .map((p) => p.prompt)
+        const customAngles = (camData.customAngles ?? []).filter((a) => a.trim())
+        const allAngles = [...presetAngles, ...customAngles]
+
+        if (allAngles.length === 0) {
+          updateNode(id, {
+            status: 'error',
+            params: { ...nodeData.params, error: 'カメラアングルを選択してください' },
+          })
+          return
+        }
+
+        effectiveCount = allAngles.length
+        fixedImageUrls = collectFixedImages()
+        perSlotImages = Array<string | null>(effectiveCount).fill(null)
+        perSlotPrompts = allAngles.map((angle) => `${prompt ?? ''}, ${angle}`)
+      } else {
+
       const listData = listSrc?.data as unknown as ListNodeData
       const slotCount = Math.max(1, listData?.slotCount ?? 1)
       const listMode = listData?.mode ?? 'image'
@@ -388,6 +419,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
         fixedImageUrls = collectFixedImages()
       }
+      } // end else (ListNode)
     } else {
       // FIXED MODE: 手動 Count を使用（従来の動作）
       effectiveCount = count
