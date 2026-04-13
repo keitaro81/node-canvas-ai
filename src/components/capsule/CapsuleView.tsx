@@ -6,7 +6,8 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
-import type { CapsuleFieldDef, NodeData } from '../../types/nodes'
+import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
+import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -806,12 +807,17 @@ function StageGenerateButton({
     ? Math.max(1, Math.min(10, (d.count as number) ?? 1))
     : Math.max(1, Math.min(10, ((d.params as Record<string, unknown> | undefined)?.count as number) ?? 1))
 
-  // ListNode が in-list ハンドルに繋がっているか確認
+  // ListNode / CameraListNode が in-list ハンドルに繋がっているか確認
   const listEdge = edges.find((e) => e.target === nodeId && e.targetHandle === 'in-list')
   const listNode = listEdge ? nodes.find((n) => n.id === listEdge.source) : null
   const isListMode = !!listNode
+  const isCameraListMode = listNode?.type === 'cameraListNode'
   const listValidCount = isListMode
     ? (() => {
+        if (isCameraListMode) {
+          const cd = listNode!.data as unknown as CameraListNodeData
+          return Math.max(1, (cd.selectedPresets ?? []).length + (cd.customAngles ?? []).filter((a) => a.trim()).length)
+        }
         const ld = listNode!.data as Record<string, unknown>
         const slotCount = Math.max(1, (ld.slotCount as number) ?? 1)
         const listNodeMode = (ld.mode as string) ?? 'image'
@@ -928,6 +934,100 @@ function StageGenerateButton({
           ステージ {stageIndex} の完了後に実行できます
         </p>
       )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
+// CameraListNode パネル（App モード内でのアングル選択）
+// ────────────────────────────────────────────
+function CameraListPanel({ nodeId }: { nodeId: string }) {
+  const updateNode = useCanvasStore((s) => s.updateNode)
+  const node = useCanvasStore((s) => s.nodes.find((n) => n.id === nodeId))
+  if (!node) return null
+
+  const cd = node.data as unknown as CameraListNodeData
+  const selectedPresets = cd.selectedPresets ?? []
+  const customAngles = cd.customAngles ?? []
+  const [customInput, setCustomInput] = useState('')
+
+  function togglePreset(presetId: string) {
+    const next = selectedPresets.includes(presetId)
+      ? selectedPresets.filter((p) => p !== presetId)
+      : [...selectedPresets, presetId]
+    updateNode(nodeId, { selectedPresets: next } as Partial<CameraListNodeData>)
+  }
+
+  function addCustom() {
+    const trimmed = customInput.trim()
+    if (!trimmed) return
+    updateNode(nodeId, { customAngles: [...customAngles, trimmed] } as Partial<CameraListNodeData>)
+    setCustomInput('')
+  }
+
+  function removeCustom(index: number) {
+    updateNode(nodeId, { customAngles: customAngles.filter((_, i) => i !== index) } as Partial<CameraListNodeData>)
+  }
+
+  return (
+    <div className="mb-3">
+      <div className="text-[11px] font-medium mb-2" style={{ color: '#8B5CF6' }}>カメラアングル</div>
+      <div className="flex flex-wrap gap-1 mb-2">
+        {CAMERA_PRESETS.map((preset) => {
+          const active = selectedPresets.includes(preset.id)
+          return (
+            <button
+              key={preset.id}
+              className="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              style={{
+                background: active ? 'rgba(139,92,246,0.25)' : 'var(--bg-elevated)',
+                color: active ? '#8B5CF6' : 'var(--text-secondary)',
+                border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}`,
+              }}
+              onClick={() => togglePreset(preset.id)}
+            >
+              {preset.label}
+            </button>
+          )
+        })}
+      </div>
+      {customAngles.length > 0 && (
+        <div className="flex flex-col gap-1 mb-2">
+          {customAngles.map((angle, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-1.5 px-2 py-1 rounded"
+              style={{ background: 'rgba(139,92,246,0.25)', border: '1px solid #8B5CF6' }}
+            >
+              <span className="flex-1 text-[11px] truncate" style={{ color: '#8B5CF6' }}>{angle}</span>
+              <button style={{ color: 'var(--text-tertiary)' }} onClick={() => removeCustom(i)}>
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1">
+        <input
+          type="text"
+          className="flex-1 rounded px-2 py-1 text-[11px] text-[var(--text-primary)]"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', outline: 'none' }}
+          placeholder="カスタムアングルを追加..."
+          value={customInput}
+          onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addCustom() }}
+        />
+        <button
+          className="w-7 h-7 rounded flex items-center justify-center shrink-0 transition-colors"
+          style={{
+            background: customInput.trim() ? '#8B5CF6' : 'var(--bg-elevated)',
+            color: customInput.trim() ? 'white' : 'var(--text-tertiary)',
+          }}
+          onClick={addCustom}
+        >
+          <Plus size={12} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -1097,8 +1197,13 @@ function CapsuleStagePanel({
           )
         })()}
 
-        {/* ListNode スロット（接続済み・未接続含めてすべて表示） */}
-        {listNodeId && <ListNodeSlotsPanel listNodeId={listNodeId} />}
+        {/* ListNode / CameraListNode スロット */}
+        {listNodeId && (() => {
+          const ln = nodes.find((n) => n.id === listNodeId)
+          return ln?.type === 'cameraListNode'
+            ? <CameraListPanel nodeId={listNodeId} />
+            : <ListNodeSlotsPanel listNodeId={listNodeId} />
+        })()}
 
         {/* フィールド（モデル・アスペクト比など） */}
         {stage.fields.map((field) => (

@@ -37,7 +37,8 @@ import { ReferenceVideoNode } from '../nodes/ReferenceVideoNode'
 import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
 import { ListNode } from '../nodes/ListNode'
-import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData } from '../../types/nodes'
+import { CameraListNode } from '../nodes/CameraListNode'
+import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { fal } from '../../lib/ai/fal-client'
 import { uploadVideoFile } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
@@ -61,6 +62,7 @@ const nodeTypes: NodeTypes = {
   promptEnhancerNode: PromptEnhancerNode,
   groupNode: GroupNode,
   listNode: ListNode,
+  cameraListNode: CameraListNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -79,6 +81,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   promptEnhancer:  'promptEnhancerNode',
   group:           'groupNode',
   list:            'listNode',
+  cameraList:      'cameraListNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -143,6 +146,12 @@ const LIST_NODE_DEFAULT_DATA: ListNodeData = {
   label: 'List',
   slotCount: 2,
   mode: 'unset',
+}
+
+const CAMERA_LIST_NODE_DEFAULT_DATA: CameraListNodeData = {
+  label: 'カメラリスト',
+  selectedPresets: ['front', 'back', 'side-left'],
+  customAngles: [],
 }
 
 const PROMPT_ENHANCER_DEFAULT_DATA = {
@@ -235,6 +244,7 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video' },
   utility:        { text: 'in-text-in' },
   list:           { image: 'in-image-0', text: 'in-text-0' },
+  cameraList:     {},
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
@@ -247,6 +257,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   referenceVideo: 'out-video',
   utility:        'out-text-out',
   list:           'out-list',
+  cameraList:     'out-list',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -543,6 +554,8 @@ export function Canvas() {
         data = { ...PROMPT_ENHANCER_DEFAULT_DATA, label }
       } else if (type === 'list') {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
+      } else if (type === 'cameraList') {
+        data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1007,6 +1020,8 @@ export function Canvas() {
         data = { ...PROMPT_ENHANCER_DEFAULT_DATA, label }
       } else if (type === 'list') {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
+      } else if (type === 'cameraList') {
+        data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
