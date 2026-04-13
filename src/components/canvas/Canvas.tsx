@@ -674,7 +674,7 @@ export function Canvas() {
         const storeNodes = useCanvasStore.getState().nodes
         const sourceNode = storeNodes.find((n) => n.id === connectingNode.current)
         // 生成ノードの出力からドラッグしてもコンテキストメニューは出さない
-        if (sourceNode?.data.type === 'imageGen' || sourceNode?.data.type === 'videoGen') {
+        if (sourceNode?.type === 'videoGenerationNode' || sourceNode?.data.type === 'imageGen') {
           connectingNode.current = null
           return
         }
