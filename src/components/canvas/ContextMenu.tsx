@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List } from 'lucide-react'
+import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -60,9 +60,8 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
   {
     category: 'Utility',
     items: [
-      { type: 'list',    label: 'List',    icon: <List size={14} />,       color: '#8B5CF6' },
-      { type: 'note',    label: 'Note',    icon: <StickyNote size={14} />, color: '#F59E0B' },
-      { type: 'utility', label: 'Utility', icon: <Wrench size={14} />,    color: '#6B7280' },
+      { type: 'list', label: 'List', icon: <List size={14} />,       color: '#8B5CF6' },
+      { type: 'note', label: 'Note', icon: <StickyNote size={14} />, color: '#F59E0B' },
     ],
   },
 ]

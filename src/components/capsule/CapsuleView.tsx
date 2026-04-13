@@ -1216,14 +1216,127 @@ function VideoPreview({ src }: { src: string }) {
 // ────────────────────────────────────────────
 // 複数 DisplayNode サムネイルグリッド（App モード右エリア）
 // ────────────────────────────────────────────
-function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+function ImageLightbox({
+  urls,
+  currentIndex,
+  onNavigate,
+  onClose,
+}: {
+  urls: string[]
+  currentIndex: number
+  onNavigate: (index: number) => void
+  onClose: () => void
+}) {
+  const src = urls[currentIndex]
+  const canNav = urls.length > 1
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { onClose(); return }
+      if (!canNav) return
+      if (e.key === 'ArrowLeft')  onNavigate((currentIndex - 1 + urls.length) % urls.length)
+      if (e.key === 'ArrowRight') onNavigate((currentIndex + 1) % urls.length)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, canNav, onNavigate, currentIndex, urls.length])
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.9)', zIndex: 99999 }}
+      onClick={onClose}
+    >
+      {canNav && (
+        <button
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white"
+          style={{ background: 'rgba(255,255,255,0.15)', zIndex: 1 }}
+          onClick={(e) => { e.stopPropagation(); onNavigate((currentIndex - 1 + urls.length) % urls.length) }}
+        >
+          <ChevronLeft size={22} />
+        </button>
+      )}
+      <div
+        className="relative"
+        style={{ maxWidth: '90vw', maxHeight: '90vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={src}
+          alt="Generated"
+          style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'block', borderRadius: 12 }}
+        />
+        <div className="absolute top-3 right-3 flex gap-2">
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={(e) => { e.stopPropagation(); downloadFile(src, 'generated.png') }}
+            title="ダウンロード"
+          >
+            <Download size={16} />
+          </button>
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {canNav && (
+          <div
+            className="absolute top-3 left-1/2 -translate-x-1/2 text-white text-[12px] px-3 py-1 rounded-full"
+            style={{ background: 'rgba(0,0,0,0.5)' }}
+          >
+            {currentIndex + 1} / {urls.length}
+          </div>
+        )}
+      </div>
+      {canNav && (
+        <button
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white"
+          style={{ background: 'rgba(255,255,255,0.15)', zIndex: 1 }}
+          onClick={(e) => { e.stopPropagation(); onNavigate((currentIndex + 1) % urls.length) }}
+        >
+          <ChevronRight size={22} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function VideoLightbox({
+  src,
+  urls = [],
+  currentIndex = 0,
+  onNavigate,
+  onClose,
+}: {
+  src: string
+  urls?: string[]
+  currentIndex?: number
+  onNavigate?: (index: number) => void
+  onClose: () => void
+}) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(true)
   const [muted, setMuted] = useState(false)
+  const canNav = urls.length > 1
 
   useEffect(() => {
     videoRef.current?.play().catch(() => {})
-  }, [])
+  }, [src])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { onClose(); return }
+      if (!canNav || !onNavigate) return
+      if (e.key === 'ArrowLeft')  onNavigate((currentIndex - 1 + urls.length) % urls.length)
+      if (e.key === 'ArrowRight') onNavigate((currentIndex + 1) % urls.length)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, canNav, onNavigate, currentIndex, urls.length])
 
   function togglePlay() {
     if (!videoRef.current) return
@@ -1243,6 +1356,16 @@ function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
       style={{ background: 'rgba(0,0,0,0.9)', zIndex: 99999 }}
       onClick={onClose}
     >
+      {/* 左矢印 */}
+      {canNav && (
+        <button
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white transition-opacity"
+          style={{ background: 'rgba(255,255,255,0.15)', zIndex: 1 }}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.((currentIndex - 1 + urls.length) % urls.length) }}
+        >
+          <ChevronLeft size={22} />
+        </button>
+      )}
       <div
         className="relative rounded-xl overflow-hidden"
         style={{ maxWidth: '90vw', maxHeight: '90vh' }}
@@ -1267,6 +1390,15 @@ function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
             <X size={16} />
           </button>
         </div>
+        {/* 枚数インジケーター */}
+        {canNav && (
+          <div
+            className="absolute top-3 left-1/2 -translate-x-1/2 text-white text-[12px] px-3 py-1 rounded-full"
+            style={{ background: 'rgba(0,0,0,0.5)' }}
+          >
+            {currentIndex + 1} / {urls.length}
+          </div>
+        )}
         {/* 右下: コントロール */}
         <div className="absolute bottom-3 right-3 flex items-center gap-2">
           <button
@@ -1295,6 +1427,16 @@ function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
           </button>
         </div>
       </div>
+      {/* 右矢印 */}
+      {canNav && (
+        <button
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white transition-opacity"
+          style={{ background: 'rgba(255,255,255,0.15)', zIndex: 1 }}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.((currentIndex + 1) % urls.length) }}
+        >
+          <ChevronRight size={22} />
+        </button>
+      )}
     </div>,
     document.body
   )
@@ -1316,12 +1458,20 @@ function DisplayNodeThumbnailGrid({
 }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const setEdges = useCanvasStore((s) => s.setEdges)
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
-  const [lightboxVideoUrl, setLightboxVideoUrl] = useState<string | null>(null)
+  const [lightboxImageIndex, setLightboxImageIndex] = useState<number | null>(null)
+  const [lightboxVideoIndex, setLightboxVideoIndex] = useState<number | null>(null)
 
   const batchNodes = displayNodeIds
     .map((did) => nodes.find((n) => n.id === did))
     .filter(Boolean) as ReturnType<typeof useCanvasStore.getState>['nodes']
+
+  const availableImageUrls = batchNodes
+    .filter((n) => n.type !== 'videoDisplayNode' && (n.data as Record<string, unknown>).output)
+    .map((n) => (n.data as Record<string, unknown>).output as string)
+
+  const availableVideoUrls = batchNodes
+    .filter((n) => n.type === 'videoDisplayNode' && (n.data as Record<string, unknown>).videoUrl)
+    .map((n) => (n.data as Record<string, unknown>).videoUrl as string)
 
   const hasDownstream = downstreamLinks.length > 0
   const selectedDisplayIds = new Set(downstreamLinks.map((l) => l.displayNodeId))
@@ -1423,7 +1573,7 @@ function DisplayNodeThumbnailGrid({
               ) : outputUrl && isVideo ? (
                 <div
                   className="relative w-full h-full cursor-pointer group/thumb"
-                  onClick={() => setLightboxVideoUrl(outputUrl)}
+                  onClick={() => setLightboxVideoIndex(availableVideoUrls.indexOf(outputUrl))}
                 >
                   <video
                     src={outputUrl}
@@ -1448,7 +1598,7 @@ function DisplayNodeThumbnailGrid({
                   style={{ transition: 'opacity 0.15s' }}
                   onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
                   onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-                  onClick={() => setLightboxUrl(outputUrl)}
+                  onClick={() => setLightboxImageIndex(availableImageUrls.indexOf(outputUrl))}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -1478,45 +1628,23 @@ function DisplayNodeThumbnailGrid({
         })}
       </div>
 
-      {lightboxVideoUrl && (
-        <VideoLightbox src={lightboxVideoUrl} onClose={() => setLightboxVideoUrl(null)} />
+      {lightboxVideoIndex !== null && availableVideoUrls[lightboxVideoIndex] && (
+        <VideoLightbox
+          src={availableVideoUrls[lightboxVideoIndex]}
+          urls={availableVideoUrls}
+          currentIndex={lightboxVideoIndex}
+          onNavigate={setLightboxVideoIndex}
+          onClose={() => setLightboxVideoIndex(null)}
+        />
       )}
 
-      {lightboxUrl && createPortal(
-        <div
-          className="fixed inset-0 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.9)', zIndex: 99999 }}
-          onClick={() => setLightboxUrl(null)}
-        >
-          <div
-            className="relative"
-            style={{ maxWidth: '90vw', maxHeight: '90vh' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={lightboxUrl}
-              alt="Generated"
-              style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'block', borderRadius: 12 }}
-            />
-            <div className="absolute top-3 right-3 flex gap-2">
-              <button
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white"
-                style={{ background: 'rgba(0,0,0,0.6)' }}
-                onClick={(e) => { e.stopPropagation(); downloadFile(lightboxUrl, 'generated.png') }}
-                title="ダウンロード"
-              >
-                <Download size={16} />
-              </button>
-              <button
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white"
-                style={{ background: 'rgba(0,0,0,0.6)' }}
-                onClick={() => setLightboxUrl(null)}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        </div>,
+      {lightboxImageIndex !== null && availableImageUrls[lightboxImageIndex] && createPortal(
+        <ImageLightbox
+          urls={availableImageUrls}
+          currentIndex={lightboxImageIndex}
+          onNavigate={setLightboxImageIndex}
+          onClose={() => setLightboxImageIndex(null)}
+        />,
         document.body
       )}
     </div>
