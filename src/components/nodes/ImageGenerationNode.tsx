@@ -449,7 +449,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         const slotImg = perSlotImages[i]
         const imageUrls = slotImg ? [...fixedImageUrls, slotImg] : fixedImageUrls
         // テキストモード: スロット固有プロンプト（なければグローバルプロンプト）
-        const effectivePrompt = perSlotPrompts[i] ?? prompt
+        const effectivePrompt = perSlotPrompts[i] ?? prompt ?? ''
         return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode)
       })
     )
