@@ -113,6 +113,7 @@ const COMPATIBLE: Record<PortType, PortType[]> = {
   image: ['image'],
   video: ['video', 'image'],
   style: ['style', 'text'],
+  list:  ['list'],
 }
 
 function isCompatible(sourceType: PortType, targetType: PortType): boolean {
@@ -291,19 +292,47 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       image: '#8B5CF6',
       video: '#EC4899',
       style: '#6B7280',
+      list:  '#8B5CF6',
     }
 
-    set((state) => ({
-      edges: addEdge(
+    set((state) => {
+      // 同じ入力ハンドルへの既存接続を先に除去（1ハンドル1接続を保証）
+      const filteredEdges = connection.targetHandle
+        ? state.edges.filter(
+            (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle)
+          )
+        : state.edges
+
+      const newEdges = addEdge(
         {
           ...connection,
           style: { stroke: edgeColor[sourceType], strokeWidth: 2 },
           animated: false,
           className: '',
         },
-        state.edges
-      ),
-    }))
+        filteredEdges
+      )
+
+      // ListNode スロットへの最初の接続時にモードを自動確定
+      const targetNode = state.nodes.find((n) => n.id === connection.target)
+      const isListSlot =
+        targetNode?.type === 'listNode' &&
+        (connection.targetHandle?.startsWith('in-image-') || connection.targetHandle?.startsWith('in-text-'))
+      const listData = isListSlot ? (targetNode!.data as unknown as { mode: string; slotCount: number }) : null
+      const shouldAutoSetMode = listData?.mode === 'unset'
+
+      let nodes = state.nodes
+      if (shouldAutoSetMode) {
+        const newMode = connection.targetHandle!.startsWith('in-image-') ? 'image' : 'text'
+        nodes = state.nodes.map((n) =>
+          n.id === connection.target
+            ? { ...n, data: { ...n.data, mode: newMode } }
+            : n
+        )
+      }
+
+      return { edges: newEdges, nodes }
+    })
   },
 
   addNode: (node) =>
@@ -392,9 +421,47 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       const clampedX = Math.max(padding, relX)
       const clampedY = Math.max(headerHeight + padding, relY)
 
-      // グループの必要サイズを計算
-      const requiredWidth = Math.max(groupWidth, clampedX + nodeWidth + padding)
-      const requiredHeight = Math.max(groupHeight, clampedY + nodeHeight + padding)
+      // ImageGenerationNode / VideoGenerationNode の場合: 接続済み DisplayNode も一緒にグループに追加する
+      const connectedDisplayIds =
+        node.type === 'imageGenerationNode'
+          ? state.edges
+              .filter(
+                (e) =>
+                  e.source === nodeId &&
+                  e.sourceHandle === 'out-image-image-out' &&
+                  state.nodes.find((n) => n.id === e.target)?.type === 'imageDisplayNode' &&
+                  !state.nodes.find((n) => n.id === e.target)?.parentId
+              )
+              .map((e) => e.target)
+          : node.type === 'videoGenerationNode'
+          ? state.edges
+              .filter(
+                (e) =>
+                  e.source === nodeId &&
+                  e.sourceHandle === 'out-video' &&
+                  state.nodes.find((n) => n.id === e.target)?.type === 'videoDisplayNode' &&
+                  !state.nodes.find((n) => n.id === e.target)?.parentId
+              )
+              .map((e) => e.target)
+          : []
+
+      // グループの必要サイズを計算（DisplayNode 分も考慮）
+      let requiredWidth = Math.max(groupWidth, clampedX + nodeWidth + padding)
+      let requiredHeight = Math.max(groupHeight, clampedY + nodeHeight + padding)
+
+      // DisplayNode の相対座標を計算して必要サイズに反映
+      const displayPlacements: Record<string, { x: number; y: number }> = {}
+      for (const did of connectedDisplayIds) {
+        const dn = state.nodes.find((n) => n.id === did)
+        if (!dn) continue
+        const dRelX = Math.max(padding, dn.position.x - group.position.x)
+        const dRelY = Math.max(headerHeight + padding, dn.position.y - group.position.y)
+        const dW = (dn.measured?.width ?? (dn.width as number | undefined) ?? 280)
+        const dH = (dn.measured?.height ?? (dn.height as number | undefined) ?? 360)
+        displayPlacements[did] = { x: dRelX, y: dRelY }
+        requiredWidth = Math.max(requiredWidth, dRelX + dW + padding)
+        requiredHeight = Math.max(requiredHeight, dRelY + dH + padding)
+      }
 
       return {
         nodes: state.nodes.map((n) => {
@@ -404,6 +471,14 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
               parentId: groupId,
               extent: 'parent' as const,
               position: { x: clampedX, y: clampedY },
+            }
+          }
+          if (connectedDisplayIds.includes(n.id) && displayPlacements[n.id]) {
+            return {
+              ...n,
+              parentId: groupId,
+              extent: 'parent' as const,
+              position: displayPlacements[n.id],
             }
           }
           if (n.id === groupId && (requiredWidth > groupWidth || requiredHeight > groupHeight)) {

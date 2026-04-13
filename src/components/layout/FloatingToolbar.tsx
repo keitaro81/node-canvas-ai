@@ -23,6 +23,7 @@ import {
   Hand,
   ArrowCounterClockwise,
   ArrowClockwise,
+  Stack,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -58,6 +59,7 @@ const PALETTE = [
   {
     category: 'ユーティリティ',
     items: [
+      { type: 'list' as NodeType, label: 'List', description: '複数入力をリストにまとめる', icon: <Stack size={15} />, color: '#8B5CF6' },
       { type: 'note' as NodeType, label: 'Note', description: 'メモ・注釈を追加', icon: <Note size={15} />, color: '#F59E0B' },
       { type: 'utility' as NodeType, label: 'Utility', description: 'ユーティリティノード', icon: <Wrench size={15} />, color: '#6B7280' },
     ],
@@ -72,7 +74,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   textPrompt: 'textPromptNode', imageGen: 'imageGenerationNode', imageDisplay: 'imageDisplayNode',
   videoGen: 'videoGenerationNode', videoDisplay: 'videoDisplayNode', referenceImage: 'referenceImageNode',
   referenceVideo: 'referenceVideoNode',
-  note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode',
+  note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode', list: 'listNode',
 }
 
 let nodeIdCounter = 1000
@@ -92,6 +94,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'promptEnhancer') {
     return { type: 'promptEnhancer', label, params: {}, status: 'idle', inputText: '', outputText: '', model: 'anthropic/claude-haiku-4.5' }
+  }
+  if (type === 'list') {
+    return { label, slotCount: 2, mode: 'unset' }
   }
   return { type, label, params: {}, status: 'idle' }
 }

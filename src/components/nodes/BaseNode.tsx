@@ -11,6 +11,7 @@ interface BaseNodeProps extends NodeProps {
   children?: ReactNode
   inputs?: Array<{ id: string; portType: PortType; label?: string }>
   outputs?: Array<{ id: string; portType: PortType; label?: string }>
+  hideStatus?: boolean
 }
 
 function BaseNodeInner({
@@ -21,6 +22,7 @@ function BaseNodeInner({
   children,
   inputs = [],
   outputs = [],
+  hideStatus = false,
 }: BaseNodeProps) {
   const removeNode = useCanvasStore((s) => s.removeNode)
   const accentColor = NODE_ACCENT_COLORS[data.type]
@@ -61,7 +63,7 @@ function BaseNodeInner({
       <div className="px-3 py-3 flex flex-col gap-2">{children}</div>
 
       {/* Status indicator */}
-      {data.status !== 'idle' && (
+      {!hideStatus && data.status !== 'idle' && (
         <div
           className="mx-3 mb-3 px-2 py-1 rounded text-[11px] font-medium text-center"
           style={{
