@@ -1,7 +1,7 @@
-import { memo, useState, useEffect } from 'react'
+import { memo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps, useNodes, useEdges } from '@xyflow/react'
-import { Monitor, Download, Maximize2, ImageIcon, X } from 'lucide-react'
+import { Monitor, Download, Maximize2, ImageIcon, X, Loader2, AlertCircle } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import type { NodeData } from '../../types/nodes'
 
@@ -10,23 +10,23 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const nodes = useNodes()
   const edges = useEdges()
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
 
-  // 接続元ノード（ImageGenerationNode）の output をリアクティブに読む
-  // → 接続した瞬間・生成完了時に自動で画像が表示される
+  // 自身の output を優先。なければ接続元ノードの output をフォールバックとして使う
+  // （バッチ生成では各 DisplayNode に直接 output が書き込まれる）
   const incomingEdge = edges.find(
     (e) => e.target === props.id && e.targetHandle === 'in-image-image-in'
   )
   const sourceNode = incomingEdge ? nodes.find((n) => n.id === incomingEdge.source) : null
   const imageUrl =
-    ((sourceNode?.data as NodeData)?.output as string | undefined) ||
     (data.output as string | undefined) ||
+    ((sourceNode?.data as NodeData)?.output as string | undefined) ||
     (data.params?.imageUrl as string | undefined) ||
     null
 
-  useEffect(() => {
-    setImgSize(null)
-  }, [imageUrl])
+  const status = (data.status as string) ?? 'idle'
+  const isGenerating = status === 'generating'
+  const isError = status === 'error'
+  const errorMsg = data.params?.error as string | undefined
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -53,8 +53,25 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
         icon={<Monitor size={14} />}
         inputs={[{ id: 'image-in', portType: 'image' }]}
         outputs={[{ id: 'image-out', portType: 'image' }]}
+        hideStatus
       >
-        {imageUrl ? (
+        {isGenerating ? (
+          <div
+            className="flex flex-col items-center justify-center gap-3 rounded-lg py-10"
+            style={{ border: '1px dashed var(--border)', minHeight: 120 }}
+          >
+            <Loader2 size={24} className="animate-spin" style={{ color: '#8B5CF6' }} />
+            <span className="text-[11px] text-[var(--text-tertiary)]">生成中...</span>
+          </div>
+        ) : isError ? (
+          <div
+            className="flex flex-col items-center justify-center gap-2 rounded-lg py-8 px-3"
+            style={{ border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)', minHeight: 80 }}
+          >
+            <AlertCircle size={20} style={{ color: '#EF4444' }} />
+            <span className="text-[11px] text-center" style={{ color: '#EF4444' }}>{errorMsg || '生成に失敗しました'}</span>
+          </div>
+        ) : imageUrl ? (
           <>
             <div
               className="relative rounded-lg overflow-hidden group/img cursor-pointer"
@@ -65,10 +82,6 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
                 src={imageUrl}
                 alt="Display"
                 className="w-full h-auto block"
-                onLoad={(e) => {
-                  const img = e.currentTarget
-                  setImgSize({ w: img.naturalWidth, h: img.naturalHeight })
-                }}
               />
               {/* Hover overlay */}
               <div className="absolute inset-0 opacity-0 group-hover/img:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.6)' }}>
@@ -90,11 +103,6 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
                 </button>
               </div>
             </div>
-            {imgSize && (
-              <div className="text-[11px] text-[var(--text-tertiary)] text-center py-1.5">
-                {imgSize.w} × {imgSize.h}
-              </div>
-            )}
           </>
         ) : (
           <div

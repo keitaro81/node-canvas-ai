@@ -1,4 +1,4 @@
-export type PortType = 'text' | 'image' | 'video' | 'style'
+export type PortType = 'text' | 'image' | 'video' | 'style' | 'list'
 
 export type NodeType =
   | 'text'
@@ -15,6 +15,7 @@ export type NodeType =
   | 'note'
   | 'promptEnhancer'
   | 'group'
+  | 'list'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -54,6 +55,7 @@ export const PORT_COLORS: Record<PortType, string> = {
   image: '#8B5CF6',
   video: '#EC4899',
   style: '#6B7280',
+  list:  '#8B5CF6',
 }
 
 export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
@@ -71,6 +73,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   referenceVideo:  '#EC4899',
   note:            '#F59E0B',
   promptEnhancer:  '#6366F1',
+  list:            '#8B5CF6',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -89,9 +92,18 @@ export interface VideoGenerationNodeData {
   videoUrl: string | null
   fileName: string | null
   error: string | null
+  count: number
   requestId: string | null        // fal.ai queue request ID for recovery on reload
   requestEndpoint: string | null  // fal.ai endpoint used (required for recovery)
+  activeDisplayNodeId: string | null  // DisplayNode being written to (for recovery)
   capsuleFields?: Record<string, CapsuleFieldDef>
+}
+
+export interface ListNodeData {
+  label: string
+  slotCount: number
+  /** 'unset' = 未接続で両方受け付け、最初の接続で自動確定 */
+  mode: 'image' | 'text' | 'unset'
 }
 
 export interface ReferenceImageNodeData {
@@ -113,4 +125,7 @@ export interface VideoDisplayNodeData {
   autoPlay: boolean
   loop: boolean
   muted: boolean
+  status?: 'idle' | 'queued' | 'processing' | 'completed' | 'failed'
+  progress?: string
+  error?: string | null
 }

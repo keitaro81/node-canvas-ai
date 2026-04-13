@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video } from 'lucide-react'
+import { Type, Wrench, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -15,7 +15,8 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   referenceImage: [],
   referenceVideo: [],
   promptEnhancer: [],
-  imageGen:       ['text', 'image'],
+  list:           ['image', 'text'],
+  imageGen:       ['text', 'image', 'list'],
   videoGen:       ['text', 'image', 'video'],
   note:           [],
   utility:        ['text'],
@@ -25,6 +26,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
 const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   textPrompt:     ['text'],
   promptEnhancer: ['text'],
+  list:           ['list'],
   imageGen:       ['image'],
   referenceImage: ['image'],
   videoGen:       ['video'],
@@ -58,6 +60,7 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
   {
     category: 'Utility',
     items: [
+      { type: 'list',    label: 'List',    icon: <List size={14} />,       color: '#8B5CF6' },
       { type: 'note',    label: 'Note',    icon: <StickyNote size={14} />, color: '#F59E0B' },
       { type: 'utility', label: 'Utility', icon: <Wrench size={14} />,    color: '#6B7280' },
     ],
