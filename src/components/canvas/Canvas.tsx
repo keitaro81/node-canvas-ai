@@ -671,8 +671,15 @@ export function Canvas() {
           }
         }
       } else if (!nodeElement && !isOnHandle) {
+        const storeNodes = useCanvasStore.getState().nodes
+        const sourceNode = storeNodes.find((n) => n.id === connectingNode.current)
+        // 生成ノードの出力からドラッグしてもコンテキストメニューは出さない
+        if (sourceNode?.data.type === 'imageGen' || sourceNode?.data.type === 'videoGen') {
+          connectingNode.current = null
+          return
+        }
         const flowPos = rfInstance.current?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: clientX, y: clientY }
-        const targetGroup = findGroupAtPosition(flowPos.x, flowPos.y, useCanvasStore.getState().nodes)
+        const targetGroup = findGroupAtPosition(flowPos.x, flowPos.y, storeNodes)
         setContextMenu({
           x: clientX,
           y: clientY,
