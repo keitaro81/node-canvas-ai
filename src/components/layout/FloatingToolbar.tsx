@@ -12,7 +12,6 @@ import {
   FilmStrip,
   Image,
   Note,
-  Wrench,
   MagicWand,
   TreeStructure,
   DotsThree,
@@ -61,7 +60,6 @@ const PALETTE = [
     items: [
       { type: 'list' as NodeType, label: 'List', description: '複数入力をリストにまとめる', icon: <Stack size={15} />, color: '#8B5CF6' },
       { type: 'note' as NodeType, label: 'Note', description: 'メモ・注釈を追加', icon: <Note size={15} />, color: '#F59E0B' },
-      { type: 'utility' as NodeType, label: 'Utility', description: 'ユーティリティノード', icon: <Wrench size={15} />, color: '#6B7280' },
     ],
   },
 ]
