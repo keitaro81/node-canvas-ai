@@ -50,6 +50,20 @@ const RECRAFT_IMAGE_SIZES = [
   { value: 'portrait_4_3',   label: '3:4' },
 ] as const
 
+// 参照画像スロット
+const MAX_REF_SLOTS = 5
+const REF_HANDLE_IDS = ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5'] as const
+function refHandleId(i: number): string { return REF_HANDLE_IDS[i] ?? 'in-image' }
+
+// ハンドルの絶対位置（ノード上端からのpx）
+// ボディのバッジ行下からスロットを並べる: header(36) + padding(12) + badge(22) + gap(8) = 78px
+const REF_SECTION_TOP = 78
+const REF_SLOT_H = 28
+const REF_SLOT_GAP = 4
+function refHandleTop(i: number): number {
+  return REF_SECTION_TOP + i * (REF_SLOT_H + REF_SLOT_GAP) + REF_SLOT_H / 2
+}
+
 
 
 /**
@@ -191,15 +205,24 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  // 画像入力エッジ（旧ハンドルIDも後方互換として含める）
+  // 画像入力エッジ（全スロット + 旧ハンドルIDの後方互換）
   const imageEdges = storeEdges.filter(
     (e) =>
       e.target === id &&
-      (e.targetHandle === 'in-image' ||
+      ((REF_HANDLE_IDS as readonly string[]).includes(e.targetHandle ?? '') ||
         e.targetHandle === 'in-image-1' ||
-        e.targetHandle === 'in-image-reference' ||
-        e.targetHandle === 'in-image-2')
+        e.targetHandle === 'in-image-reference')
   )
+
+  // 各スロットの接続有無を確認し、表示するスロット数を決定（常に1つ空スロットを末尾に）
+  const connectedRefCount = REF_HANDLE_IDS.filter((hid, i) =>
+    imageEdges.some(
+      (e) =>
+        e.targetHandle === hid ||
+        (i === 0 && (e.targetHandle === 'in-image-1' || e.targetHandle === 'in-image-reference'))
+    )
+  ).length
+  const refSlotCount = Math.min(connectedRefCount + 1, MAX_REF_SLOTS)
 
   // ListNode 専用の in-list ハンドルへの接続
   const listNodeEdge = storeEdges.find(
@@ -263,15 +286,30 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     const thisNode = allNodes.find((n) => n.id === id)
     if (!thisNode) return
 
-    // in-image ハンドルへの接続をまとめて取得（getState 経由で最新状態）
+    // 参照画像エッジを全スロット分取得（getState 経由で最新状態）
     const inImageEdges = allEdges.filter(
       (e) =>
         e.target === id &&
-        (e.targetHandle === 'in-image' ||
+        ((REF_HANDLE_IDS as readonly string[]).includes(e.targetHandle ?? '') ||
           e.targetHandle === 'in-image-1' ||
-          e.targetHandle === 'in-image-reference' ||
-          e.targetHandle === 'in-image-2')
+          e.targetHandle === 'in-image-reference')
     )
+
+    // スロット順に画像URLを収集するヘルパー
+    const collectFixedImages = () =>
+      REF_HANDLE_IDS.flatMap((hid, i) => {
+        const edge = allEdges.find(
+          (e) =>
+            e.target === id &&
+            (e.targetHandle === hid ||
+              (i === 0 &&
+                (e.targetHandle === 'in-image-1' || e.targetHandle === 'in-image-reference')))
+        )
+        if (!edge) return []
+        const n = allNodes.find((n) => n.id === edge.source)
+        const url = n ? getImageUrlFromNode(n) : null
+        return url ? [url] : []
+      })
 
     // ListNode 専用ハンドルへの接続を確認
     const listEdge = allEdges.find(
@@ -329,12 +367,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         perSlotPrompts = validSlots.map((s) => s.text)
 
         // in-image 直接接続 = 全スロット共通の参照画像（任意）
-        fixedImageUrls = inImageEdges
-          .map((e) => {
-            const n = allNodes.find((n) => n.id === e.source)
-            return n ? getImageUrlFromNode(n) : null
-          })
-          .filter(Boolean) as string[]
+        fixedImageUrls = collectFixedImages()
       } else {
         // IMAGE LIST MODE: スロットごとの参照画像で生成（従来動作）
         const slotImages: (string | null)[] = Array<string | null>(slotCount).fill(null)
@@ -353,22 +386,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         perSlotImages = validSlotImages
         perSlotPrompts = Array<string | null>(effectiveCount).fill(null)
 
-        fixedImageUrls = inImageEdges
-          .map((e) => {
-            const n = allNodes.find((n) => n.id === e.source)
-            return n ? getImageUrlFromNode(n) : null
-          })
-          .filter(Boolean) as string[]
+        fixedImageUrls = collectFixedImages()
       }
     } else {
       // FIXED MODE: 手動 Count を使用（従来の動作）
       effectiveCount = count
-      fixedImageUrls = inImageEdges
-        .map((e) => {
-          const n = allNodes.find((n) => n.id === e.source)
-          return n ? getImageUrlFromNode(n) : null
-        })
-        .filter(Boolean) as string[]
+      fixedImageUrls = collectFixedImages()
       perSlotImages = Array<string | null>(effectiveCount).fill(null)
       perSlotPrompts = Array<string | null>(effectiveCount).fill(null)
 
@@ -507,7 +530,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           type="target"
           position={Position.Left}
           style={{
-            top: '25%',
+            top: '18%',
             width: 20,
             height: 20,
             background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -515,27 +538,31 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             borderRadius: 0,
           }}
         />
-        {/* 画像入力: 複数接続可能な単一ハンドル（接続順で Image1/Image2 を決定） */}
-        <Handle
-          id="in-image"
-          type="target"
-          position={Position.Left}
-          style={{
-            top: '65%',
-            width: 20,
-            height: 20,
-            background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
-            border: 'none',
-            borderRadius: 0,
-          }}
-        />
+        {/* 参照画像ハンドル: スロット数に応じて動的に表示（絶対px位置） */}
+        {Array.from({ length: refSlotCount }, (_, i) => (
+          <Handle
+            key={refHandleId(i)}
+            id={refHandleId(i)}
+            type="target"
+            position={Position.Left}
+            style={{
+              position: 'absolute',
+              top: refHandleTop(i),
+              width: 20,
+              height: 20,
+              background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+              border: 'none',
+              borderRadius: 0,
+            }}
+          />
+        ))}
         {/* ListNode 専用ハンドル */}
         <Handle
           id="in-list"
           type="target"
           position={Position.Left}
           style={{
-            top: '80%',
+            top: '85%',
             width: 20,
             height: 20,
             background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -543,11 +570,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             borderRadius: 0,
           }}
         />
-        {/* 旧ノードとの後方互換: BaseNode・旧カスタムレイアウト時代のハンドルID */}
-        <Handle id="in-text-prompt"      type="target" position={Position.Left} style={{ top: '25%', ...hiddenHandleStyle }} />
-        <Handle id="in-image-1"          type="target" position={Position.Left} style={{ top: '65%', ...hiddenHandleStyle }} />
-        <Handle id="in-image-reference"  type="target" position={Position.Left} style={{ top: '65%', ...hiddenHandleStyle }} />
-        <Handle id="in-image-2"          type="target" position={Position.Left} style={{ top: '65%', ...hiddenHandleStyle }} />
+        {/* 後方互換: 旧ハンドルID（スロット0と同じ位置、非表示） */}
+        <Handle id="in-text-prompt"     type="target" position={Position.Left} style={{ top: '18%', ...hiddenHandleStyle }} />
+        <Handle id="in-image-1"         type="target" position={Position.Left} style={{ top: refHandleTop(0), ...hiddenHandleStyle }} />
+        <Handle id="in-image-reference" type="target" position={Position.Left} style={{ top: refHandleTop(0), ...hiddenHandleStyle }} />
 
         {/* Body */}
         <div className="px-3 py-3 flex flex-col gap-2">
@@ -556,7 +582,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           <div className="flex items-center justify-between">
             <div className="flex flex-wrap gap-1">
               <span className="text-[10px] rounded-full px-1.5 py-0.5" style={{ background: 'rgba(99,102,241,0.2)', color: '#6366F1' }}>Prompt ←</span>
-              <span className="text-[10px] rounded-full px-1.5 py-0.5" style={{ background: 'rgba(139,92,246,0.2)', color: '#8B5CF6' }}>Images ←</span>
               <span className="text-[10px] rounded-full px-1.5 py-0.5" style={{ background: 'rgba(139,92,246,0.2)', color: '#8B5CF6' }}>List ←</span>
             </div>
             <span
@@ -568,6 +593,43 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             >
               {!hasImages ? 'T2I' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
             </span>
+          </div>
+
+          {/* 参照画像スロット（動的） */}
+          <div className="flex flex-col" style={{ gap: REF_SLOT_GAP }}>
+            {Array.from({ length: refSlotCount }, (_, i) => {
+              const hid = refHandleId(i)
+              const edge = imageEdges.find(
+                (e) =>
+                  e.targetHandle === hid ||
+                  (i === 0 &&
+                    (e.targetHandle === 'in-image-1' || e.targetHandle === 'in-image-reference'))
+              )
+              const srcNode = edge ? storeNodes.find((n) => n.id === edge.source) : null
+              const imgUrl = srcNode ? getImageUrlFromNodeData(srcNode.data) : null
+              return (
+                <div key={i} className="flex items-center gap-2" style={{ height: REF_SLOT_H }}>
+                  <div
+                    className="rounded overflow-hidden flex items-center justify-center shrink-0"
+                    style={{
+                      width: REF_SLOT_H,
+                      height: REF_SLOT_H,
+                      background: 'var(--bg-canvas)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    {imgUrl ? (
+                      <img src={imgUrl} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <span style={{ color: 'var(--border-active)', fontSize: 16 }}>·</span>
+                    )}
+                  </div>
+                  <span className="text-[11px]" style={{ color: imgUrl ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                    参照 {i + 1}
+                  </span>
+                </div>
+              )
+            })}
           </div>
 
           {/* 画像あり: Edit用モデル選択 */}

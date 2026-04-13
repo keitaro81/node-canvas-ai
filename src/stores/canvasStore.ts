@@ -303,6 +303,16 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
           )
         : state.edges
 
+      // 全く同じ接続がすでに存在する場合はスキップ（重複エッジ防止）
+      const alreadyExists = filteredEdges.some(
+        (e) =>
+          e.source === connection.source &&
+          e.sourceHandle === connection.sourceHandle &&
+          e.target === connection.target &&
+          e.targetHandle === connection.targetHandle
+      )
+      if (alreadyExists) return state
+
       const newEdges = addEdge(
         {
           ...connection,
@@ -530,7 +540,14 @@ export function loadCanvasState(
   edges: Edge[],
   capsuleGroupId: string | null
 ): void {
-  useCanvasStore.setState({ nodes, edges, capsuleGroupId, appMode: 'graph' })
+  // 重複IDのエッジを除去（古いデータで同一接続が複数保存されている場合の対策）
+  const seenIds = new Set<string>()
+  const dedupedEdges = edges.filter((e) => {
+    if (seenIds.has(e.id)) return false
+    seenIds.add(e.id)
+    return true
+  })
+  useCanvasStore.setState({ nodes, edges: dedupedEdges, capsuleGroupId, appMode: 'graph' })
   useCanvasStore.temporal.getState().clear()
 }
 
