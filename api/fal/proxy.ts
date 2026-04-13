@@ -1,7 +1,7 @@
 export const config = { runtime: 'edge' }
 
 const FAL_TARGET_URL_HEADER = 'x-fal-target-url'
-const ALLOWED_FAL_HOSTS = ['fal.run', 'queue.fal.run', 'rest.fal.run', 'storage.fal.run']
+const ALLOWED_FAL_HOSTS = ['fal.run', 'queue.fal.run', 'rest.fal.run', 'storage.fal.run', 'rest.fal.ai', 'queue.fal.ai', 'fal.ai']
 
 function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), {
