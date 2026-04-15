@@ -9,9 +9,10 @@ import { getImageUrlFromNodeData } from '../../lib/utils'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress } from '../../lib/ai/types'
-import { saveGeneration } from '../../lib/api/generations'
+import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl } from '../../lib/api/storage'
+import { showToast } from '../../hooks/useToast'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Record<string, unknown>) =>
@@ -85,6 +86,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   }, [id])
 
   const handleGenerate = useCallback(async () => {
+    const quota = await checkQuota('video')
+    if (!quota.allowed) {
+      upd(updateNode, id, { status: 'failed', error: `動画生成の上限（${quota.limit}本）に達しました（${quota.used}/${quota.limit}本使用済み）` })
+      return
+    }
+
     const prompt = getConnectedPrompt()
     if (!prompt) {
       upd(updateNode, id, { status: 'failed', error: 'プロンプトを入力してください' })
@@ -217,7 +224,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           })
           uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
             upd(updateNode, displayId, { videoUrl: storedUrl })
-          }).catch(() => {})
+          }).catch(() => {
+            showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
+          })
           if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl)
           saveGeneration({
             nodeId: id,
@@ -352,7 +361,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             })
             uploadVideoFromUrl(result.videoUrl, displayId ?? id).then((storedUrl) => {
               if (displayId) upd(updateNode, displayId, { videoUrl: storedUrl })
-            }).catch(() => {})
+            }).catch(() => {
+              showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
+            })
             useWorkflowStore.getState().updateThumbnail(result.videoUrl)
           } else {
             if (displayId) upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })

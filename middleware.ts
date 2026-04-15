@@ -9,7 +9,7 @@ export default function middleware(request: Request) {
 
   if (authHeader?.startsWith('Basic ')) {
     const [user, pass] = atob(authHeader.slice(6)).split(':')
-    if (user === 'keitaro' && pass === 'takahashi') {
+    if (user === process.env.BASIC_AUTH_USER && pass === process.env.BASIC_AUTH_PASS) {
       return next()
     }
   }
