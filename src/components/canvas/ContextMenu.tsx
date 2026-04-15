@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
@@ -117,11 +117,19 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, sourceIsI
       })).filter((group) => group.items.length > 0)
     : MENU_ITEMS
 
-  // Adjust position so menu doesn't go off-screen
+  const [pos, setPos] = useState({ x, y })
+  useEffect(() => {
+    if (!menuRef.current) return
+    const rect = menuRef.current.getBoundingClientRect()
+    const adjustedX = x + rect.width > window.innerWidth ? x - rect.width : x
+    const adjustedY = y + rect.height > window.innerHeight ? y - rect.height : y
+    setPos({ x: Math.max(0, adjustedX), y: Math.max(0, adjustedY) })
+  }, [x, y])
+
   const style: React.CSSProperties = {
     position: 'fixed',
-    left: x,
-    top: y,
+    left: pos.x,
+    top: pos.y,
     zIndex: 9999,
   }
 

@@ -139,7 +139,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
           : 'border-[var(--border)]',
         isGenerating ? 'node-generating' : '',
       ].join(' ')}
-      style={{ background: 'var(--bg-surface)', width: 300 }}
+      style={{ background: 'var(--bg-surface)', width: 280 }}
     >
       {/* Header */}
       <div
