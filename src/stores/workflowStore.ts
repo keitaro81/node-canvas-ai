@@ -97,7 +97,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           const { uploadedImagePreview: _, ...rest } = d
           data = rest
         }
-        if (data.status === 'generating') {
+        // requestId がある場合はリカバリー対象のため error にリセットしない
+        if (data.status === 'generating' && !data.requestId) {
           data = { ...data, status: 'error', errorMessage: 'ページの再読み込みにより生成が中断されました' }
         }
         return { ...node, data }
