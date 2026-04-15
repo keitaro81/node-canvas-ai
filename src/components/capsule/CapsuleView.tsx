@@ -223,6 +223,7 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
           {modelOpen && createPortal(
             <div
               className="rounded-lg overflow-hidden py-1"
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
                 position: 'fixed',
                 top: dropdownPos.top,
