@@ -835,6 +835,11 @@ function StageGenerateButton({
       })()
     : null
 
+  // GenNode のエラーメッセージ（クォータ超過等）
+  const genNodeError = (d.status === 'error' || d.status === 'failed')
+    ? ((d.error as string) ?? ((d.params as Record<string, unknown> | undefined)?.error as string) ?? null)
+    : null
+
   // GenNode 自体が generating か、DisplayNodes のいずれかが generating なら true
   const genNodeGenerating = d.status === 'generating' || d.status === 'queued' || d.status === 'processing'
   const displayNodesGenerating = (displayNodeIds ?? []).some((did) => {
@@ -920,6 +925,11 @@ function StageGenerateButton({
       {isLocked && (
         <p className="text-center text-[11px] mt-1.5" style={{ color: '#52525B' }}>
           ステージ {stageIndex} の完了後に実行できます
+        </p>
+      )}
+      {!isLocked && genNodeError && (
+        <p className="text-center text-[11px] mt-1.5" style={{ color: '#EF4444' }}>
+          {genNodeError}
         </p>
       )}
     </div>
