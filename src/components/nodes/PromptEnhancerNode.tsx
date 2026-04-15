@@ -9,8 +9,8 @@ import { PORT_COLORS } from '../../types/nodes'
 type Tab = 'input' | 'output'
 
 const MODELS = [
-  { value: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
-  { value: 'anthropic/claude-opus-4.6',   label: 'Claude Opus 4.6' },
+  { value: 'anthropic/claude-haiku-4.5',  label: 'Claude Haiku 4.5' },
+  { value: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
 ]
 
 const EXPORT_OPTIONS = [
@@ -29,7 +29,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as Record<string, unknown>
   const inputText = (nodeData.inputText as string) ?? ''
   const outputText = (nodeData.outputText as string) ?? ''
-  const rawModel = (nodeData.model as string) ?? 'anthropic/claude-sonnet-4.6'
+  const rawModel = (nodeData.model as string) ?? 'anthropic/claude-haiku-4.5'
   const validModelIds = MODELS.map((m) => m.value)
   const model = validModelIds.includes(rawModel) ? rawModel : MODELS[0].value
   const isGenerating = (nodeData.status as string) === 'generating'
