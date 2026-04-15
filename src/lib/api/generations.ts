@@ -26,8 +26,10 @@ export async function getUserQuotaUsage(): Promise<{ images: number; videos: num
 }
 
 export async function checkQuota(type: 'image' | 'video'): Promise<{ allowed: boolean; used: number; limit: number }> {
-  const user = useAuthStore.getState().user
-  const meta = user?.user_metadata ?? {}
+  // user_metadata はログイン時のJWTにキャッシュされるため、
+  // サーバーから最新情報を取得して設定変更を即時反映させる
+  const { data: { user: freshUser } } = await supabase.auth.getUser()
+  const meta = freshUser?.user_metadata ?? {}
   const limitImage = typeof meta.quota_image === 'number' ? meta.quota_image : QUOTA_IMAGE
   const limitVideo = typeof meta.quota_video === 'number' ? meta.quota_video : QUOTA_VIDEO
 
