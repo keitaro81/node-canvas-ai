@@ -673,11 +673,24 @@ export function Canvas() {
           })
           const matchedHandle = exactHandle ?? fallbackHandle
           if (matchedHandle) {
+            let targetHandleId: string | null = matchedHandle.getAttribute('data-handleid')
+
+            // imageGenerationNode への画像接続: 既存スロットを置き換えず末尾の空きスロットに追加
+            if (srcPortType === 'image') {
+              const { nodes: sNodes, edges: sEdges } = useCanvasStore.getState()
+              if (sNodes.find((n) => n.id === targetNodeId)?.type === 'imageGenerationNode') {
+                const connectedHandles = new Set(sEdges.filter((e) => e.target === targetNodeId).map((e) => e.targetHandle))
+                const REF_SLOTS = ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5', 'in-image-6', 'in-image-7', 'in-image-8', 'in-image-9', 'in-image-10']
+                const nextFree = REF_SLOTS.find((h) => !connectedHandles.has(h))
+                if (nextFree) targetHandleId = nextFree
+              }
+            }
+
             onConnect({
               source: connectingNode.current!,
               sourceHandle: connectingHandle.current,
               target: targetNodeId,
-              targetHandle: matchedHandle.getAttribute('data-handleid'),
+              targetHandle: targetHandleId,
             })
             connectingNode.current = null
             return
