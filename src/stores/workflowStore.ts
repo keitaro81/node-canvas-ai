@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { showToast } from '../hooks/useToast'
 import { getProjects, createProject } from '../lib/api/projects'
 import {
   getWorkflows,
@@ -142,6 +143,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         canvas_data: { nodes: sanitizedNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
       })
       set({ hasUnsavedChanges: false, lastSavedAt: new Date() })
+    } catch (err) {
+      console.warn('[saveCurrentWorkflow] 保存失敗:', err)
+      showToast('保存に失敗しました。ネットワーク接続を確認してください。', 'error')
     } finally {
       set({ isSaving: false })
     }
