@@ -268,12 +268,27 @@ export function buildCapsuleInputNodes(
     stages.flatMap((s) => s.stageInputs.map((si) => si.nodeId))
   )
 
+  // ListNode のスロット（in-image-* / in-text-*）に接続済みのノードID
+  // → グローバル入力として全ステージに表示させない（各ステージの ListNode パネルで表示される）
+  const listSlotNodeIds = new Set(
+    internalEdges
+      .filter((e) => {
+        const target = children.find((n) => n.id === e.target)
+        return (
+          target?.type === 'listNode' &&
+          (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-'))
+        )
+      })
+      .map((e) => e.source)
+  )
+
   return children
     .filter(
       (n) =>
         n.type != null &&
         n.type in INPUT_NODE_TYPES &&
         !assignedInputIds.has(n.id) &&
+        !listSlotNodeIds.has(n.id) &&
         connectedNodeIds.has(n.id) &&
         isInputNodeVisible(n)
     )
