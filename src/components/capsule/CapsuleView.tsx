@@ -35,8 +35,8 @@ const RECRAFT_MODEL_SET = new Set(['fal-ai/recraft/v4/text-to-image', 'fal-ai/re
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
 
 const ENHANCER_MODELS = [
-  { value: 'anthropic/claude-haiku-4.5',  label: 'Claude Haiku 4.5' },
-  { value: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
+  { value: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { value: 'anthropic/claude-opus-4-6',   label: 'Claude Opus 4.6' },
 ]
 
 const ENHANCER_SYSTEM_PROMPT = `You are an expert at writing detailed, evocative prompts for AI image and video generation tools. When given a prompt, enhance it to be more detailed, specific, and professionally descriptive. Add cinematography terms, lighting descriptions, mood, camera angles, color grading, and technical details where appropriate. Maintain the core intent of the original prompt. Respond only with the enhanced prompt in the same language as the input—no explanations, no preamble.`
@@ -94,7 +94,7 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
   const d = (node?.data ?? {}) as Record<string, unknown>
   const inputText = (d.inputText as string) ?? ''
   const outputText = (d.outputText as string) ?? ''
-  const model = (d.model as string) ?? 'anthropic/claude-haiku-4.5'
+  const model = (d.model as string) ?? 'anthropic/claude-sonnet-4-6'
   const isGenerating = (d.status as string) === 'generating'
   const selectedModel = ENHANCER_MODELS.find((m) => m.value === model) ?? ENHANCER_MODELS[0]
 
