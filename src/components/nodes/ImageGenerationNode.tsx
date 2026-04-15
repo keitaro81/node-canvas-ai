@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect } from 'react'
+import { memo, useCallback, useEffect, useRef } from 'react'
 import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
@@ -76,7 +76,8 @@ async function runGeneration(
   prompt: string,
   imageUrls: string[],
   params: Record<string, unknown>,
-  updateNode: (id: string, data: Partial<NodeData>) => void
+  updateNode: (id: string, data: Partial<NodeData>) => void,
+  onRequestId?: (requestId: string, endpoint: string) => void
 ) {
   const model = (params.model as string) ?? 'fal-ai/nano-banana-2'
   const editModel = (params.editModel as string) ?? 'fal-ai/nano-banana-2'
@@ -96,14 +97,20 @@ async function runGeneration(
       usedModel = model
       const input: Record<string, unknown> = { prompt, image_size: recraftImageSize }
       if (seed) input.seed = Number(seed)
-      const result = await fal.subscribe(model, { input, logs: false })
+      const result = await fal.subscribe(model, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, model),
+      })
       outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
       if (!outputImageUrl) throw new Error('生成に失敗しました')
     } else if (imageUrls.length === 0) {
       usedModel = model
       const input: Record<string, unknown> = { prompt, aspect_ratio: aspectRatio, resolution }
       if (seed) input.seed = Number(seed)
-      const result = await fal.subscribe(model, { input, logs: false })
+      const result = await fal.subscribe(model, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, model),
+      })
       outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
       if (!outputImageUrl) throw new Error('生成に失敗しました')
     } else {
@@ -128,7 +135,10 @@ async function runGeneration(
         resolution: safeResolution,
         ...(safeAspectRatio !== 'auto' && { aspect_ratio: safeAspectRatio }),
       }
-      const result = await fal.subscribe(editEndpoint, { input, logs: false })
+      const result = await fal.subscribe(editEndpoint, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, editEndpoint),
+      })
       outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
       if (!outputImageUrl) throw new Error('生成に失敗しました')
     }
@@ -251,6 +261,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               const src = storeNodes.find((n) => n.id === e.source)
               if (!src) return false
               const d = src.data as Record<string, unknown>
+              if (src.type === 'promptEnhancerNode' && d.status === 'error') return false
               const text = (d.outputText as string) || ((d.params as Record<string, unknown>)?.prompt as string)
               return !!text?.trim()
             }).length)
@@ -278,6 +289,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       .map((edge) => {
         const sourceNode = nodes.find((n) => n.id === edge.source)
         const d = sourceNode?.data as Record<string, unknown> | undefined
+        if (sourceNode?.type === 'promptEnhancerNode' && d?.status === 'error') return null
         return ((d?.params as Record<string, unknown> | undefined)?.prompt as string)
           || (d?.outputText as string)
           || null
@@ -389,6 +401,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               const src = allNodes.find((n) => n.id === e.source)
               if (src) {
                 const d = src.data as Record<string, unknown>
+                if (src.type === 'promptEnhancerNode' && d.status === 'error') return
                 slotTexts[i] = (d.outputText as string) || ((d.params as Record<string, unknown>)?.prompt as string) || null
               }
             }
@@ -505,18 +518,77 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     })
 
     // 全 DisplayNode を並列生成
+    // 全 requestId が揃ってから1回だけ保存（並列 onEnqueue の競合を防ぐ）
+    let receivedRequestIds = 0
+    const expectedRequestIds = displayNodeIds.length
     await Promise.all(
       displayNodeIds.map((displayId, i) => {
         const slotImg = perSlotImages[i]
         const imageUrls = slotImg ? [...fixedImageUrls, slotImg] : fixedImageUrls
         // テキストモード: スロット固有プロンプト（なければグローバルプロンプト）
         const effectivePrompt = perSlotPrompts[i] ?? prompt ?? ''
-        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode)
+        const onRequestId = (requestId: string, endpoint: string) => {
+          updateNode(displayId, { requestId, requestEndpoint: endpoint } as Partial<NodeData>)
+          receivedRequestIds++
+          if (receivedRequestIds >= expectedRequestIds) {
+            useWorkflowStore.getState().saveCurrentWorkflow()
+          }
+        }
+        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode, onRequestId)
       })
     )
 
     updateNode(id, { status: 'done' })
   }, [id, count, imageEdges, storeNodes, hasImages, nodeData.params, updateNode, getConnectedPrompt])
+
+  // ページリロード後のリカバリー
+  const isRecoveringRef = useRef(false)
+  useEffect(() => {
+    if (isRecoveringRef.current) return
+    const { nodes, edges } = useCanvasStore.getState()
+
+    const recoverables = edges
+      .filter((e) => e.source === id && e.sourceHandle === 'out-image-image-out')
+      .flatMap((e) => {
+        const displayNode = nodes.find((n) => n.id === e.target)
+        if (!displayNode) return []
+        const d = displayNode.data as Record<string, unknown>
+        if (d.status !== 'generating') return []
+        const requestId = d.requestId as string | null
+        const requestEndpoint = d.requestEndpoint as string | null
+        if (!requestId || !requestEndpoint) return []
+        return [{ displayId: e.target, requestId, requestEndpoint }]
+      })
+
+    if (recoverables.length === 0) return
+    isRecoveringRef.current = true
+
+    updateNode(id, { status: 'generating', params: { ...nodeData.params, error: undefined } })
+
+    ;(async () => {
+      for (const { displayId, requestId, requestEndpoint } of recoverables) {
+        try {
+          await fal.queue.subscribeToStatus(requestEndpoint, {
+            requestId,
+            logs: false,
+            mode: 'polling',
+            pollInterval: 3000,
+          })
+          const result = await fal.queue.result(requestEndpoint, { requestId })
+          const outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+          if (!outputImageUrl) throw new Error('生成に失敗しました')
+          updateNode(displayId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
+          saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: outputImageUrl, inputParams: {} })
+          useWorkflowStore.getState().updateThumbnail(outputImageUrl)
+        } catch (err) {
+          updateNode(displayId, { status: 'error', params: { error: (err as Error).message }, requestId: null, requestEndpoint: null } as Partial<NodeData>)
+        }
+      }
+      updateNode(id, { status: 'done' })
+      isRecoveringRef.current = false
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {

@@ -77,6 +77,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       .map((edge) => {
         const sourceNode = nodes.find((n) => n.id === edge.source)
         const d = sourceNode?.data as Record<string, unknown> | undefined
+        if (sourceNode?.type === 'promptEnhancerNode' && d?.status === 'error') return null
         return ((d?.params as Record<string, unknown> | undefined)?.prompt as string)
           || (d?.outputText as string)
           || null
