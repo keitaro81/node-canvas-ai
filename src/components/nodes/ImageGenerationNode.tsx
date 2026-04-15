@@ -52,8 +52,8 @@ const RECRAFT_IMAGE_SIZES = [
 ] as const
 
 // 参照画像スロット
-const MAX_REF_SLOTS = 5
-const REF_HANDLE_IDS = ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5'] as const
+const MAX_REF_SLOTS = 10
+const REF_HANDLE_IDS = ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5', 'in-image-6', 'in-image-7', 'in-image-8', 'in-image-9', 'in-image-10'] as const
 function refHandleId(i: number): string { return REF_HANDLE_IDS[i] ?? 'in-image' }
 
 // ハンドルの絶対位置（ノード上端からのpx）
@@ -576,8 +576,9 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             borderRadius: 0,
           }}
         />
-        {/* 参照画像ハンドル: スロット数に応じて動的に表示（絶対px位置） */}
-        {Array.from({ length: refSlotCount }, (_, i) => (
+        {/* 参照画像ハンドル: 常に MAX_REF_SLOTS 分描画し、refSlotCount 外は非表示にする
+            （ハンドルを動的にアンマウントすると React Flow が #008 警告を出すため） */}
+        {Array.from({ length: MAX_REF_SLOTS }, (_, i) => (
           <Handle
             key={refHandleId(i)}
             id={refHandleId(i)}
@@ -591,6 +592,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
               border: 'none',
               borderRadius: 0,
+              ...(i >= refSlotCount ? { opacity: 0, pointerEvents: 'none' } : {}),
             }}
           />
         ))}

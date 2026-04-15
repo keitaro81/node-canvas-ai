@@ -244,6 +244,17 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
         }
       })
 
+      // imageGenerationNode の参照画像スロットが切断された場合、残りを繰り上げる
+      const affectedImageGenNodes = new Set<string>()
+      removals.forEach((change) => {
+        const edge = edges.find((e) => e.id === change.id)
+        if (!edge) return
+        const isRefHandle = edge.targetHandle === 'in-image' || /^in-image-\d+$/.test(edge.targetHandle ?? '')
+        if (isRefHandle && nodes.find((n) => n.id === edge.target)?.type === 'imageGenerationNode') {
+          affectedImageGenNodes.add(edge.target)
+        }
+      })
+
       // エッジ削除前の状態を保存（ノード削除と組み合わせるため）
       const s = get()
       preDeletionState = { nodes: s.nodes, edges: s.edges }
@@ -251,18 +262,37 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       // pause してスナップショット抑制（onNodesChange か microtask でまとめて push）
       const tp = useCanvasStore.temporal.getState()
       tp.pause()
-      if (nodesToClear.length > 0) {
-        set((state) => ({
-          edges: applyEdgeChanges(changes, state.edges),
-          nodes: state.nodes.map((n) =>
-            nodesToClear.includes(n.id)
-              ? { ...n, data: { ...n.data, imageUrl: undefined, imageSource: undefined } }
-              : n
-          ),
-        }))
-      } else {
-        set((state) => ({ edges: applyEdgeChanges(changes, state.edges) }))
-      }
+      set((state) => {
+        let newEdges = applyEdgeChanges(changes, state.edges)
+
+        // 繰り上げ: 削除後の残存エッジのハンドルを詰め直す
+        affectedImageGenNodes.forEach((nodeId) => {
+          const getSlotIndex = (hid: string) => {
+            if (hid === 'in-image') return 0
+            const m = hid.match(/^in-image-(\d+)$/)
+            return m ? parseInt(m[1], 10) - 1 : 999
+          }
+          const refEdges = newEdges
+            .filter((e) => e.target === nodeId && (e.targetHandle === 'in-image' || /^in-image-\d+$/.test(e.targetHandle ?? '')))
+            .sort((a, b) => getSlotIndex(a.targetHandle ?? '') - getSlotIndex(b.targetHandle ?? ''))
+          refEdges.forEach((edge, i) => {
+            const newHandle = i === 0 ? 'in-image' : `in-image-${i + 1}`
+            if (edge.targetHandle !== newHandle) {
+              newEdges = newEdges.map((e) => e.id === edge.id ? { ...e, targetHandle: newHandle } : e)
+            }
+          })
+        })
+
+        const newNodes = nodesToClear.length > 0
+          ? state.nodes.map((n) =>
+              nodesToClear.includes(n.id)
+                ? { ...n, data: { ...n.data, imageUrl: undefined, imageSource: undefined } }
+                : n
+            )
+          : state.nodes
+
+        return { edges: newEdges, nodes: newNodes }
+      })
       tp.resume()
 
       // マイクロタスク: onNodesChange が来なかった = ユーザーによる単体エッジ削除
