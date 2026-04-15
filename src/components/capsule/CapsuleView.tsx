@@ -37,13 +37,6 @@ const allVideoModels = falVideoProvider.getAvailableVideoModels()
 const ENHANCER_MODELS = [
   { value: 'anthropic/claude-haiku-4.5',  label: 'Claude Haiku 4.5' },
   { value: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
-  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'anthropic/claude-3-5-haiku',  label: 'Claude 3.5 Haiku' },
-  { value: 'openai/gpt-5-mini',           label: 'GPT-5 Mini' },
-  { value: 'openai/gpt-4o-mini',          label: 'GPT-4o Mini' },
-  { value: 'openai/gpt-4o',               label: 'GPT-4o' },
-  { value: 'google/gemini-2.5-flash',     label: 'Gemini 2.5 Flash' },
-  { value: 'google/gemini-flash-1.5',     label: 'Gemini 1.5 Flash' },
 ]
 
 const ENHANCER_SYSTEM_PROMPT = `You are an expert at writing detailed, evocative prompts for AI image and video generation tools. When given a prompt, enhance it to be more detailed, specific, and professionally descriptive. Add cinematography terms, lighting descriptions, mood, camera angles, color grading, and technical details where appropriate. Maintain the core intent of the original prompt. Respond only with the enhanced prompt in the same language as the input—no explanations, no preamble.`
@@ -119,19 +112,13 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
     if (!inputText.trim()) return
     updateNode(nodeId, { status: 'generating' } as never)
     try {
-      const falKey = import.meta.env.VITE_FAL_KEY as string
-      const response = await fetch('https://fal.run/fal-ai/any-llm', {
-        method: 'POST',
-        headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, system_prompt: ENHANCER_SYSTEM_PROMPT, prompt: inputText }),
+      type LLMOutput = { output?: string }
+      const result = await fal.subscribe('fal-ai/any-llm', {
+        input: { model, system_prompt: ENHANCER_SYSTEM_PROMPT, prompt: inputText },
+        logs: false,
       })
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '')
-        const err = JSON.parse(errText || '{}')
-        throw new Error(err.detail ?? err.message ?? `HTTP ${response.status}`)
-      }
-      const json = await response.json()
-      updateNode(nodeId, { outputText: (json.output as string) ?? '', status: 'done' } as never)
+      const data = (result as unknown as { data?: LLMOutput }).data
+      updateNode(nodeId, { outputText: data?.output ?? '', status: 'done' } as never)
       setTab('output')
     } catch (err) {
       updateNode(nodeId, { outputText: (err as Error).message, status: 'error' } as never)

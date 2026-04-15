@@ -6,7 +6,7 @@ import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
-import { saveGeneration } from '../../lib/api/generations'
+import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 
@@ -287,6 +287,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   }, [id])
 
   const handleGenerate = useCallback(async () => {
+    const quota = await checkQuota('image')
+    if (!quota.allowed) {
+      updateNode(id, { status: 'error', params: { error: `画像生成の上限（${quota.limit}枚）に達しました（${quota.used}/${quota.limit}枚使用済み）` } } as never)
+      return
+    }
+
     const prompt = getConnectedPrompt()
 
     const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()

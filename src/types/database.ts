@@ -90,6 +90,7 @@ export interface Database {
           external_task_id: string | null
           created_at: string
           completed_at: string | null
+          user_id: string | null
         }
         Insert: {
           id?: string
@@ -106,6 +107,7 @@ export interface Database {
           external_task_id?: string | null
           created_at?: string
           completed_at?: string | null
+          user_id?: string | null
         }
         Update: {
           id?: string

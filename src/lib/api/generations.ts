@@ -1,6 +1,40 @@
 import { supabase } from '../supabase'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useAuthStore } from '../../stores/authStore'
 import type { Database } from '../../types/database'
+
+export const QUOTA_IMAGE = 100
+export const QUOTA_VIDEO = 7
+
+export async function getUserQuotaUsage(): Promise<{ images: number; videos: number }> {
+  const userId = useAuthStore.getState().user?.id
+  if (!userId) return { images: 0, videos: 0 }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from('generations') as any)
+    .select('node_type')
+    .eq('user_id', userId)
+    .eq('status', 'completed')
+
+  if (error) return { images: 0, videos: 0 }
+
+  const rows = (data ?? []) as { node_type: string | null }[]
+  return {
+    images: rows.filter((r) => r.node_type === 'image-generation').length,
+    videos: rows.filter((r) => r.node_type === 'video-generation').length,
+  }
+}
+
+export async function checkQuota(type: 'image' | 'video'): Promise<{ allowed: boolean; used: number; limit: number }> {
+  const user = useAuthStore.getState().user
+  const meta = user?.user_metadata ?? {}
+  const limitImage = typeof meta.quota_image === 'number' ? meta.quota_image : QUOTA_IMAGE
+  const limitVideo = typeof meta.quota_video === 'number' ? meta.quota_video : QUOTA_VIDEO
+
+  const { images, videos } = await getUserQuotaUsage()
+  if (type === 'image') return { allowed: images < limitImage, used: images, limit: limitImage }
+  return { allowed: videos < limitVideo, used: videos, limit: limitVideo }
+}
 
 type GenerationRow = Database['public']['Tables']['generations']['Row']
 type GenerationInsert = Database['public']['Tables']['generations']['Insert']
@@ -23,6 +57,8 @@ export async function saveGeneration(params: {
   const workflowId = useWorkflowStore.getState().currentWorkflowId
   if (!workflowId) return
 
+  const userId = useAuthStore.getState().user?.id ?? null
+
   try {
     await createGeneration({
       workflow_id: workflowId,
@@ -33,6 +69,7 @@ export async function saveGeneration(params: {
       output_url: params.outputUrl ?? null,
       error_message: params.errorMessage ?? null,
       input_params: { model: params.model, ...params.inputParams },
+      user_id: userId,
     })
   } catch (err) {
     console.warn('[saveGeneration] DB書き込み失敗:', err)
