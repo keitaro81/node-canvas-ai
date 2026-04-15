@@ -161,7 +161,7 @@ const PROMPT_ENHANCER_DEFAULT_DATA = {
   status: 'idle' as const,
   inputText: '',
   outputText: '',
-  model: 'anthropic/claude-sonnet-4.6',
+  model: 'anthropic/claude-haiku-4.5',
 }
 
 interface ContextMenuState {
