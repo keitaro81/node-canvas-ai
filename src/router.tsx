@@ -3,6 +3,7 @@ import { HomeLayout } from './components/home/HomeLayout'
 import { ProjectsPage } from './components/home/ProjectsPage'
 import { CommunityPage } from './components/home/CommunityPage'
 import { HistoryPage } from './components/home/HistoryPage'
+import { MyPage } from './components/home/MyPage'
 import { CanvasPage } from './components/canvas/CanvasPage'
 
 export const router = createBrowserRouter([
@@ -16,6 +17,7 @@ export const router = createBrowserRouter([
       { path: '/projects', element: <ProjectsPage /> },
       { path: '/community', element: <CommunityPage /> },
       { path: '/history', element: <HistoryPage /> },
+      { path: '/account', element: <MyPage /> },
     ],
   },
   {
