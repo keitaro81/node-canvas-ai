@@ -144,11 +144,13 @@ async function runGeneration(
       if (!outputImageUrl) throw new Error('生成に失敗しました')
     }
 
-    updateNode(displayNodeId, { status: 'done', output: outputImageUrl })
+    // requestId をクリアしてから保存（リロード時に recovery が二重実行されるのを防ぐ）
+    updateNode(displayNodeId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
+    useWorkflowStore.getState().saveCurrentWorkflow()
 
     // fal.ai の一時URLをSupabase Storageに永続保存（fire-and-forget）
     uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
-      updateNode(displayNodeId, { output: storedUrl })
+      updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
     }).catch(() => {
       // 保存失敗は無視（fal.ai URLのまま表示継続）
     })
