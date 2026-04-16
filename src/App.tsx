@@ -4,6 +4,7 @@ import './index.css'
 import { router } from './router'
 import { AuthGuard } from './components/auth/AuthGuard'
 import { useAuthStore } from './stores/authStore'
+import { ToastContainer } from './components/ui/ToastContainer'
 
 function App() {
   const initialize = useAuthStore((s) => s.initialize)
@@ -17,6 +18,7 @@ function App() {
   return (
     <AuthGuard>
       <RouterProvider router={router} />
+      <ToastContainer />
     </AuthGuard>
   )
 }

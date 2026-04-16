@@ -158,11 +158,12 @@ export function HomeLayout() {
               <Trash size={14} />
             </button>
             <button
+              onClick={() => navigate('/account')}
               className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
               style={{ color: 'var(--text-secondary)' }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
-              title="設定"
+              title="アカウント設定"
             >
               <Gear size={14} />
             </button>

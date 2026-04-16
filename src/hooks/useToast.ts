@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect } from 'react'
 export interface Toast {
   id: string
   message: string
-  type?: 'info' | 'warning' | 'error'
+  type?: 'info' | 'success' | 'warning' | 'error'
 }
 
 // グローバルな状態（Canvas 外からも呼べるようにモジュールレベルで管理）

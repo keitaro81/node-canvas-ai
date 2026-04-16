@@ -8,6 +8,7 @@ import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { uploadImageFromUrl } from '../../lib/api/storage'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 
 function getImageUrlFromNode(node: AppNode): string | null {
@@ -143,7 +144,16 @@ async function runGeneration(
       if (!outputImageUrl) throw new Error('生成に失敗しました')
     }
 
-    updateNode(displayNodeId, { status: 'done', output: outputImageUrl })
+    // requestId をクリアしてから保存（リロード時に recovery が二重実行されるのを防ぐ）
+    updateNode(displayNodeId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
+    useWorkflowStore.getState().saveCurrentWorkflow()
+
+    // fal.ai の一時URLをSupabase Storageに永続保存（fire-and-forget）
+    uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
+      updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
+    }).catch(() => {
+      // 保存失敗は無視（fal.ai URLのまま表示継続）
+    })
 
     saveGeneration({
       nodeId: displayNodeId,
@@ -580,6 +590,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           updateNode(displayId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
           saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: outputImageUrl, inputParams: {} })
           useWorkflowStore.getState().updateThumbnail(outputImageUrl)
+          // fal.ai の一時URLをSupabase Storageに永続保存（fire-and-forget）
+          uploadImageFromUrl(outputImageUrl, displayId).then((storedUrl) => {
+            updateNode(displayId, { output: storedUrl } as Partial<NodeData>)
+          }).catch(() => {})
         } catch (err) {
           updateNode(displayId, { status: 'error', params: { error: (err as Error).message }, requestId: null, requestEndpoint: null } as Partial<NodeData>)
         }
