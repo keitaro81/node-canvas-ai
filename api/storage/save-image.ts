@@ -1,5 +1,7 @@
 export const config = { runtime: 'edge' }
 
+import { createClient } from '@supabase/supabase-js'
+
 function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -27,19 +29,13 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonResponse({ error: 'Server configuration error' }, 500)
   }
 
-  // JWT 検証
-  try {
-    const verifyRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: supabaseAnonKey,
-      },
-    })
-    if (!verifyRes.ok) {
-      return jsonResponse({ error: 'Forbidden' }, 403)
-    }
-  } catch {
-    return jsonResponse({ error: 'Auth verification failed' }, 500)
+  // JWT 検証（ユーザーのトークンで認証確認）
+  const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  })
+  const { error: authError } = await userSupabase.auth.getUser(token)
+  if (authError) {
+    return jsonResponse({ error: 'Forbidden' }, 403)
   }
 
   // リクエストボディから sourceUrl と nodeId を取得
@@ -67,28 +63,21 @@ export default async function handler(req: Request): Promise<Response> {
   const ext = isJpeg ? 'jpg' : isWebp ? 'webp' : 'png'
   const path = `${nodeId}/${Date.now()}.${ext}`
 
-  const imageBlob = await imageRes.arrayBuffer()
+  const imageBlob = await imageRes.blob()
 
-  // Supabase Storage に service role key でアップロード
-  const uploadRes = await fetch(
-    `${supabaseUrl}/storage/v1/object/generated-images/${path}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'Content-Type': contentType,
-        'x-upsert': 'false',
-      },
-      body: imageBlob,
-    }
-  )
+  // Supabase JS クライアント（service role key）でアップロード — sb_secret_... 形式対応
+  const adminSupabase = createClient(supabaseUrl, serviceRoleKey)
+  const { error: uploadError } = await adminSupabase.storage
+    .from('generated-images')
+    .upload(path, imageBlob, { contentType, upsert: false })
 
-  if (!uploadRes.ok) {
-    const err = await uploadRes.text()
-    return jsonResponse({ error: `Storage upload failed: ${err}` }, 502)
+  if (uploadError) {
+    return jsonResponse({ error: `Storage upload failed: ${uploadError.message}` }, 502)
   }
 
-  const publicUrl = `${supabaseUrl}/storage/v1/object/public/generated-images/${path}`
+  const { data: { publicUrl } } = adminSupabase.storage
+    .from('generated-images')
+    .getPublicUrl(path)
+
   return jsonResponse({ url: publicUrl }, 200)
 }
