@@ -406,7 +406,6 @@ export class FalVideoProvider implements VideoProvider {
         contentType: video.content_type || 'video/mp4',
       };
     } catch (error) {
-      console.error('[fal-video] recoverVideo error:', error)
       return {
         id: requestId,
         status: 'failed',

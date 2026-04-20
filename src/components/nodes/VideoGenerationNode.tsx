@@ -365,7 +365,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               requestEndpoint: null,
               activeDisplayNodeId: null,
             })
-            useWorkflowStore.getState().saveCurrentWorkflow()
             uploadVideoFromUrl(result.videoUrl, displayId ?? id).then((storedUrl) => {
               if (displayId) upd(updateNode, displayId, { videoUrl: storedUrl })
             }).catch(() => {
@@ -381,7 +380,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               requestId: null,
               requestEndpoint: null,
             })
-            useWorkflowStore.getState().saveCurrentWorkflow()
           }
         })
         .catch((error) => {
@@ -394,7 +392,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             requestId: null,
             requestEndpoint: null,
           })
-          useWorkflowStore.getState().saveCurrentWorkflow()
         })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
