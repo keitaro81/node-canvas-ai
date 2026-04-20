@@ -246,7 +246,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             })
           }).catch(() => {
             showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
-            if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl)
+            if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl!)
             saveGeneration({
               nodeId: id,
               nodeType: 'video-generation',
