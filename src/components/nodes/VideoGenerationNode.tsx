@@ -223,31 +223,39 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             fileName: result.fileName ?? null,
             error: null,
           })
-          // History とサムネイルは即座に保存（ページ離脱でも確実に記録される）
-          if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl)
-          saveGeneration({
-            nodeId: id,
-            nodeType: 'video-generation',
-            provider: 'fal',
+          const videoInputParams = {
+            prompt,
             model: modelForMode?.id ?? nodeData.model,
-            status: 'completed',
-            outputUrl: result.videoUrl,
-            inputParams: {
-              prompt,
-              model: modelForMode?.id ?? nodeData.model,
-              mode,
-              duration: nodeData.duration,
-              resolution: nodeData.resolution,
-              aspectRatio: nodeData.aspectRatio,
-              ...(mode === 'image-to-video' ? { imageUrl: connectedImageUrl } : {}),
-            },
-          })
-          // Storage アップロード後にノード表示とサムネイルを Supabase URL に更新
+            mode,
+            duration: nodeData.duration,
+            resolution: nodeData.resolution,
+            aspectRatio: nodeData.aspectRatio,
+            ...(mode === 'image-to-video' ? { imageUrl: connectedImageUrl } : {}),
+          }
           uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
             upd(updateNode, displayId, { videoUrl: storedUrl })
             if (i === 0) useWorkflowStore.getState().updateThumbnail(storedUrl)
+            saveGeneration({
+              nodeId: id,
+              nodeType: 'video-generation',
+              provider: 'fal',
+              model: modelForMode?.id ?? nodeData.model,
+              status: 'completed',
+              outputUrl: storedUrl,
+              inputParams: videoInputParams,
+            })
           }).catch(() => {
             showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
+            if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl!)
+            saveGeneration({
+              nodeId: id,
+              nodeType: 'video-generation',
+              provider: 'fal',
+              model: modelForMode?.id ?? nodeData.model,
+              status: 'completed',
+              outputUrl: result.videoUrl,
+              inputParams: videoInputParams,
+            })
           })
         } else {
           upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
@@ -284,8 +292,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       requestEndpoint: null,
       activeDisplayNodeId: null,
     })
-    // requestId をDBから消去（リロード時の誤リカバリー防止）
-    useWorkflowStore.getState().saveCurrentWorkflow()
   }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, hasConnectedImageNode, getConnectedPrompt, updateNode])
 
   useEffect(() => {
