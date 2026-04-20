@@ -74,18 +74,6 @@ export function ProjectsPage() {
           <div className="flex items-center justify-center h-48">
             <CircleNotch size={24} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
           </div>
-        ) : workflows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-3">
-            <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>No projects yet</p>
-            <button
-              onClick={handleNew}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium"
-              style={{ background: 'var(--accent-primary)', color: '#fff' }}
-            >
-              <Plus size={14} weight="bold" />
-              Create your first project
-            </button>
-          </div>
         ) : (
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
             {/* Create new project card */}
@@ -94,7 +82,6 @@ export function ProjectsPage() {
               disabled={creating}
               className="flex flex-col text-left disabled:opacity-60"
             >
-              {/* Thumbnail box */}
               <div
                 className="relative w-full flex items-center justify-center rounded-xl overflow-hidden transition-all duration-150"
                 style={{ aspectRatio: '16/10', background: '#ffffff', border: '1px solid var(--border)' }}
@@ -106,7 +93,6 @@ export function ProjectsPage() {
                   : <Plus size={28} weight="light" style={{ color: 'var(--text-tertiary)' }} />
                 }
               </div>
-              {/* Info */}
               <div className="pt-2.5">
                 <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
                   Create new project

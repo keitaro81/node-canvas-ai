@@ -20,7 +20,7 @@ async function downloadFile(url: string, filename: string) {
   }
 }
 
-function VideoDisplayNodeInner({ id, data }: NodeProps) {
+function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as VideoDisplayNodeData
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -56,7 +56,7 @@ function VideoDisplayNodeInner({ id, data }: NodeProps) {
   return (
     <>
       <div
-        className="node-popin relative flex flex-col w-[320px] rounded-xl overflow-visible border border-[var(--border)] transition-all duration-150"
+        className={`node-popin relative flex flex-col w-[320px] rounded-xl overflow-visible border transition-all duration-150 ${selected ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]' : 'border-[var(--border)]'}`}
         style={{ background: 'var(--bg-surface)' }}
       >
         {/* Header */}
