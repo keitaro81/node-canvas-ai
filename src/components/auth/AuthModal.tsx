@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { Mail, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 
-type Tab = 'signin' | 'signup'
+type Tab = 'signin' | 'signup' | 'reset'
 
 export function AuthModal() {
-  const { signIn, signUp, signInWithGoogle } = useAuth()
+  const { signIn, signUp, signInWithGoogle, sendPasswordResetEmail } = useAuth()
 
   const [tab, setTab] = useState<Tab>('signin')
   const [email, setEmail] = useState('')
@@ -23,9 +23,12 @@ export function AuthModal() {
     try {
       if (tab === 'signin') {
         await signIn(email, password)
-      } else {
+      } else if (tab === 'signup') {
         await signUp(email, password)
         setSuccessMsg('確認メールを送信しました。メールをご確認ください。')
+      } else {
+        await sendPasswordResetEmail(email)
+        setSuccessMsg('パスワードリセットメールを送信しました。メールをご確認ください。')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました')
@@ -59,21 +62,29 @@ export function AuthModal() {
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-[8px] border border-[var(--border)] overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
-          {(['signin', 'signup'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setError(null); setSuccessMsg(null) }}
-              className="flex-1 py-2 text-[13px] font-medium transition-colors duration-150"
-              style={{
-                background: tab === t ? 'var(--bg-elevated)' : 'transparent',
-                color: tab === t ? 'var(--text-primary)' : 'var(--text-tertiary)',
-              }}
-            >
-              {t === 'signin' ? 'ログイン' : '新規登録'}
-            </button>
-          ))}
-        </div>
+        {tab !== 'reset' && (
+          <div className="flex rounded-[8px] border border-[var(--border)] overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
+            {(['signin', 'signup'] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => { setTab(t); setError(null); setSuccessMsg(null) }}
+                className="flex-1 py-2 text-[13px] font-medium transition-colors duration-150"
+                style={{
+                  background: tab === t ? 'var(--bg-elevated)' : 'transparent',
+                  color: tab === t ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                }}
+              >
+                {t === 'signin' ? 'ログイン' : '新規登録'}
+              </button>
+            ))}
+          </div>
+        )}
+        {tab === 'reset' && (
+          <div className="flex flex-col gap-1">
+            <span className="text-[15px] font-semibold text-center" style={{ color: 'var(--text-primary)' }}>パスワードをリセット</span>
+            <span className="text-[12px] text-center" style={{ color: 'var(--text-secondary)' }}>登録済みのメールアドレスにリセットリンクを送信します</span>
+          </div>
+        )}
 
         {/* Google */}
         <button
@@ -114,26 +125,40 @@ export function AuthModal() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[12px] font-medium text-[var(--text-secondary)]">パスワード</label>
-            <div className="flex items-center rounded-[6px] border border-[var(--border)] px-3 focus-within:border-[var(--border-active)]" style={{ background: 'var(--bg-canvas)' }}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                className="flex-1 bg-transparent text-[13px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none py-2"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="ml-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-              >
-                {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
-              </button>
+          {tab !== 'reset' && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[12px] font-medium text-[var(--text-secondary)]">パスワード</label>
+                {tab === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => { setTab('reset'); setError(null); setSuccessMsg(null) }}
+                    className="text-[11px] transition-colors duration-150"
+                    style={{ color: 'var(--accent-primary)' }}
+                  >
+                    パスワードをお忘れの方
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center rounded-[6px] border border-[var(--border)] px-3 focus-within:border-[var(--border-active)]" style={{ background: 'var(--bg-canvas)' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="flex-1 bg-transparent text-[13px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none py-2"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="ml-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+                >
+                  {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {error && (
             <p className="text-[12px] text-[#EF4444] bg-[#EF444410] rounded-[6px] px-3 py-2">{error}</p>
@@ -148,8 +173,18 @@ export function AuthModal() {
             className="w-full h-9 rounded-[8px] text-[13px] font-medium text-white transition-all duration-150 disabled:opacity-50"
             style={{ background: '#8B5CF6' }}
           >
-            {loading ? '処理中...' : tab === 'signin' ? 'ログイン' : '登録する'}
+            {loading ? '処理中...' : tab === 'signin' ? 'ログイン' : tab === 'signup' ? '登録する' : 'リセットメールを送信'}
           </button>
+          {tab === 'reset' && (
+            <button
+              type="button"
+              onClick={() => { setTab('signin'); setError(null); setSuccessMsg(null) }}
+              className="text-[12px] text-center transition-colors duration-150"
+              style={{ color: 'var(--text-tertiary)' }}
+            >
+              ← ログインに戻る
+            </button>
+          )}
         </form>
       </div>
     </div>

@@ -7,6 +7,7 @@ export function useAuth() {
   const signUpWithEmail = useAuthStore((s) => s.signUpWithEmail)
   const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle)
   const signOut = useAuthStore((s) => s.signOut)
+  const sendPasswordResetEmail = useAuthStore((s) => s.sendPasswordResetEmail)
 
   return {
     user,
@@ -15,5 +16,6 @@ export function useAuth() {
     signUp: signUpWithEmail,
     signInWithGoogle,
     signOut,
+    sendPasswordResetEmail,
   }
 }

@@ -13,6 +13,8 @@ interface AuthState {
   signUpWithEmail: (email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
+  updatePassword: (newPassword: string) => Promise<void>
+  sendPasswordResetEmail: (email: string) => Promise<void>
   initialize: () => Promise<() => void>
 }
 
@@ -91,6 +93,18 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       window.addEventListener('message', onMessage)
     })
+  },
+
+  updatePassword: async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+  },
+
+  sendPasswordResetEmail: async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/account`,
+    })
+    if (error) throw error
   },
 
   signOut: async () => {

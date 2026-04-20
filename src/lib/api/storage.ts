@@ -22,6 +22,39 @@ export async function deleteImage(path: string): Promise<void> {
 }
 
 /**
+ * fal.aiの一時URLからサーバーサイド経由でSupabase Storageに保存し、公開URLを返す。
+ * クライアントから直接 fal.ai URL を fetch すると CORS エラーになるため Edge Function 経由。
+ * ローカル開発（VITE_FAL_KEY あり）では Edge Function が動かないためスキップする。
+ */
+export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Promise<string> {
+  // ローカル開発環境ではスキップして fal.ai URL をそのまま返す
+  if (import.meta.env.VITE_FAL_KEY) {
+    return sourceUrl
+  }
+
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('Not authenticated')
+
+  const res = await fetch('/api/storage/save-image', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ sourceUrl, nodeId }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json() as { error?: string }
+    throw new Error(err.error ?? 'Image upload failed')
+  }
+
+  const data = await res.json() as { url: string }
+  return data.url
+}
+
+/**
  * ローカルの動画Fileオブジェクトを直接Supabase Storageに保存し、公開URLを返す。
  */
 export async function uploadVideoFile(file: File, nodeId: string): Promise<string> {
