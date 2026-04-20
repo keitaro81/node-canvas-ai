@@ -148,23 +148,32 @@ async function runGeneration(
     updateNode(displayNodeId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
     useWorkflowStore.getState().saveCurrentWorkflow()
 
-    // fal.ai の一時URLをSupabase Storageに永続保存（fire-and-forget）
+    // Storage保存後にStorageURLでgenerationsとthumbnailを更新（fire-and-forget）
     uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
       updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
+      saveGeneration({
+        nodeId: displayNodeId,
+        nodeType: 'image-generation',
+        provider: 'fal',
+        model: usedModel,
+        status: 'completed',
+        outputUrl: storedUrl,
+        inputParams: { prompt, model: usedModel },
+      })
+      useWorkflowStore.getState().updateThumbnail(storedUrl)
     }).catch(() => {
-      // 保存失敗は無視（fal.ai URLのまま表示継続）
+      // 保存失敗時はfal.ai URLのままgenerationsとthumbnailを保存
+      saveGeneration({
+        nodeId: displayNodeId,
+        nodeType: 'image-generation',
+        provider: 'fal',
+        model: usedModel,
+        status: 'completed',
+        outputUrl: outputImageUrl!,
+        inputParams: { prompt, model: usedModel },
+      })
+      useWorkflowStore.getState().updateThumbnail(outputImageUrl!)
     })
-
-    saveGeneration({
-      nodeId: displayNodeId,
-      nodeType: 'image-generation',
-      provider: 'fal',
-      model: usedModel,
-      status: 'completed',
-      outputUrl: outputImageUrl,
-      inputParams: { prompt, model: usedModel },
-    })
-    useWorkflowStore.getState().updateThumbnail(outputImageUrl!)
   } catch (err) {
     updateNode(displayNodeId, {
       status: 'error',
