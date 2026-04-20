@@ -87,6 +87,12 @@ export default async function handler(req: Request): Promise<Response> {
   const resContentType = falRes.headers.get('content-type')
   if (resContentType) responseHeaders.set('Content-Type', resContentType)
 
+  if (falRes.status >= 400) {
+    const errBody = await falRes.text()
+    console.error(`[fal-proxy] ${falRes.status} from ${targetUrl}:`, errBody)
+    return new Response(errBody, { status: falRes.status, headers: responseHeaders })
+  }
+
   return new Response(falRes.body, {
     status: falRes.status,
     headers: responseHeaders,
