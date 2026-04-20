@@ -284,6 +284,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       requestEndpoint: null,
       activeDisplayNodeId: null,
     })
+    // requestId をDBから消去（リロード時の誤リカバリー防止）
+    useWorkflowStore.getState().saveCurrentWorkflow()
   }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, hasConnectedImageNode, getConnectedPrompt, updateNode])
 
   useEffect(() => {
