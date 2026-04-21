@@ -161,7 +161,8 @@ async function runGeneration(
         inputParams: { prompt, model: usedModel },
       })
       useWorkflowStore.getState().updateThumbnail(storedUrl)
-    }).catch(() => {
+    }).catch((uploadErr: unknown) => {
+      console.error('[ImageGen] uploadImageFromUrl failed:', uploadErr)
       // 保存失敗時はfal.ai URLのままgenerationsとthumbnailを保存
       saveGeneration({
         nodeId: displayNodeId,
