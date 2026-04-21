@@ -22,14 +22,25 @@ export async function deleteImage(path: string): Promise<void> {
 }
 
 /**
- * fal.aiの一時URLからサーバーサイド経由でSupabase Storageに保存し、公開URLを返す。
- * クライアントから直接 fal.ai URL を fetch すると CORS エラーになるため Edge Function 経由。
- * ローカル開発（VITE_FAL_KEY あり）では Edge Function が動かないためスキップする。
+ * fal.aiの一時URLからSupabase Storageに保存し、公開URLを返す。
+ * - ローカル開発（VITE_FAL_KEY あり）: Vite Dev Server ミドルウェア経由（サーバーサイド fetch + service role key）
+ * - 本番: Edge Function 経由（service role key でアップロード）
  */
 export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Promise<string> {
-  // ローカル開発環境ではスキップして fal.ai URL をそのまま返す
+  // ローカル開発環境: Vite Dev Server ミドルウェア /dev-proxy/save-image 経由
+  // （CORS 問題を回避し、service role key で RLS 制約も突破する）
   if (import.meta.env.VITE_FAL_KEY) {
-    return sourceUrl
+    const res = await fetch('/dev-proxy/save-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceUrl, nodeId }),
+    })
+    if (!res.ok) {
+      const err = await res.json() as { error?: string }
+      throw new Error(err.error ?? 'Dev proxy save failed')
+    }
+    const data = await res.json() as { url: string }
+    return data.url
   }
 
   const { data: { session } } = await supabase.auth.getSession()
