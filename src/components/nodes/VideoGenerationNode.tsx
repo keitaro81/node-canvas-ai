@@ -9,7 +9,7 @@ import { getImageUrlFromNodeData } from '../../lib/utils'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress } from '../../lib/ai/types'
-import { saveGeneration, checkQuota } from '../../lib/api/generations'
+import { saveGeneration, updateGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl } from '../../lib/api/storage'
 import { showToast } from '../../hooks/useToast'
@@ -232,30 +232,24 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             aspectRatio: nodeData.aspectRatio,
             ...(mode === 'image-to-video' ? { imageUrl: connectedImageUrl } : {}),
           }
+          // History とサムネイルを即座に保存（アップロード失敗やページ離脱でも確実に記録される）
+          if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl)
+          const generationId = await saveGeneration({
+            nodeId: id,
+            nodeType: 'video-generation',
+            provider: 'fal',
+            model: modelForMode?.id ?? nodeData.model,
+            status: 'completed',
+            outputUrl: result.videoUrl,
+            inputParams: videoInputParams,
+          })
+          // Storage アップロード後にノード・サムネ・History を Supabase 永続 URL に差し替え
           uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
             upd(updateNode, displayId, { videoUrl: storedUrl })
             if (i === 0) useWorkflowStore.getState().updateThumbnail(storedUrl)
-            saveGeneration({
-              nodeId: id,
-              nodeType: 'video-generation',
-              provider: 'fal',
-              model: modelForMode?.id ?? nodeData.model,
-              status: 'completed',
-              outputUrl: storedUrl,
-              inputParams: videoInputParams,
-            })
+            if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch(() => {})
           }).catch(() => {
             showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
-            if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl!)
-            saveGeneration({
-              nodeId: id,
-              nodeType: 'video-generation',
-              provider: 'fal',
-              model: modelForMode?.id ?? nodeData.model,
-              status: 'completed',
-              outputUrl: result.videoUrl,
-              inputParams: videoInputParams,
-            })
           })
         } else {
           upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
