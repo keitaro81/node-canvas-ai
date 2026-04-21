@@ -40,7 +40,7 @@ async function downloadFile(url: string, filename: string) {
 
 export function GenerationCard({ generation }: GenerationCardProps) {
   const url = generation.output_url!
-  const isVideo = isVideoUrl(url)
+  const isVideo = isVideoUrl(url) || generation.node_type === 'video-generation'
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
   const filename = isVideo

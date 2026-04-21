@@ -55,14 +55,14 @@ export async function saveGeneration(params: {
   outputUrl?: string
   errorMessage?: string
   inputParams?: Record<string, unknown>
-}): Promise<void> {
+}): Promise<string | null> {
   const workflowId = useWorkflowStore.getState().currentWorkflowId
-  if (!workflowId) return
+  if (!workflowId) return null
 
   const userId = useAuthStore.getState().user?.id ?? null
 
   try {
-    await createGeneration({
+    const row = await createGeneration({
       workflow_id: workflowId,
       node_id: params.nodeId,
       node_type: params.nodeType,
@@ -73,8 +73,10 @@ export async function saveGeneration(params: {
       input_params: { model: params.model, ...params.inputParams },
       user_id: userId,
     })
+    return row.id
   } catch (err) {
     console.warn('[saveGeneration] DB書き込み失敗:', err)
+    return null
   }
 }
 
