@@ -20,12 +20,36 @@ const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-pro',                  label: 'Nano Banana Pro' },
   { value: 'fal-ai/recraft/v4/text-to-image',         label: 'Recraft V4' },
   { value: 'fal-ai/recraft/v4/pro/text-to-image',     label: 'Recraft V4 Pro' },
+  { value: 'openai/gpt-image-2',                      label: 'GPT-Image-2' },
 ]
 
 const NB_EDIT_MODELS = [
   { value: 'fal-ai/nano-banana-2',   label: 'Nano Banana 2' },
   { value: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
 ]
+
+const EDIT_MODELS = [
+  ...NB_EDIT_MODELS,
+  { value: 'openai/gpt-image-2',     label: 'GPT-Image-2' },
+]
+
+const GPT_IMAGE_2_MODELS = new Set(['openai/gpt-image-2'])
+
+// openai/gpt-image-2 の image_size enum（fal.ai API 準拠）
+const GPT_IMAGE_2_SIZES = [
+  { value: 'square_hd',      label: '1:1 HD' },
+  { value: 'square',         label: '1:1' },
+  { value: 'landscape_16_9', label: '16:9' },
+  { value: 'portrait_16_9',  label: '9:16' },
+  { value: 'landscape_4_3',  label: '4:3' },
+  { value: 'portrait_4_3',   label: '3:4' },
+] as const
+
+// edit は auto もサポート
+const GPT_IMAGE_2_EDIT_SIZES = [
+  { value: 'auto',           label: 'auto' },
+  ...GPT_IMAGE_2_SIZES,
+] as const
 
 const NB_RESOLUTIONS: Record<string, string[]> = {
   'fal-ai/nano-banana-2':   ['0.5K', '1K', '2K', '4K'],
@@ -94,7 +118,19 @@ async function runGeneration(
     let outputImageUrl: string | undefined
     let usedModel: string
 
-    if (imageUrls.length === 0 && isRecraftModel) {
+    if (imageUrls.length === 0 && GPT_IMAGE_2_MODELS.has(model)) {
+      usedModel = model
+      const rawSize = (params.gptImageSize as string) ?? ''
+      // T2I は 'auto' 非対応のため square_hd にフォールバック
+      const gptImageSize = (!rawSize || rawSize === 'auto') ? 'square_hd' : rawSize
+      const input: Record<string, unknown> = { prompt, image_size: gptImageSize }
+      const result = await fal.subscribe(model, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, model),
+      })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    } else if (imageUrls.length === 0 && isRecraftModel) {
       usedModel = model
       const input: Record<string, unknown> = { prompt, image_size: recraftImageSize }
       if (seed) input.seed = Number(seed)
@@ -111,6 +147,21 @@ async function runGeneration(
       const result = await fal.subscribe(model, {
         input, logs: false,
         onEnqueue: (requestId: string) => onRequestId?.(requestId, model),
+      })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    } else if (GPT_IMAGE_2_MODELS.has(editModel)) {
+      const editEndpoint = 'openai/gpt-image-2/edit'
+      usedModel = editEndpoint
+      const gptEditSize = (params.gptImageSize as string) ?? 'auto'
+      const input: Record<string, unknown> = {
+        prompt,
+        image_urls: imageUrls,
+        image_size: gptEditSize,
+      }
+      const result = await fal.subscribe(editEndpoint, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, editEndpoint),
       })
       outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
       if (!outputImageUrl) throw new Error('生成に失敗しました')
@@ -205,8 +256,11 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
   const resolution = (nodeData.params?.resolution as string) ?? '1K'
   const recraftImageSize = (nodeData.params?.recraftImageSize as string) ?? 'square'
+  const gptImageSize = (nodeData.params?.gptImageSize as string) ?? 'square_hd'
   const count = Math.max(1, Math.min(10, (nodeData.params?.count as number) ?? 1))
   const isRecraftModel = RECRAFT_MODELS.has(model)
+  const isGptImage2Model = GPT_IMAGE_2_MODELS.has(model)
+  const editIsGptImage2 = GPT_IMAGE_2_MODELS.has(editModel)
   const errorMsg = nodeData.params?.error as string | undefined
   const isGenerating = nodeData.status === 'generating'
 
@@ -727,7 +781,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 : { background: 'rgba(34,197,94,0.15)', color: '#22C55E' }
               }
             >
-              {!hasImages ? 'T2I' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
+              {!hasImages ? 'T2I' : editIsGptImage2 ? 'GPT2 Edit' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
             </span>
           </div>
 
@@ -792,7 +846,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                   }}
                   disabled={isGenerating}
                 >
-                  {NB_EDIT_MODELS.map((m) => (
+                  {EDIT_MODELS.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
@@ -829,13 +883,30 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             </>
           )}
 
-          {/* Aspect Ratio: Recraftは image_size セレクト、NB系はモデル別比率セレクト */}
+          {/* Aspect Ratio / Size: モデルによって切り替え */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">
+                {(isGptImage2Model && !hasImages) || (hasImages && editIsGptImage2) ? 'Size' : 'Aspect Ratio'}
+              </label>
               <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
             </div>
-            {!hasImages && isRecraftModel ? (
+            {(isGptImage2Model && !hasImages) || (hasImages && editIsGptImage2) ? (
+              <div className="relative">
+                <select
+                  className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+                  style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                  value={gptImageSize}
+                  onChange={(e) => updateNode(id, { params: { ...nodeData.params, gptImageSize: e.target.value } })}
+                  disabled={isGenerating}
+                >
+                  {(hasImages && editIsGptImage2 ? GPT_IMAGE_2_EDIT_SIZES : GPT_IMAGE_2_SIZES).map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+              </div>
+            ) : !hasImages && isRecraftModel ? (
               <div className="relative">
                 <select
                   className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
