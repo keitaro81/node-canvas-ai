@@ -13,6 +13,7 @@ import { saveGeneration, updateGeneration, checkQuota } from '../../lib/api/gene
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl } from '../../lib/api/storage'
 import { showToast } from '../../hooks/useToast'
+import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Record<string, unknown>) =>
@@ -178,6 +179,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       activeDisplayNodeId: displayIds[0],
     })
 
+    const workflowId = useWorkflowStore.getState().currentWorkflowId
+
     const baseRequest: VideoGenerationRequest = {
       prompt,
       model: modelForMode?.id ?? nodeData.model,
@@ -233,7 +236,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             ...(mode === 'image-to-video' ? { imageUrl: connectedImageUrl } : {}),
           }
           // History とサムネイルを即座に保存（アップロード失敗やページ離脱でも確実に記録される）
-          if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl)
+          if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, result.videoUrl)
           const generationId = await saveGeneration({
             nodeId: id,
             nodeType: 'video-generation',
@@ -246,8 +249,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           // Storage アップロード後にノード・サムネ・History を Supabase 永続 URL に差し替え
           uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
             upd(updateNode, displayId, { videoUrl: storedUrl })
-            if (i === 0) useWorkflowStore.getState().updateThumbnail(storedUrl)
+            if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, storedUrl)
             if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch(() => {})
+            patchWorkflowNodeOutput(workflowId!, displayId, { videoUrl: storedUrl }).catch(() => {})
           }).catch(() => {
             showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
           })
@@ -324,6 +328,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       initEndpoint
     ) {
       isRecoveringRef.current = true
+      const recoveryWorkflowId = useWorkflowStore.getState().currentWorkflowId
 
       // activeDisplayNodeId から DisplayNode を特定。なければ接続エッジから検索
       const displayId = initDisplayId ?? (() => {
@@ -370,7 +375,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             }).catch(() => {
               showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
             })
-            useWorkflowStore.getState().updateThumbnail(result.videoUrl)
+            useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId!, result.videoUrl)
           } else {
             if (displayId) upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
             upd(updateNode, id, {

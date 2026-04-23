@@ -45,7 +45,7 @@ interface WorkflowState {
   markUnsavedChanges(): void
   initializeDefaultProject(): Promise<string>
   togglePublic(): Promise<void>
-  updateThumbnail(url: string): Promise<void>
+  updateThumbnail(workflowId: string, url: string): Promise<void>
   cloneWorkflow(sourceId?: string): Promise<string>  // クローンして新しいworkflowIdを返す
 }
 
@@ -229,14 +229,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     return cloned.id
   },
 
-  async updateThumbnail(url: string): Promise<void> {
-    const { currentWorkflowId } = get()
-    if (!currentWorkflowId) return
+  async updateThumbnail(workflowId: string, url: string): Promise<void> {
+    if (!workflowId) return
     try {
-      await updateWorkflowThumbnail(currentWorkflowId, url)
+      await updateWorkflowThumbnail(workflowId, url)
       set((state) => ({
         workflows: state.workflows.map((w) =>
-          w.id === currentWorkflowId ? { ...w, thumbnail_url: url } : w
+          w.id === workflowId ? { ...w, thumbnail_url: url } : w
         ),
       }))
     } catch {
