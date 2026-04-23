@@ -81,6 +81,34 @@ export async function updateWorkflowThumbnail(id: string, thumbnailUrl: string):
   if (error) throw error
 }
 
+/**
+ * canvas_data 内の特定ノードの data フィールドを直接 DB に書き込む。
+ * 生成が完了した時点でユーザーが別プロジェクトに移動していても、
+ * 生成開始時に捕捉した workflowId を使って正しいワークフローを更新できる。
+ * fire-and-forget 用途を想定（呼び出し側で catch すること）。
+ */
+export async function patchWorkflowNodeOutput(
+  workflowId: string,
+  nodeId: string,
+  dataUpdate: Record<string, unknown>
+): Promise<void> {
+  const workflow = await getWorkflow(workflowId)
+  const canvasData = workflow.canvas_data as {
+    nodes: Array<{ id: string; data: Record<string, unknown> }>
+  } | null
+  if (!canvasData?.nodes) return
+
+  const nodes = canvasData.nodes.map((n) =>
+    n.id === nodeId ? { ...n, data: { ...n.data, ...dataUpdate } } : n
+  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const table = supabase.from('workflows') as any
+  const { error } = await table
+    .update({ canvas_data: { ...canvasData, nodes }, updated_at: new Date().toISOString() })
+    .eq('id', workflowId)
+  if (error) throw error
+}
+
 export async function toggleWorkflowPublic(id: string, isPublic: boolean): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = supabase.from('workflows') as any

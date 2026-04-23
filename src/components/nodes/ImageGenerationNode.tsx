@@ -9,6 +9,7 @@ import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadImageFromUrl } from '../../lib/api/storage'
+import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 
 function getImageUrlFromNode(node: AppNode): string | null {
@@ -93,6 +94,13 @@ function refHandleTop(i: number): number {
 
 
 /**
+ * 同一セッション内で通常フローとリカバリーフローが競合した場合に
+ * 同じ displayNode の history 登録が二重になるのを防ぐ。
+ * （ユーザーが生成中に別ページへ遷移して戻ると両フローが走ることがある）
+ */
+const completedGenerationNodeIds = new Set<string>()
+
+/**
  * DisplayNode 1件分の生成処理。
  * GenNode の status は呼び出し元（handleGenerate）が管理する。
  */
@@ -113,6 +121,7 @@ async function runGeneration(
   const isRecraftModel = RECRAFT_MODELS.has(model)
 
   updateNode(displayNodeId, { status: 'generating', output: undefined, params: {} })
+  const workflowId = useWorkflowStore.getState().currentWorkflowId
 
   try {
     let outputImageUrl: string | undefined
@@ -202,29 +211,24 @@ async function runGeneration(
     // Storage保存後にStorageURLでgenerationsとthumbnailを更新（fire-and-forget）
     uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
       updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
-      saveGeneration({
-        nodeId: displayNodeId,
-        nodeType: 'image-generation',
-        provider: 'fal',
-        model: usedModel,
-        status: 'completed',
-        outputUrl: storedUrl,
-        inputParams: { prompt, model: usedModel },
-      })
-      useWorkflowStore.getState().updateThumbnail(storedUrl)
+      if (!completedGenerationNodeIds.has(displayNodeId)) {
+        completedGenerationNodeIds.add(displayNodeId)
+        saveGeneration({
+          nodeId: displayNodeId,
+          nodeType: 'image-generation',
+          provider: 'fal',
+          model: usedModel,
+          status: 'completed',
+          outputUrl: storedUrl,
+          inputParams: { prompt, model: usedModel },
+        })
+        useWorkflowStore.getState().updateThumbnail(workflowId!, storedUrl)
+      }
+      patchWorkflowNodeOutput(workflowId!, displayNodeId, { output: storedUrl }).catch(() => {})
     }).catch((uploadErr: unknown) => {
       console.error('[ImageGen] uploadImageFromUrl failed:', uploadErr)
-      // 保存失敗時はfal.ai URLのままgenerationsとthumbnailを保存
-      saveGeneration({
-        nodeId: displayNodeId,
-        nodeType: 'image-generation',
-        provider: 'fal',
-        model: usedModel,
-        status: 'completed',
-        outputUrl: outputImageUrl!,
-        inputParams: { prompt, model: usedModel },
-      })
-      useWorkflowStore.getState().updateThumbnail(outputImageUrl!)
+      // canvas_data は saveCurrentWorkflow() で fal URL のまま保存済み。
+      // 一時 URL を generations や thumbnail_url に書き込まない（期限切れ URL の混入を防ぐ）
     })
   } catch (err) {
     updateNode(displayNodeId, {
@@ -640,6 +644,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { status: 'generating', params: { ...nodeData.params, error: undefined } })
 
     ;(async () => {
+      const recoveryWorkflowId = useWorkflowStore.getState().currentWorkflowId
       for (const { displayId, requestId, requestEndpoint } of recoverables) {
         try {
           await fal.queue.subscribeToStatus(requestEndpoint, {
@@ -652,11 +657,16 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           const outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
           if (!outputImageUrl) throw new Error('生成に失敗しました')
           updateNode(displayId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
-          saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: outputImageUrl, inputParams: {} })
-          useWorkflowStore.getState().updateThumbnail(outputImageUrl)
-          // fal.ai の一時URLをSupabase Storageに永続保存（fire-and-forget）
+          // Supabase Storage に永続保存してから history/thumbnail を更新（fal URL の混入を防ぐ）
+          // completedGenerationNodeIds で通常フローとの二重登録も防止
           uploadImageFromUrl(outputImageUrl, displayId).then((storedUrl) => {
             updateNode(displayId, { output: storedUrl } as Partial<NodeData>)
+            if (!completedGenerationNodeIds.has(displayId)) {
+              completedGenerationNodeIds.add(displayId)
+              saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: storedUrl, inputParams: {} })
+              useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId!, storedUrl)
+            }
+            patchWorkflowNodeOutput(recoveryWorkflowId!, displayId, { output: storedUrl }).catch(() => {})
           }).catch(() => {})
         } catch (err) {
           updateNode(displayId, { status: 'error', params: { error: (err as Error).message }, requestId: null, requestEndpoint: null } as Partial<NodeData>)
