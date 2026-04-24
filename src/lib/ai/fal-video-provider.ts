@@ -26,7 +26,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: ['audio'],
     paramStyle: 'ltx',
-    supportedModes: ['text-to-video', 'image-to-video'],
+    supportedModes: ['text-to-video'],
     supportedFps: [24, 25, 48, 50],
   },
   {
@@ -42,7 +42,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: ['audio', '4k'],
     paramStyle: 'ltx',
-    supportedModes: ['text-to-video', 'image-to-video'],
+    supportedModes: ['text-to-video'],
     supportedFps: [24, 25, 48, 50],
   },
   {
@@ -59,6 +59,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     features: [],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
+    endImageParam: 'tail_image_url',
   },
   {
     id: 'kling-v3-standard',
@@ -74,6 +75,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     features: ['audio'],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
+    endImageParam: 'end_image_url',
   },
   {
     id: 'kling-v3-pro',
@@ -89,6 +91,21 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     features: ['audio'],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
+    endImageParam: 'end_image_url',
+  },
+  {
+    id: 'kling-o3-pro-i2v',
+    name: 'Kling o3 Pro',
+    endpoint: 'fal-ai/kling-video/o3/pro/image-to-video',
+    pricePerSecond: 0.1,
+    maxDuration: '15',
+    supportedDurations: KLING_V3_DURATIONS,
+    supportedResolutions: [],
+    supportedAspectRatios: [],
+    features: ['audio'],
+    paramStyle: 'kling-o3-i2v',
+    supportedModes: ['image-to-video'],
+    endImageParam: 'end_image_url',
   },
   {
     id: 'seedance-2.0-fast',
@@ -105,7 +122,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
   },
   {
     id: 'seedance-2.0-i2v',
-    name: 'Seedance 2.0 I2V',
+    name: 'Seedance 2.0',
     endpoint: 'bytedance/seedance-2.0/image-to-video',
     pricePerSecond: 0.05,
     maxDuration: '15',
@@ -115,6 +132,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     features: ['audio'],
     paramStyle: 'seedance',
     supportedModes: ['image-to-video'],
+    endImageParam: 'end_image_url',
   },
   {
     id: 'seedance-2.0-r2v',
@@ -196,6 +214,18 @@ async function buildInput(
     aspectRatio = request.aspectRatio
   }
 
+  if (modelDef.paramStyle === 'kling-o3-i2v') {
+    const input: Record<string, unknown> = {
+      prompt: request.prompt,
+      duration: safeDuration,
+    }
+    if (request.imageUrl) input.image_url = request.imageUrl
+    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
+    if (request.seed != null) input.seed = request.seed
+    if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
+    return input
+  }
+
   if (modelDef.paramStyle === 'kling-v2v') {
     const input: Record<string, unknown> = {
       prompt: request.prompt,
@@ -215,6 +245,7 @@ async function buildInput(
     }
     if (aspectRatio) input.aspect_ratio = aspectRatio
     if (request.imageUrl) input.image_url = request.imageUrl
+    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
     if (request.seed != null) input.seed = request.seed
     if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
     return input
@@ -229,6 +260,7 @@ async function buildInput(
       aspect_ratio: aspectRatio,
     }
     if (request.imageUrl) input.image_url = request.imageUrl
+    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
     if (request.seed != null) input.seed = request.seed
     return input
   }
