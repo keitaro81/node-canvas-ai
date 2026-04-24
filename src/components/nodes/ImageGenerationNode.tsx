@@ -130,7 +130,6 @@ async function runGeneration(
     if (imageUrls.length === 0 && GPT_IMAGE_2_MODELS.has(model)) {
       usedModel = model
       const rawSize = (params.gptImageSize as string) ?? ''
-      // T2I は 'auto' 非対応のため square_hd にフォールバック
       const gptImageSize = (!rawSize || rawSize === 'auto') ? 'square_hd' : rawSize
       const input: Record<string, unknown> = { prompt, image_size: gptImageSize }
       const result = await fal.subscribe(model, {

@@ -19,6 +19,13 @@ import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Record<string, unknown>) =>
   updateNode(id, patch)
 
+function isNetworkTimeout(message: string): boolean {
+  const lower = message.toLowerCase()
+  return lower.includes('timeout') || lower.includes('timed_out') || lower.includes('timed out') ||
+    lower.includes('failed to fetch') || lower.includes('network request failed') ||
+    lower.includes('err_timed_out') || lower.includes('econnreset')
+}
+
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
 const v2vModels = allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
 const nonV2vModels = allVideoModels.filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
@@ -45,6 +52,15 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const hasConnectedImageNode = rfEdges.some((e) => e.target === id && e.targetHandle === 'in-image')
 
+  // 接続されている終了フレーム画像URLをリアクティブに取得
+  const connectedEndImageUrl = (() => {
+    const endImageEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-image-end')
+    if (!endImageEdge) return null
+    const sourceNode = rfNodes.find((n) => n.id === endImageEdge.source)
+    if (!sourceNode) return null
+    return getImageUrlFromNodeData(sourceNode.data)
+  })()
+
   // 接続されている参照動画URLをリアクティブに取得
   const connectedVideoUrl = (() => {
     const videoEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-video')
@@ -69,6 +85,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     if (found) return found
     return availableModels[0]
   })()
+
+  const supportsEndImage = !!currentModel?.endImageParam
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -193,6 +211,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       mode,
       ...(mode === 'video-to-video' && connectedVideoUrl ? { videoUrl: connectedVideoUrl, ...(connectedImageUrl ? { imageUrl: connectedImageUrl } : {}) } : {}),
       ...(mode === 'image-to-video' && connectedImageUrl ? { imageUrl: connectedImageUrl } : {}),
+      ...(supportsEndImage && connectedEndImageUrl ? { endImageUrl: connectedEndImageUrl } : {}),
     }
 
     // count 分を並列生成
@@ -256,39 +275,51 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
           })
         } else {
-          upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
+          const errMsg = result.error || '生成に失敗しました'
+          if (isNetworkTimeout(errMsg)) {
+            showToast('接続が切れました。リロードすると復元できます。', 'warning')
+          } else {
+            upd(updateNode, displayId, { status: 'failed', progress: '', error: errMsg })
+            saveGeneration({
+              nodeId: id,
+              nodeType: 'video-generation',
+              provider: 'fal',
+              model: modelForMode?.id ?? nodeData.model,
+              status: 'failed',
+              errorMessage: errMsg,
+              inputParams: { prompt, model: modelForMode?.id ?? nodeData.model, mode },
+            })
+          }
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : '予期しないエラー'
+        if (isNetworkTimeout(errorMessage)) {
+          showToast('接続が切れました。リロードすると復元できます。', 'warning')
+        } else {
+          upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
           saveGeneration({
             nodeId: id,
             nodeType: 'video-generation',
             provider: 'fal',
-            model: modelForMode?.id ?? nodeData.model,
+            model: currentModel?.id ?? nodeData.model,
             status: 'failed',
-            errorMessage: result.error || '生成に失敗しました',
-            inputParams: { prompt, model: modelForMode?.id ?? nodeData.model, mode },
+            errorMessage,
+            inputParams: { prompt, model: currentModel?.id ?? nodeData.model, mode },
           })
         }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : '予期しないエラー'
-        upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
-        saveGeneration({
-          nodeId: id,
-          nodeType: 'video-generation',
-          provider: 'fal',
-          model: currentModel?.id ?? nodeData.model,
-          status: 'failed',
-          errorMessage,
-          inputParams: { prompt, model: currentModel?.id ?? nodeData.model, mode },
-        })
       }
     }))
 
+    const { nodes: latestNodes } = useCanvasStore.getState()
+    const latestGenNode = latestNodes.find((n) => n.id === id)
+    const latestData = latestGenNode?.data as unknown as VideoGenerationNodeData | undefined
+    const timedOut = latestData?.status === 'queued' || latestData?.status === 'processing'
     upd(updateNode, id, {
       status: 'idle',
       progress: '',
       error: null,
-      requestId: null,
-      requestEndpoint: null,
-      activeDisplayNodeId: null,
+      // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
+      ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
   }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, hasConnectedImageNode, getConnectedPrompt, updateNode])
 
@@ -439,7 +470,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         type="target"
         position={Position.Left}
         style={{
-          top: '30%',
+          top: '28%',
           width: 20,
           height: 20,
           background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -448,13 +479,13 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         }}
       />
 
-      {/* Image input handle */}
+      {/* Start Image input handle */}
       <Handle
         id="in-image"
         type="target"
         position={Position.Left}
         style={{
-          top: '55%',
+          top: supportsEndImage ? '48%' : '55%',
           width: 20,
           height: 20,
           background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -463,13 +494,30 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         }}
       />
 
+      {/* End Image input handle（補完モード対応モデルのみ） */}
+      {supportsEndImage && (
+        <Handle
+          id="in-image-end"
+          type="target"
+          position={Position.Left}
+          style={{
+            top: '63%',
+            width: 20,
+            height: 20,
+            background: 'radial-gradient(circle, #A78BFA 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+            border: 'none',
+            borderRadius: 0,
+          }}
+        />
+      )}
+
       {/* Video input handle */}
       <Handle
         id="in-video"
         type="target"
         position={Position.Left}
         style={{
-          top: '75%',
+          top: supportsEndImage ? '78%' : '75%',
           width: 20,
           height: 20,
           background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -491,7 +539,16 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             参照動画あり → Video to Video
           </div>
         )}
-        {!connectedVideoUrl && hasConnectedImageNode && (
+        {!connectedVideoUrl && hasConnectedImageNode && connectedEndImageUrl && (
+          <div
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
+            style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#A78BFA' }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-[#A78BFA]" />
+            補完モード（Start → End）
+          </div>
+        )}
+        {!connectedVideoUrl && hasConnectedImageNode && !connectedEndImageUrl && (
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
             style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', color: '#8B5CF6' }}
