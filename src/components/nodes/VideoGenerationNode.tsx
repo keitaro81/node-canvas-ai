@@ -269,10 +269,16 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
             upd(updateNode, displayId, { videoUrl: storedUrl })
             if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, storedUrl)
-            if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch(() => {})
+            if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch((e) => {
+              console.warn('[VideoGen] updateGeneration failed:', e)
+            })
             patchWorkflowNodeOutput(workflowId!, displayId, { videoUrl: storedUrl }).catch(() => {})
           }).catch(() => {
             showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
+            // アップロード失敗時は output_url を null にして History に壊れたURLが残らないようにする
+            if (generationId) updateGeneration(generationId, { output_url: null }).catch((e) => {
+              console.warn('[VideoGen] updateGeneration (clear) failed:', e)
+            })
           })
         } else {
           const errMsg = result.error || '生成に失敗しました'
