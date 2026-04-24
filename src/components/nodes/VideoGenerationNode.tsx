@@ -409,10 +409,18 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             })
             uploadVideoFromUrl(result.videoUrl, displayId ?? id).then((storedUrl) => {
               if (displayId) upd(updateNode, displayId, { videoUrl: storedUrl })
+              if (recoveryWorkflowId) useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId, storedUrl)
+              saveGeneration({
+                nodeId: id,
+                nodeType: 'video-generation',
+                provider: 'fal',
+                model: snap?.model,
+                status: 'completed',
+                outputUrl: storedUrl,
+              })
             }).catch(() => {
               showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
             })
-            useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId!, result.videoUrl)
           } else {
             if (displayId) upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
             upd(updateNode, id, {
