@@ -118,6 +118,8 @@ export interface ReferenceImageNodeData {
   label: string
   imageUrl: string | null
   uploadedImagePreview: string | null
+  maskUrl?: string | null
+  maskPreviewDataUrl?: string | null
 }
 
 export interface ReferenceVideoNodeData {
