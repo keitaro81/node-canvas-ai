@@ -3,8 +3,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { ImageIcon, X, Loader2 } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { fal } from '../../lib/ai/fal-client'
-import type { ReferenceImageNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
-import { CapsuleFieldToggle } from './CapsuleFieldToggle'
+import type { ReferenceImageNodeData } from '../../types/nodes'
 
 function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ReferenceImageNodeData
@@ -92,18 +91,6 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
   }, [id, updateNode])
 
-  const capsuleFields = ((data as unknown as NodeData).capsuleFields ?? {}) as Record<string, CapsuleFieldDef>
-  function getCapsuleVisibility(fieldId: string): CapsuleVisibility {
-    return capsuleFields[fieldId]?.capsuleVisibility ?? 'visible'
-  }
-  function handleCapsuleChange(fieldId: string, visibility: CapsuleVisibility) {
-    const updated: Record<string, CapsuleFieldDef> = {
-      ...capsuleFields,
-      [fieldId]: { id: fieldId, capsuleVisibility: visibility },
-    }
-    updateNode(id, { capsuleFields: updated } as Parameters<typeof updateNode>[1])
-  }
-
   return (
     <div
       className={[
@@ -119,11 +106,14 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
         <div className="w-0.5 h-4 rounded-full shrink-0" style={{ background: '#8B5CF6' }} />
         <ImageIcon size={14} className="shrink-0" style={{ color: '#8B5CF6' }} />
         <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
-        <CapsuleFieldToggle
-          fieldId="imageUrl"
-          visibility={getCapsuleVisibility('imageUrl')}
-          onChange={handleCapsuleChange}
-        />
+        <button
+          className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag"
+          style={{ color: 'var(--text-tertiary)' }}
+          onClick={() => useCanvasStore.getState().removeNode(id)}
+          title="削除"
+        >
+          <X size={12} />
+        </button>
       </div>
 
       {/* Body */}

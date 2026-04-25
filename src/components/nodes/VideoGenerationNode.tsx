@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
-import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus } from 'lucide-react'
+import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus, X } from 'lucide-react'
 import type { Edge } from '@xyflow/react'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -476,6 +476,14 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
         <Film size={14} className="shrink-0" style={{ color: '#EC4899' }} />
         <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
+        <button
+          className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag"
+          style={{ color: 'var(--text-tertiary)' }}
+          onClick={() => useCanvasStore.getState().removeNode(id)}
+          title="削除"
+        >
+          <X size={12} />
+        </button>
       </div>
 
       {/* Text input handle */}
@@ -672,8 +680,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* Aspect Ratio — 画像参照接続時は非表示（モデルが画像サイズを優先するため） */}
-        {currentModel && !hasConnectedImageNode && (
+        {/* Aspect Ratio — モデルが aspect_ratio をサポートする場合のみ表示 */}
+        {currentModel && currentModel.supportedAspectRatios.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
@@ -686,10 +694,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
               disabled={isGenerating}
             >
-              {(hasConnectedImageNode && currentModel.i2vSupportedAspectRatios
-                ? currentModel.i2vSupportedAspectRatios
-                : currentModel.supportedAspectRatios
-              ).map((ar) => (
+              {currentModel.supportedAspectRatios.map((ar) => (
                 <option key={ar} value={ar}>{ar}</option>
               ))}
             </select>
