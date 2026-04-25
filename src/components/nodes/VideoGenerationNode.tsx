@@ -19,6 +19,16 @@ import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Record<string, unknown>) =>
   updateNode(id, patch)
 
+function isContentPolicyError(error: unknown): boolean {
+  if (error instanceof Error) {
+    if ((error as { status?: number }).status === 422) return true
+    const lower = error.message.toLowerCase()
+    if (lower.includes('content_policy_violation') || lower.includes('likenesses of real people') ||
+        lower.includes('private information') || lower.includes('unprocessable')) return true
+  }
+  return false
+}
+
 function isNetworkTimeout(message: string): boolean {
   const lower = message.toLowerCase()
   return lower.includes('timeout') || lower.includes('timed_out') || lower.includes('timed out') ||
@@ -284,6 +294,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           const errMsg = result.error || '生成に失敗しました'
           if (isNetworkTimeout(errMsg)) {
             showToast('接続が切れました。リロードすると復元できます。', 'warning')
+          } else if (isContentPolicyError(new Error(errMsg))) {
+            const policyMsg = '入力内容がモデルのポリシーに違反しているため生成できませんでした'
+            showToast(policyMsg, 'error')
+            upd(updateNode, displayId, { status: 'failed', progress: '', error: policyMsg })
           } else {
             upd(updateNode, displayId, { status: 'failed', progress: '', error: errMsg })
             saveGeneration({
@@ -301,6 +315,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         const errorMessage = error instanceof Error ? error.message : '予期しないエラー'
         if (isNetworkTimeout(errorMessage)) {
           showToast('接続が切れました。リロードすると復元できます。', 'warning')
+        } else if (isContentPolicyError(error)) {
+          showToast('入力内容がモデルのポリシーに違反しているため生成できませんでした', 'error')
+          upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
         } else {
           upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
           saveGeneration({
