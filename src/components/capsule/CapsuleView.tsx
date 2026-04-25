@@ -664,12 +664,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   // VideoGenerationNode: アスペクト比セレクト
   if (field.id === 'aspectRatio' && isVideoGenNode) {
     const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
-    const hasConnectedImage = useCanvasStore.getState().edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
-    const ratios = (
-      hasConnectedImage && currentVideoModel?.i2vSupportedAspectRatios
-        ? currentVideoModel.i2vSupportedAspectRatios
-        : currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
-    ) as string[]
+    const ratios = (currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']) as string[]
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
