@@ -364,10 +364,11 @@ export class FalVideoProvider implements VideoProvider {
         },
       };
     } catch (error) {
+      const is422 = (error as { status?: number }).status === 422
       return {
         id: String(Date.now()),
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Video generation failed',
+        error: is422 ? 'content_policy_violation' : (error instanceof Error ? error.message || 'Video generation failed' : 'Video generation failed'),
       };
     }
   }
