@@ -70,7 +70,6 @@ export interface VideoModelDefinition {
   supportedDurations: string[];    // 選択可能な秒数リスト
   supportedResolutions: VideoResolution[];
   supportedAspectRatios: VideoAspectRatio[];
-  i2vSupportedAspectRatios?: VideoAspectRatio[]; // i2v時のアスペクト比（省略時はsupportedAspectRatiosを使用）
   features: string[];              // 例: ['audio', '4k']
   paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'kling-o3-i2v' | 'seedance' | 'seedance-r2v';    // API パラメータの組み立て方式
   supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];

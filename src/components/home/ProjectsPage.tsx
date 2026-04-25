@@ -8,7 +8,7 @@ import type { WorkflowRow } from '../../lib/api/workflows'
 
 export function ProjectsPage() {
   const navigate = useNavigate()
-  const { workflows, loadWorkflows, createNewWorkflow, deleteWorkflow, renameWorkflow } = useWorkflowStore()
+  const { workflows, loadWorkflows, createNewWorkflow, deleteWorkflow, renameWorkflow, cloneWorkflow } = useWorkflowStore()
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [thumbnailMap, setThumbnailMap] = useState<Record<string, string>>({})
@@ -31,6 +31,11 @@ export function ProjectsPage() {
 
   function effectiveThumbnail(w: WorkflowRow): string | null {
     return (w as { thumbnail_url?: string | null }).thumbnail_url ?? thumbnailMap[w.id] ?? null
+  }
+
+  async function handleClone(id: string) {
+    const newId = await cloneWorkflow(id)
+    navigate(`/canvas/${newId}`)
   }
 
   async function handleNew() {
@@ -107,6 +112,7 @@ export function ProjectsPage() {
                 thumbnailOverride={effectiveThumbnail(w)}
                 onDelete={deleteWorkflow}
                 onRename={renameWorkflow}
+                onClone={handleClone}
               />
             ))}
           </div>

@@ -55,27 +55,10 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     supportedDurations: ['5', '10'],
     supportedResolutions: [],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: [],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
     endImageParam: 'tail_image_url',
-  },
-  {
-    id: 'kling-v3-standard',
-    name: 'Kling v3 Standard',
-    endpoint: 'fal-ai/kling-video/v3/standard/text-to-video',
-    i2vEndpoint: 'fal-ai/kling-video/v3/standard/image-to-video',
-    pricePerSecond: 0.07,
-    maxDuration: '15',
-    supportedDurations: KLING_V3_DURATIONS,
-    supportedResolutions: [],
-    supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
-    features: ['audio'],
-    paramStyle: 'kling',
-    supportedModes: ['text-to-video', 'image-to-video'],
-    endImageParam: 'end_image_url',
   },
   {
     id: 'kling-v3-pro',
@@ -87,7 +70,6 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    i2vSupportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
     features: ['audio'],
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
@@ -101,7 +83,7 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     maxDuration: '15',
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
-    supportedAspectRatios: [],
+    supportedAspectRatios: ['16:9', '9:16', '1:1'],
     features: ['audio'],
     paramStyle: 'kling-o3-i2v',
     supportedModes: ['image-to-video'],
@@ -219,6 +201,7 @@ async function buildInput(
       prompt: request.prompt,
       duration: safeDuration,
     }
+    if (aspectRatio) input.aspect_ratio = aspectRatio
     if (request.imageUrl) input.image_url = request.imageUrl
     if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
     if (request.seed != null) input.seed = request.seed
