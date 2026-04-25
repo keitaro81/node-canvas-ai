@@ -10,7 +10,7 @@ import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadImageFromUrl } from '../../lib/api/storage'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
-import { getImageUrlFromNodeData } from '../../lib/utils'
+import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
 
 function getImageUrlFromNode(node: AppNode): string | null {
   return getImageUrlFromNodeData(node.data)
@@ -32,6 +32,11 @@ const NB_EDIT_MODELS = [
 const EDIT_MODELS = [
   ...NB_EDIT_MODELS,
   { value: 'openai/gpt-image-2',     label: 'GPT-Image-2' },
+]
+
+// インペインティング対応モデル（マスクあり時のみ表示）
+const INPAINT_MODELS = [
+  { value: 'openai/gpt-image-2', label: 'GPT-Image-2' },
 ]
 
 const GPT_IMAGE_2_MODELS = new Set(['openai/gpt-image-2'])
@@ -110,10 +115,14 @@ async function runGeneration(
   imageUrls: string[],
   params: Record<string, unknown>,
   updateNode: (id: string, data: Partial<NodeData>) => void,
-  onRequestId?: (requestId: string, endpoint: string) => void
+  onRequestId?: (requestId: string, endpoint: string) => void,
+  maskUrl?: string | null
 ) {
   const model = (params.model as string) ?? 'fal-ai/nano-banana-2'
-  const editModel = (params.editModel as string) ?? 'fal-ai/nano-banana-2'
+  // maskUrl がある場合は GPT-image-2 が必須（mask_url パラメーターに対応するのはこのモデルのみ）
+  const editModel = maskUrl
+    ? 'openai/gpt-image-2'
+    : (params.editModel as string) ?? 'fal-ai/nano-banana-2'
   const aspectRatio = (params.aspectRatio as string) ?? '1:1'
   const resolution = (params.resolution as string) ?? '1K'
   const seed = (params.seed as string) ?? ''
@@ -161,12 +170,13 @@ async function runGeneration(
     } else if (GPT_IMAGE_2_MODELS.has(editModel)) {
       const editEndpoint = 'openai/gpt-image-2/edit'
       usedModel = editEndpoint
-      const gptEditSize = (params.gptImageSize as string) ?? 'auto'
+      const gptEditSize = (params.gptImageSize as string) || 'square_hd'
       const input: Record<string, unknown> = {
         prompt,
         image_urls: imageUrls,
         image_size: gptEditSize,
       }
+      if (maskUrl) input.mask_url = maskUrl
       const result = await fal.subscribe(editEndpoint, {
         input, logs: false,
         onEnqueue: (requestId: string) => onRequestId?.(requestId, editEndpoint),
@@ -263,7 +273,23 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const count = Math.max(1, Math.min(10, (nodeData.params?.count as number) ?? 1))
   const isRecraftModel = RECRAFT_MODELS.has(model)
   const isGptImage2Model = GPT_IMAGE_2_MODELS.has(model)
-  const editIsGptImage2 = GPT_IMAGE_2_MODELS.has(editModel)
+  // hasMask は後で計算するが、UI描画では editModel を GPT-image-2 に強制する必要があるため
+  // ここでは params から直接マスク有無を先読みして effectiveEditModel を決定する
+  const _hasMaskEarly = (() => {
+    const imgEdges = storeEdges.filter(
+      (e) =>
+        e.target === id &&
+        ((REF_HANDLE_IDS as readonly string[]).includes(e.targetHandle ?? '') ||
+          e.targetHandle === 'in-image-1' ||
+          e.targetHandle === 'in-image-reference')
+    )
+    return imgEdges.some((e) => {
+      const n = storeNodes.find((node) => node.id === e.source)
+      return n ? !!getMaskUrlFromNodeData(n.data) : false
+    })
+  })()
+  const effectiveEditModel = _hasMaskEarly ? 'openai/gpt-image-2' : editModel
+  const editIsGptImage2 = GPT_IMAGE_2_MODELS.has(effectiveEditModel)
   const errorMsg = nodeData.params?.error as string | undefined
   const isGenerating = nodeData.status === 'generating'
 
@@ -357,6 +383,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   // 画像接続あり（ListNode 画像モード含む）= Edit mode、テキストモード・なし = T2I
   const hasImages = imageEdges.length > 0 || (isListMode && listNodeMode === 'image')
+
+  // 接続中の参照画像ノードにマスクがあるか
+  const hasMask = imageEdges.some((e) => {
+    const n = storeNodes.find((node) => node.id === e.source)
+    return n ? !!getMaskUrlFromNodeData(n.data) : false
+  })
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -594,6 +626,25 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       params: { ...nodeData.params, error: undefined },
     })
 
+    // 接続中の参照画像ノードからマスクURLを取得（最初に見つかったもの）
+    const connectedMaskUrl = (() => {
+      for (const hid of REF_HANDLE_IDS as readonly string[]) {
+        const edge = allEdges.find(
+          (e) =>
+            e.target === id &&
+            (e.targetHandle === hid ||
+              (hid === 'in-image' &&
+                (e.targetHandle === 'in-image-1' || e.targetHandle === 'in-image-reference')))
+        )
+        if (!edge) continue
+        const n = allNodes.find((n) => n.id === edge.source)
+        if (!n) continue
+        const mask = getMaskUrlFromNodeData(n.data)
+        if (mask) return mask
+      }
+      return null
+    })()
+
     // 全 DisplayNode を並列生成
     // 全 requestId が揃ってから1回だけ保存（並列 onEnqueue の競合を防ぐ）
     let receivedRequestIds = 0
@@ -611,7 +662,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             useWorkflowStore.getState().saveCurrentWorkflow()
           }
         }
-        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode, onRequestId)
+        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode, onRequestId, connectedMaskUrl)
       })
     )
 
@@ -787,10 +838,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               className="text-[10px] rounded-full px-1.5 py-0.5 font-medium"
               style={!hasImages
                 ? { background: 'rgba(99,102,241,0.15)', color: '#6366F1' }
+                : hasMask
+                ? { background: 'rgba(34,197,94,0.15)', color: '#22C55E' }
                 : { background: 'rgba(34,197,94,0.15)', color: '#22C55E' }
               }
             >
-              {!hasImages ? 'T2I' : editIsGptImage2 ? 'GPT2 Edit' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
+              {!hasImages ? 'T2I' : hasMask ? 'Inpaint' : editIsGptImage2 ? 'GPT2 Edit' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
             </span>
           </div>
 
@@ -823,9 +876,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                       <span style={{ color: 'var(--border-active)', fontSize: 16 }}>·</span>
                     )}
                   </div>
-                  <span className="text-[11px]" style={{ color: imgUrl ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                  <span className="flex-1 text-[11px]" style={{ color: imgUrl ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
                     参照 {i + 1}
                   </span>
+                  {imgUrl && srcNode && getMaskUrlFromNodeData(srcNode.data) && (
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#22C55E' }} title="マスクあり" />
+                  )}
                 </div>
               )
             })}
@@ -842,7 +898,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <select
                   className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
                   style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-                  value={editModel}
+                  value={effectiveEditModel}
                   onChange={(e) => {
                     const newEditModel = e.target.value
                     const currentRes = nodeData.params?.resolution as string ?? '1K'
@@ -855,7 +911,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                   }}
                   disabled={isGenerating}
                 >
-                  {EDIT_MODELS.map((m) => (
+                  {(hasMask ? INPAINT_MODELS : EDIT_MODELS).map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
@@ -939,7 +995,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                   onChange={(e) => updateNode(id, { params: { ...nodeData.params, aspectRatio: e.target.value } })}
                   disabled={isGenerating}
                 >
-                  {(NB_ASPECT_RATIOS[hasImages ? editModel : model] ?? NB_ASPECT_RATIOS_DEFAULT).map((ratio) => (
+                  {(NB_ASPECT_RATIOS[hasImages ? effectiveEditModel : model] ?? NB_ASPECT_RATIOS_DEFAULT).map((ratio) => (
                     <option key={ratio} value={ratio}>{ratio}</option>
                   ))}
                 </select>
@@ -950,7 +1006,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
           {/* Resolution: NB系モデルのみ */}
           {(() => {
-            const activeModel = hasImages ? editModel : model
+            const activeModel = hasImages ? effectiveEditModel : model
             const resolutions = NB_RESOLUTIONS[activeModel]
             if (!resolutions) return null
             return (
