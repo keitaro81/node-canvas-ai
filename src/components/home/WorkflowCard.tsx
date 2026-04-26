@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
-import { DotsThree, Globe, Lock, Play, PencilSimple, Trash, Copy } from '@phosphor-icons/react'
+import { DotsThree, Globe, Lock, Play, PencilSimple, Trash, Copy, Stack } from '@phosphor-icons/react'
 import type { WorkflowRow } from '../../lib/api/workflows'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 interface WorkflowCardProps {
   workflow: WorkflowRow
   thumbnailOverride?: string | null
+  hasAppMode?: boolean
   onDelete?: (id: string) => void
   onRename?: (id: string, name: string) => Promise<void>
   onClone?: (id: string) => void
@@ -41,11 +43,14 @@ function getGradient(id: string): string {
   return PLACEHOLDER_GRADIENTS[id.charCodeAt(0) % PLACEHOLDER_GRADIENTS.length]
 }
 
-export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, onClone }: WorkflowCardProps) {
+export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete, onRename, onClone }: WorkflowCardProps) {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const isPublic = (workflow as { is_public?: boolean }).is_public ?? false
   const thumbnailUrl = thumbnailOverride ?? (workflow as { thumbnail_url?: string | null }).thumbnail_url
   const isVideo = thumbnailUrl ? isVideoUrl(thumbnailUrl) : false
+  // モバイルでAppモードなしのカードはグレーアウト（クリック不可）
+  const isDisabled = isMobile && hasAppMode === false
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
@@ -75,6 +80,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, 
 
   function handleCardClick() {
     if (isRenaming) return
+    if (isDisabled) return
     navigate(`/canvas/${workflow.id}`)
   }
 
@@ -118,13 +124,13 @@ export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, 
     <>
     <div
       onClick={handleCardClick}
-      className="group flex flex-col cursor-pointer"
+      className={`group flex flex-col ${isDisabled ? 'cursor-default opacity-45' : 'cursor-pointer'}`}
     >
       {/* Thumbnail box */}
       <div
         className="relative w-full overflow-hidden rounded-xl transition-all duration-150"
         style={{ aspectRatio: '16/10', background: getGradient(workflow.id), border: '1px solid var(--border)' }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
+        onMouseEnter={(e) => { if (!isDisabled) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
         {thumbnailUrl && !isVideo && (
@@ -159,6 +165,21 @@ export function WorkflowCard({ workflow, thumbnailOverride, onDelete, onRename, 
           {isPublic ? <Globe size={10} weight="fill" /> : <Lock size={10} />}
           {isPublic ? 'Public' : 'Private'}
         </div>
+
+        {/* App mode not configured badge — モバイルのみ表示 */}
+        {isDisabled && (
+          <div
+            className="absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+            style={{
+              background: 'rgba(0,0,0,0.55)',
+              color: 'rgba(255,255,255,0.6)',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            <Stack size={10} />
+            App未設定
+          </div>
+        )}
       </div>
 
       {/* Info — outside the box */}

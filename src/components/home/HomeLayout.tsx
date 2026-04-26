@@ -8,14 +8,22 @@ import {
   Question,
   SignOut,
   CaretUpDown,
+  User,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 const NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'My Projects' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
+]
+
+const MOBILE_NAV_ITEMS = [
+  { to: '/projects', icon: FolderOpen, label: 'Projects' },
+  { to: '/history', icon: Clock, label: 'History' },
+  { to: '/account', icon: User, label: 'Account' },
 ]
 
 function UserAvatar({ email }: { email: string }) {
@@ -33,6 +41,7 @@ function UserAvatar({ email }: { email: string }) {
 export function HomeLayout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { createNewWorkflow, workflows } = useWorkflowStore()
 
   async function handleNew() {
@@ -42,6 +51,51 @@ export function HomeLayout() {
   }
 
   const recentWorkflows = workflows.slice(0, 6)
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
+        {/* Mobile: main content */}
+        <main className="flex-1 min-h-0 overflow-auto">
+          <Outlet />
+        </main>
+
+        {/* Mobile: bottom navigation */}
+        <nav
+          className="shrink-0 flex items-center border-t safe-area-inset-bottom"
+          style={{
+            background: 'var(--bg-surface)',
+            borderColor: 'var(--border)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+          }}
+        >
+          {MOBILE_NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-3"
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon
+                    size={22}
+                    weight={isActive ? 'fill' : 'regular'}
+                    style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}
+                  />
+                  <span
+                    className="text-[10px] font-medium"
+                    style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}
+                  >
+                    {label}
+                  </span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
