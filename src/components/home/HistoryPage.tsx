@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { CircleNotch } from '@phosphor-icons/react'
 import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
 import { GenerationCard } from './GenerationCard'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 export function HistoryPage() {
+  const isMobile = useIsMobile()
   const [generations, setGenerations] = useState<GenerationWithWorkflow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -55,7 +57,7 @@ export function HistoryPage() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))' }}>
             {generations.map((g) => (
               <GenerationCard key={g.id} generation={g} />
             ))}
