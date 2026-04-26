@@ -1081,6 +1081,7 @@ function CameraListPanel({ nodeId }: { nodeId: string }) {
 function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
+  const isMobile = useIsMobile()
   const listNode = nodes.find((n) => n.id === listNodeId)
   if (!listNode) return null
 
@@ -1103,6 +1104,30 @@ function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
   const accentColor = mode === 'text' ? '#6366F1' : '#8B5CF6'
   const sectionLabel = mode === 'text' ? 'リストプロンプト' : 'リスト画像'
   const disconnectedLabel = '未接続（グラフで接続してください）'
+
+  // モバイル + 画像モード: 参照画像と同じ 4列グリッド
+  if (isMobile && mode === 'image') {
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{sectionLabel}</div>
+        <div className="grid grid-cols-4 gap-2">
+          {slots.map(({ index, nodeId }) => (
+            nodeId ? (
+              <ImageUploadField key={index} nodeId={nodeId} label="" />
+            ) : (
+              <div
+                key={index}
+                className="relative rounded-lg overflow-hidden flex items-center justify-center"
+                style={{ aspectRatio: '1 / 1', border: '1px dashed var(--border)', background: 'var(--bg-canvas)' }}
+              >
+                <ImageIcon size={16} color="var(--border-active)" />
+              </div>
+            )
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mb-3">
