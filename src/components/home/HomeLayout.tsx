@@ -55,40 +55,37 @@ export function HomeLayout() {
   if (isMobile) {
     return (
       <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
-        {/* Mobile: main content */}
+        {/* Mobile: main content — bottom padding to clear floating nav */}
         <main className="flex-1 min-h-0 overflow-auto">
           <Outlet />
         </main>
 
-        {/* Mobile: bottom navigation */}
+        {/* Mobile: floating pill navigation */}
         <nav
-          className="shrink-0 flex items-center border-t safe-area-inset-bottom"
+          className="fixed left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 rounded-full z-50"
           style={{
-            background: 'var(--bg-surface)',
-            borderColor: 'var(--border)',
-            paddingBottom: 'env(safe-area-inset-bottom)',
+            bottom: 'calc(env(safe-area-inset-bottom) + 20px)',
+            height: 56,
+            background: 'rgba(248, 248, 250, 0.92)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(210, 210, 218, 0.6)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.18)',
           }}
         >
-          {MOBILE_NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+          {MOBILE_NAV_ITEMS.map(({ to, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
-              className="flex-1 flex flex-col items-center justify-center gap-1 py-3"
+              className="relative flex items-center justify-center rounded-full transition-all"
+              style={{ width: 48, height: 48 }}
             >
               {({ isActive }) => (
-                <>
-                  <Icon
-                    size={22}
-                    weight={isActive ? 'fill' : 'regular'}
-                    style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}
-                  />
-                  <span
-                    className="text-[10px] font-medium"
-                    style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}
-                  >
-                    {label}
-                  </span>
-                </>
+                <Icon
+                  size={24}
+                  weight="regular"
+                  style={{ color: isActive ? '#111111' : '#9CA3AF' }}
+                />
               )}
             </NavLink>
           ))}
