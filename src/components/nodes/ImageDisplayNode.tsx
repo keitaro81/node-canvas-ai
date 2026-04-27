@@ -6,6 +6,7 @@ import { BaseNode } from './BaseNode'
 import type { NodeData } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
+import { downloadFile } from '../../lib/downloadFile'
 
 export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps) {
   const data = props.data as NodeData
@@ -33,21 +34,10 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const isError = status === 'error'
   const errorMsg = data.params?.error as string | undefined
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (!imageUrl) return
-    try {
-      const response = await fetch(imageUrl)
-      const blob = await response.blob()
-      const objectUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = objectUrl
-      link.download = 'node-canvas-image.png'
-      link.click()
-      URL.revokeObjectURL(objectUrl)
-    } catch {
-      window.open(imageUrl, '_blank')
-    }
+    downloadFile(imageUrl, 'node-canvas-image.png')
   }
 
   const handleMaskConfirm = (url: string, previewDataUrl: string) => {

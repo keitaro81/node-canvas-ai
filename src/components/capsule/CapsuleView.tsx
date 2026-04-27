@@ -9,6 +9,7 @@ import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
+import { downloadFile } from '../../lib/downloadFile'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -1308,20 +1309,7 @@ function CapsuleStagePanel({
 // ────────────────────────────────────────────
 // プレビュー: 画像・動画
 // ────────────────────────────────────────────
-async function downloadFile(url: string, filename: string) {
-  try {
-    const res = await fetch(url)
-    const blob = await res.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objectUrl
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(url, '_blank')
-  }
-}
+
 
 function ImagePreview({ src }: { src: string }) {
   return (

@@ -4,21 +4,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { MonitorPlay, Play, Pause, RotateCcw, Download, Maximize2, Video as VideoIcon, X, Volume2, VolumeX, Loader2, AlertCircle } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import type { VideoDisplayNodeData } from '../../types/nodes'
-
-async function downloadFile(url: string, filename: string) {
-  try {
-    const response = await fetch(url)
-    const blob = await response.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(url, '_blank')
-  }
-}
+import { downloadFile } from '../../lib/downloadFile'
 
 function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as VideoDisplayNodeData
