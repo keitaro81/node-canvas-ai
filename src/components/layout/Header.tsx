@@ -22,12 +22,13 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 function SaveStatus() {
   const { isSaving, hasUnsavedChanges, lastSavedAt } = useWorkflowStore()
+  const isMobile = useIsMobile()
 
   if (isSaving) {
     return (
       <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--text-tertiary)' }}>
         <CircleNotch size={11} className="animate-spin" />
-        保存中...
+        {!isMobile && '保存中...'}
       </span>
     )
   }
@@ -36,7 +37,7 @@ function SaveStatus() {
     return (
       <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--warning)' }}>
         <Clock size={11} />
-        未保存の変更あり
+        {!isMobile && '未保存の変更あり'}
       </span>
     )
   }
@@ -48,7 +49,7 @@ function SaveStatus() {
     return (
       <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--success)' }}>
         <Check size={11} weight="bold" />
-        {label}に保存
+        {!isMobile && `${label}に保存`}
       </span>
     )
   }
@@ -133,7 +134,7 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
       }}
     >
       {/* Left: Back + Workflow name + save status */}
-      <div className="flex items-center gap-2 min-w-0" style={{ width: '45%' }}>
+      <div className="flex items-center gap-2 min-w-0" style={{ width: isMobile ? '70%' : '45%' }}>
         {/* Back to home */}
         <button
           onClick={() => navigate('/projects')}
