@@ -2327,7 +2327,7 @@ function StepTabs({
   const nodes = useCanvasStore((s) => s.nodes)
 
   return (
-    <div className="flex items-center gap-0 px-6 py-3 flex-shrink-0 overflow-x-auto" style={{ borderBottom: '1px solid var(--border)', scrollbarWidth: 'none' }}>
+    <div className="flex items-center gap-0 px-2 py-1 md:px-6 md:py-3 flex-shrink-0 overflow-x-auto" style={{ borderBottom: '1px solid var(--border)', scrollbarWidth: 'none' }}>
       {stages.map((stage, i) => {
         const status = getStageStatus(stage.nodeId, nodes, stage.displayNodeIds)
         const isActive = activeIndex === i
@@ -2425,17 +2425,17 @@ export function CapsuleView() {
           />
         )}
 
-        {/* Top: preview — 40% + 100px */}
-        <div className="flex flex-col overflow-hidden" style={{ flex: '0 0 calc(40% + 100px)' }}>
+        {/* Top: preview — 35% + 100px */}
+        <div className="flex flex-col overflow-hidden" style={{ flex: '0 0 calc(35% + 100px)' }}>
           <StepTabs stages={stages} activeIndex={activePreviewIndex} onChange={handlePreviewChange} />
           <MobileStagePreview stages={stages} activeIndex={activePreviewIndex} />
         </div>
 
-        {/* Bottom: input controls — 60% - 100px */}
+        {/* Bottom: input controls — 65% - 100px */}
         <div
           className="flex flex-col overflow-hidden"
           style={{
-            flex: '0 0 calc(60% - 100px)',
+            flex: '0 0 calc(65% - 100px)',
             borderTop: '1px solid var(--border)',
             background: 'var(--bg-surface)',
           }}
