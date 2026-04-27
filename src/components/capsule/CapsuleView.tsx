@@ -2442,17 +2442,17 @@ export function CapsuleView() {
         >
           {/* Panel header */}
           <div
-            className="flex items-center gap-2.5 px-4 py-2.5 flex-shrink-0"
+            className="flex items-center gap-2.5 px-4 py-4 flex-shrink-0"
             style={{ borderBottom: '1px solid var(--border)' }}
           >
             <div
-              className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
+              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ background: 'var(--bg-panel)' }}
             >
-              <Layers size={12} style={{ color: '#8B5CF6' }} />
+              <Layers size={14} style={{ color: '#8B5CF6' }} />
             </div>
             <div>
-              <div className="text-[13px] font-semibold text-[var(--text-primary)]">{group.data.label}</div>
+              <div className="text-[14px] font-semibold text-[var(--text-primary)]">{group.data.label}</div>
             </div>
           </div>
 
