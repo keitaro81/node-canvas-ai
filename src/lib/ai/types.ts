@@ -40,6 +40,7 @@ export interface VideoGenerationRequest {
   model: string;                   // フロントエンドID（例: 'ltx-2.3-fast'）
   mode?: 'text-to-video' | 'image-to-video' | 'video-to-video';
   imageUrl?: string;               // image-to-video / video-to-video 参照画像URL
+  endImageUrl?: string;            // 補完モード用の終了フレームURL
   videoUrl?: string;               // video-to-video 用の入力動画URL
 }
 
@@ -69,11 +70,11 @@ export interface VideoModelDefinition {
   supportedDurations: string[];    // 選択可能な秒数リスト
   supportedResolutions: VideoResolution[];
   supportedAspectRatios: VideoAspectRatio[];
-  i2vSupportedAspectRatios?: VideoAspectRatio[]; // i2v時のアスペクト比（省略時はsupportedAspectRatiosを使用）
   features: string[];              // 例: ['audio', '4k']
-  paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'seedance' | 'seedance-r2v';    // API パラメータの組み立て方式
+  paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'kling-o3-i2v' | 'seedance' | 'seedance-r2v';    // API パラメータの組み立て方式
   supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];
   supportedFps?: number[];           // 例: [24, 25, 48, 50]（省略時はfps設定不可）
+  endImageParam?: string;            // 終了フレームのパラメータ名（補完モード対応モデルのみ）
 }
 
 // AIProvider インターフェースにビデオメソッドを追加するための型

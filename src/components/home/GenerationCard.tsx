@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Play, Download, ArrowsOut, X } from '@phosphor-icons/react'
 import type { GenerationWithWorkflow } from '../../lib/api/generations'
+import { downloadFile } from '../../lib/downloadFile'
 
 interface GenerationCardProps {
   generation: GenerationWithWorkflow
@@ -23,24 +24,10 @@ function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|mov)(\?|$)/i.test(url)
 }
 
-async function downloadFile(url: string, filename: string) {
-  try {
-    const response = await fetch(url)
-    const blob = await response.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(url, '_blank')
-  }
-}
 
 export function GenerationCard({ generation }: GenerationCardProps) {
   const url = generation.output_url!
-  const isVideo = isVideoUrl(url)
+  const isVideo = isVideoUrl(url) || generation.node_type === 'video-generation'
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
   const filename = isVideo

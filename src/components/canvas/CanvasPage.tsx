@@ -10,6 +10,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useAutoSave } from '../../hooks/useAutoSave'
 import { useTheme } from '../../hooks/useTheme'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 function LoadingScreen() {
   return (
@@ -32,10 +33,19 @@ export function CanvasPage() {
   const { loadWorkflows, loadWorkflow } = useWorkflowStore()
   const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
   const appMode = useCanvasStore((s) => s.appMode)
+  const setAppMode = useCanvasStore((s) => s.setAppMode)
+  const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
 
   useAutoSave()
+
+  // モバイルでは常に capsule モードに固定
+  useEffect(() => {
+    if (isMobile && appMode !== 'capsule') {
+      setAppMode('capsule')
+    }
+  }, [isMobile, appMode, setAppMode])
 
   useEffect(() => {
     if (!workflowId) {
@@ -87,9 +97,16 @@ export function CanvasPage() {
       )}
 
       <div className="flex flex-1 min-h-0 relative">
+        {/* キャンバスは常に DOM に残す（ノードのイベントリスナーを維持するため）
+            デスクトップ capsule モード: display:none
+            モバイル: absolute で背面に隠す（display:none だと React Flow が寸法計算できず NaN エラーになる） */}
         <div
           className="flex flex-1 min-h-0"
-          style={{ display: appMode !== 'graph' ? 'none' : 'flex' }}
+          style={
+            isMobile
+              ? { position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none', zIndex: -1 }
+              : { display: appMode !== 'graph' ? 'none' : 'flex' }
+          }
         >
           <main className="flex-1 min-w-0 h-full relative">
             <Canvas />
@@ -98,10 +115,10 @@ export function CanvasPage() {
             {/* {isOwned && <RightPanel />} */}
           </main>
         </div>
-        {appMode === 'capsule' && <CapsuleView />}
+        {(appMode === 'capsule' || isMobile) && <CapsuleView />}
       </div>
 
-      <StatusBar />
+      {!isMobile && <StatusBar />}
     </div>
   )
 }

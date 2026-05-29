@@ -1,18 +1,21 @@
 import { memo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps, useNodes, useEdges } from '@xyflow/react'
-import { Monitor, Download, Maximize2, ImageIcon, X, Loader2, AlertCircle } from 'lucide-react'
+import { Monitor, Download, Maximize2, ImageIcon, X, Loader2, AlertCircle, Paintbrush } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import type { NodeData } from '../../types/nodes'
+import { useCanvasStore } from '../../stores/canvasStore'
+import { InpaintMaskModal } from '../modals/InpaintMaskModal'
+import { downloadFile } from '../../lib/downloadFile'
 
 export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps) {
   const data = props.data as NodeData
   const nodes = useNodes()
   const edges = useEdges()
+  const updateNode = useCanvasStore((s) => s.updateNode)
   const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [showMaskModal, setShowMaskModal] = useState(false)
 
-  // 自身の output を優先。なければ接続元ノードの output をフォールバックとして使う
-  // （バッチ生成では各 DisplayNode に直接 output が書き込まれる）
   const incomingEdge = edges.find(
     (e) => e.target === props.id && e.targetHandle === 'in-image-image-in'
   )
@@ -23,26 +26,28 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
     (data.params?.imageUrl as string | undefined) ||
     null
 
+  const maskUrl = (data.params?.maskUrl as string | undefined) || null
+  const maskPreviewDataUrl = (data.params?.maskPreviewDataUrl as string | undefined) || null
+
   const status = (data.status as string) ?? 'idle'
   const isGenerating = status === 'generating'
   const isError = status === 'error'
   const errorMsg = data.params?.error as string | undefined
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (!imageUrl) return
-    try {
-      const response = await fetch(imageUrl)
-      const blob = await response.blob()
-      const objectUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = objectUrl
-      link.download = 'node-canvas-image.png'
-      link.click()
-      URL.revokeObjectURL(objectUrl)
-    } catch {
-      window.open(imageUrl, '_blank')
-    }
+    downloadFile(imageUrl, 'node-canvas-image.png')
+  }
+
+  const handleMaskConfirm = (url: string, previewDataUrl: string) => {
+    updateNode(props.id, { params: { ...data.params, maskUrl: url, maskPreviewDataUrl: previewDataUrl } } as never)
+    setShowMaskModal(false)
+  }
+
+  const handleMaskClear = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    updateNode(props.id, { params: { ...data.params, maskUrl: null, maskPreviewDataUrl: null } } as never)
   }
 
   return (
@@ -83,24 +88,56 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
                 alt="Display"
                 className="w-full h-auto block"
               />
+              {maskPreviewDataUrl && (
+                <img
+                  src={maskPreviewDataUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  style={{ opacity: 0.6 }}
+                />
+              )}
               {/* Hover overlay */}
-              <div className="absolute inset-0 opacity-0 group-hover/img:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.6)' }}>
-                <button
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
-                  style={{ background: 'rgba(255,255,255,0.15)' }}
-                  onClick={handleDownload}
-                  title="ダウンロード"
-                >
-                  <Download size={14} />
-                </button>
-                <button
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
-                  style={{ background: 'rgba(255,255,255,0.15)' }}
-                  onClick={(e) => { e.stopPropagation(); setLightboxOpen(true) }}
-                  title="拡大"
-                >
-                  <Maximize2 size={14} />
-                </button>
+              <div className="absolute inset-0 opacity-0 group-hover/img:opacity-100 transition-opacity duration-150 flex items-end justify-between p-1.5" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                <div className="flex items-center gap-1">
+                  {/* ペイントアイコン */}
+                  <button
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
+                    style={{ background: maskUrl ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.15)' }}
+                    onClick={(e) => { e.stopPropagation(); setShowMaskModal(true) }}
+                    title="マスク描画"
+                  >
+                    <Paintbrush size={14} />
+                  </button>
+                  {maskUrl && (
+                    <button
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-full nodrag"
+                      style={{ background: 'rgba(34,197,94,0.85)' }}
+                      onClick={handleMaskClear}
+                      title="マスクを削除"
+                    >
+                      <span className="text-[10px] text-white font-medium leading-none">Mask</span>
+                      <X size={8} color="white" />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
+                    style={{ background: 'rgba(255,255,255,0.15)' }}
+                    onClick={handleDownload}
+                    title="ダウンロード"
+                  >
+                    <Download size={14} />
+                  </button>
+                  <button
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
+                    style={{ background: 'rgba(255,255,255,0.15)' }}
+                    onClick={(e) => { e.stopPropagation(); setLightboxOpen(true) }}
+                    title="拡大"
+                  >
+                    <Maximize2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           </>
@@ -115,7 +152,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
         )}
       </BaseNode>
 
-      {/* Lightbox — rendered via portal to escape React Flow stacking context */}
+      {/* Lightbox */}
       {lightboxOpen && imageUrl && createPortal(
         <div
           className="fixed inset-0 flex items-center justify-center"
@@ -142,6 +179,16 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
           </div>
         </div>,
         document.body
+      )}
+
+      {/* マスク描画モーダル */}
+      {showMaskModal && imageUrl && (
+        <InpaintMaskModal
+          imageUrl={imageUrl}
+          initialPreviewDataUrl={maskPreviewDataUrl}
+          onConfirm={handleMaskConfirm}
+          onClose={() => setShowMaskModal(false)}
+        />
       )}
     </>
   )

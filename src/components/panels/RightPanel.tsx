@@ -3,7 +3,6 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import { NODE_ACCENT_COLORS } from '../../types/nodes'
 import type { VideoGenerationNodeData, ReferenceImageNodeData } from '../../types/nodes'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
-import type { VideoModelDefinition } from '../../lib/ai/types'
 
 const VIDEO_MODELS = falVideoProvider.getAvailableVideoModels()
 
@@ -257,16 +256,10 @@ function VideoGenProperties({ nodeId, data, updateNode }: {
   data: VideoGenerationNodeData
   updateNode: Upd
 }) {
-  const edges = useCanvasStore((s) => s.edges)
   const set = (patch: Record<string, unknown>) => updateNode(nodeId, patch)
   const currentModel = VIDEO_MODELS.find((m) => m.id === data.model) ?? VIDEO_MODELS[0]
 
-  const hasConnectedImage = edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
-  const aspectRatioOptions = (
-    hasConnectedImage && (currentModel as VideoModelDefinition).i2vSupportedAspectRatios
-      ? (currentModel as VideoModelDefinition).i2vSupportedAspectRatios!
-      : currentModel?.supportedAspectRatios ?? []
-  ) as string[]
+  const aspectRatioOptions = (currentModel?.supportedAspectRatios ?? []) as string[]
 
   return (
     <>

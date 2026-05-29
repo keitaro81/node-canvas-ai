@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
-import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus } from 'lucide-react'
+import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus, X } from 'lucide-react'
 import type { Edge } from '@xyflow/react'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -9,14 +9,32 @@ import { getImageUrlFromNodeData } from '../../lib/utils'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress } from '../../lib/ai/types'
-import { saveGeneration, checkQuota } from '../../lib/api/generations'
+import { saveGeneration, updateGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl } from '../../lib/api/storage'
 import { showToast } from '../../hooks/useToast'
+import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Record<string, unknown>) =>
   updateNode(id, patch)
+
+function isContentPolicyError(error: unknown): boolean {
+  if (error instanceof Error) {
+    if ((error as { status?: number }).status === 422) return true
+    const lower = error.message.toLowerCase()
+    if (lower.includes('content_policy_violation') || lower.includes('likenesses of real people') ||
+        lower.includes('private information') || lower.includes('unprocessable')) return true
+  }
+  return false
+}
+
+function isNetworkTimeout(message: string): boolean {
+  const lower = message.toLowerCase()
+  return lower.includes('timeout') || lower.includes('timed_out') || lower.includes('timed out') ||
+    lower.includes('failed to fetch') || lower.includes('network request failed') ||
+    lower.includes('err_timed_out') || lower.includes('econnreset')
+}
 
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
 const v2vModels = allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
@@ -44,6 +62,15 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const hasConnectedImageNode = rfEdges.some((e) => e.target === id && e.targetHandle === 'in-image')
 
+  // 接続されている終了フレーム画像URLをリアクティブに取得
+  const connectedEndImageUrl = (() => {
+    const endImageEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-image-end')
+    if (!endImageEdge) return null
+    const sourceNode = rfNodes.find((n) => n.id === endImageEdge.source)
+    if (!sourceNode) return null
+    return getImageUrlFromNodeData(sourceNode.data)
+  })()
+
   // 接続されている参照動画URLをリアクティブに取得
   const connectedVideoUrl = (() => {
     const videoEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-video')
@@ -68,6 +95,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     if (found) return found
     return availableModels[0]
   })()
+
+  const supportsEndImage = !!currentModel?.endImageParam
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -178,6 +207,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       activeDisplayNodeId: displayIds[0],
     })
 
+    const workflowId = useWorkflowStore.getState().currentWorkflowId
+
     const baseRequest: VideoGenerationRequest = {
       prompt,
       model: modelForMode?.id ?? nodeData.model,
@@ -190,6 +221,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       mode,
       ...(mode === 'video-to-video' && connectedVideoUrl ? { videoUrl: connectedVideoUrl, ...(connectedImageUrl ? { imageUrl: connectedImageUrl } : {}) } : {}),
       ...(mode === 'image-to-video' && connectedImageUrl ? { imageUrl: connectedImageUrl } : {}),
+      ...(supportsEndImage && connectedEndImageUrl ? { endImageUrl: connectedEndImageUrl } : {}),
     }
 
     // count 分を並列生成
@@ -232,65 +264,85 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             aspectRatio: nodeData.aspectRatio,
             ...(mode === 'image-to-video' ? { imageUrl: connectedImageUrl } : {}),
           }
-          uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
-            upd(updateNode, displayId, { videoUrl: storedUrl })
-            if (i === 0) useWorkflowStore.getState().updateThumbnail(storedUrl)
-            saveGeneration({
-              nodeId: id,
-              nodeType: 'video-generation',
-              provider: 'fal',
-              model: modelForMode?.id ?? nodeData.model,
-              status: 'completed',
-              outputUrl: storedUrl,
-              inputParams: videoInputParams,
-            })
-          }).catch(() => {
-            showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
-            if (i === 0) useWorkflowStore.getState().updateThumbnail(result.videoUrl!)
-            saveGeneration({
-              nodeId: id,
-              nodeType: 'video-generation',
-              provider: 'fal',
-              model: modelForMode?.id ?? nodeData.model,
-              status: 'completed',
-              outputUrl: result.videoUrl,
-              inputParams: videoInputParams,
-            })
-          })
-        } else {
-          upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
-          saveGeneration({
+          // History とサムネイルを即座に保存（アップロード失敗やページ離脱でも確実に記録される）
+          if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, result.videoUrl)
+          const generationId = await saveGeneration({
             nodeId: id,
             nodeType: 'video-generation',
             provider: 'fal',
             model: modelForMode?.id ?? nodeData.model,
-            status: 'failed',
-            errorMessage: result.error || '生成に失敗しました',
-            inputParams: { prompt, model: modelForMode?.id ?? nodeData.model, mode },
+            status: 'completed',
+            outputUrl: result.videoUrl,
+            inputParams: videoInputParams,
           })
+          // Storage アップロード後にノード・サムネ・History を Supabase 永続 URL に差し替え
+          uploadVideoFromUrl(result.videoUrl, displayId).then((storedUrl) => {
+            upd(updateNode, displayId, { videoUrl: storedUrl })
+            if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, storedUrl)
+            if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch((e) => {
+              console.warn('[VideoGen] updateGeneration failed:', e)
+            })
+            patchWorkflowNodeOutput(workflowId!, displayId, { videoUrl: storedUrl }).catch(() => {})
+          }).catch(() => {
+            showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
+            // アップロード失敗時は output_url を null にして History に壊れたURLが残らないようにする
+            if (generationId) updateGeneration(generationId, { output_url: null }).catch((e) => {
+              console.warn('[VideoGen] updateGeneration (clear) failed:', e)
+            })
+          })
+        } else {
+          const errMsg = result.error || '生成に失敗しました'
+          if (isNetworkTimeout(errMsg)) {
+            showToast('接続が切れました。リロードすると復元できます。', 'warning')
+          } else if (isContentPolicyError(new Error(errMsg))) {
+            const policyMsg = '入力内容がモデルのポリシーに違反しているため生成できませんでした'
+            showToast(policyMsg, 'error')
+            upd(updateNode, displayId, { status: 'failed', progress: '', error: policyMsg })
+          } else {
+            upd(updateNode, displayId, { status: 'failed', progress: '', error: errMsg })
+            saveGeneration({
+              nodeId: id,
+              nodeType: 'video-generation',
+              provider: 'fal',
+              model: modelForMode?.id ?? nodeData.model,
+              status: 'failed',
+              errorMessage: errMsg,
+              inputParams: { prompt, model: modelForMode?.id ?? nodeData.model, mode },
+            })
+          }
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : '予期しないエラー'
-        upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
-        saveGeneration({
-          nodeId: id,
-          nodeType: 'video-generation',
-          provider: 'fal',
-          model: currentModel?.id ?? nodeData.model,
-          status: 'failed',
-          errorMessage,
-          inputParams: { prompt, model: currentModel?.id ?? nodeData.model, mode },
-        })
+        if (isNetworkTimeout(errorMessage)) {
+          showToast('接続が切れました。リロードすると復元できます。', 'warning')
+        } else if (isContentPolicyError(error)) {
+          showToast('入力内容がモデルのポリシーに違反しているため生成できませんでした', 'error')
+          upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
+        } else {
+          upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
+          saveGeneration({
+            nodeId: id,
+            nodeType: 'video-generation',
+            provider: 'fal',
+            model: currentModel?.id ?? nodeData.model,
+            status: 'failed',
+            errorMessage,
+            inputParams: { prompt, model: currentModel?.id ?? nodeData.model, mode },
+          })
+        }
       }
     }))
 
+    const { nodes: latestNodes } = useCanvasStore.getState()
+    const latestGenNode = latestNodes.find((n) => n.id === id)
+    const latestData = latestGenNode?.data as unknown as VideoGenerationNodeData | undefined
+    const timedOut = latestData?.status === 'queued' || latestData?.status === 'processing'
     upd(updateNode, id, {
       status: 'idle',
       progress: '',
       error: null,
-      requestId: null,
-      requestEndpoint: null,
-      activeDisplayNodeId: null,
+      // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
+      ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
   }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, hasConnectedImageNode, getConnectedPrompt, updateNode])
 
@@ -330,6 +382,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       initEndpoint
     ) {
       isRecoveringRef.current = true
+      const recoveryWorkflowId = useWorkflowStore.getState().currentWorkflowId
 
       // activeDisplayNodeId から DisplayNode を特定。なければ接続エッジから検索
       const displayId = initDisplayId ?? (() => {
@@ -373,10 +426,18 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             })
             uploadVideoFromUrl(result.videoUrl, displayId ?? id).then((storedUrl) => {
               if (displayId) upd(updateNode, displayId, { videoUrl: storedUrl })
+              if (recoveryWorkflowId) useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId, storedUrl)
+              saveGeneration({
+                nodeId: id,
+                nodeType: 'video-generation',
+                provider: 'fal',
+                model: snap?.model,
+                status: 'completed',
+                outputUrl: storedUrl,
+              })
             }).catch(() => {
               showToast('動画の保存に失敗しました。一時URLは期限切れになる可能性があります。', 'warning')
             })
-            useWorkflowStore.getState().updateThumbnail(result.videoUrl)
           } else {
             if (displayId) upd(updateNode, displayId, { status: 'failed', progress: '', error: result.error || '生成に失敗しました' })
             upd(updateNode, id, {
@@ -432,6 +493,14 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
         <Film size={14} className="shrink-0" style={{ color: '#EC4899' }} />
         <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
+        <button
+          className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag"
+          style={{ color: 'var(--text-tertiary)' }}
+          onClick={() => useCanvasStore.getState().removeNode(id)}
+          title="削除"
+        >
+          <X size={12} />
+        </button>
       </div>
 
       {/* Text input handle */}
@@ -440,7 +509,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         type="target"
         position={Position.Left}
         style={{
-          top: '30%',
+          top: '28%',
           width: 20,
           height: 20,
           background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -449,13 +518,13 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         }}
       />
 
-      {/* Image input handle */}
+      {/* Start Image input handle */}
       <Handle
         id="in-image"
         type="target"
         position={Position.Left}
         style={{
-          top: '55%',
+          top: supportsEndImage ? '48%' : '55%',
           width: 20,
           height: 20,
           background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -464,13 +533,30 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         }}
       />
 
+      {/* End Image input handle（補完モード対応モデルのみ） */}
+      {supportsEndImage && (
+        <Handle
+          id="in-image-end"
+          type="target"
+          position={Position.Left}
+          style={{
+            top: '63%',
+            width: 20,
+            height: 20,
+            background: 'radial-gradient(circle, #A78BFA 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+            border: 'none',
+            borderRadius: 0,
+          }}
+        />
+      )}
+
       {/* Video input handle */}
       <Handle
         id="in-video"
         type="target"
         position={Position.Left}
         style={{
-          top: '75%',
+          top: supportsEndImage ? '78%' : '75%',
           width: 20,
           height: 20,
           background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -492,7 +578,16 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             参照動画あり → Video to Video
           </div>
         )}
-        {!connectedVideoUrl && hasConnectedImageNode && (
+        {!connectedVideoUrl && hasConnectedImageNode && connectedEndImageUrl && (
+          <div
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
+            style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#A78BFA' }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-[#A78BFA]" />
+            補完モード（Start → End）
+          </div>
+        )}
+        {!connectedVideoUrl && hasConnectedImageNode && !connectedEndImageUrl && (
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
             style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', color: '#8B5CF6' }}
@@ -602,8 +697,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* Aspect Ratio — 画像参照接続時は非表示（モデルが画像サイズを優先するため） */}
-        {currentModel && !hasConnectedImageNode && (
+        {/* Aspect Ratio — モデルが aspect_ratio をサポートする場合のみ表示 */}
+        {currentModel && currentModel.supportedAspectRatios.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
@@ -616,10 +711,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
               disabled={isGenerating}
             >
-              {(hasConnectedImageNode && currentModel.i2vSupportedAspectRatios
-                ? currentModel.i2vSupportedAspectRatios
-                : currentModel.supportedAspectRatios
-              ).map((ar) => (
+              {currentModel.supportedAspectRatios.map((ar) => (
                 <option key={ar} value={ar}>{ar}</option>
               ))}
             </select>

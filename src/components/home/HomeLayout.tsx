@@ -8,14 +8,22 @@ import {
   Question,
   SignOut,
   CaretUpDown,
+  User,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 const NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'My Projects' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
+]
+
+const MOBILE_NAV_ITEMS = [
+  { to: '/projects', icon: FolderOpen, label: 'Projects' },
+  { to: '/history', icon: Clock, label: 'History' },
+  { to: '/account', icon: User, label: 'Account' },
 ]
 
 function UserAvatar({ email }: { email: string }) {
@@ -33,6 +41,7 @@ function UserAvatar({ email }: { email: string }) {
 export function HomeLayout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { createNewWorkflow, workflows } = useWorkflowStore()
 
   async function handleNew() {
@@ -42,6 +51,48 @@ export function HomeLayout() {
   }
 
   const recentWorkflows = workflows.slice(0, 6)
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
+        {/* Mobile: main content — bottom padding to clear floating nav */}
+        <main className="flex-1 min-h-0 overflow-auto">
+          <Outlet />
+        </main>
+
+        {/* Mobile: floating pill navigation */}
+        <nav
+          className="fixed left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 rounded-full z-50"
+          style={{
+            bottom: 'calc(env(safe-area-inset-bottom) + 20px)',
+            height: 56,
+            background: 'rgba(248, 248, 250, 0.92)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(210, 210, 218, 0.6)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.18)',
+          }}
+        >
+          {MOBILE_NAV_ITEMS.map(({ to, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className="relative flex items-center justify-center rounded-full transition-all"
+              style={{ width: 48, height: 48 }}
+            >
+              {({ isActive }) => (
+                <Icon
+                  size={24}
+                  weight="regular"
+                  style={{ color: isActive ? '#111111' : '#9CA3AF' }}
+                />
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>

@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { createPortal } from 'react-dom'
 import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -8,6 +9,7 @@ import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
+import { downloadFile } from '../../lib/downloadFile'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -292,6 +294,7 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
 function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const updateNode = useCanvasStore((s) => s.updateNode)
+  const isMobile = useIsMobile()
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -322,6 +325,54 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
 
   function handleClear() {
     updateNode(nodeId, { imageUrl: null, uploadedImagePreview: null } as never)
+  }
+
+  // モバイル: 親グリッドのセルに収まる正方形サムネイル（width はグリッド側で制御）
+  if (isMobile) {
+    return (
+      <div>
+        {label && <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>}
+        <div
+          className="relative rounded-lg overflow-hidden cursor-pointer"
+          style={{ aspectRatio: '1 / 1', border: '1px solid var(--border)' }}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {displayUrl ? (
+            <>
+              <img src={displayUrl} alt="Reference" className="w-full h-full object-cover block" />
+              {isUploading && (
+                <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                  <Loader2 size={14} className="animate-spin text-white" />
+                </div>
+              )}
+              {!isUploading && (
+                <button
+                  className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center"
+                  style={{ background: 'rgba(0,0,0,0.65)' }}
+                  onClick={(e) => { e.stopPropagation(); handleClear() }}
+                >
+                  <X size={10} color="white" />
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: 'var(--bg-canvas)' }}>
+              {isUploading
+                ? <Loader2 size={14} className="animate-spin" style={{ color: '#8B5CF6' }} />
+                : <ImageIcon size={16} color="var(--border-active)" />
+              }
+            </div>
+          )}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={handleChange}
+          className="hidden"
+        />
+      </div>
+    )
   }
 
   return (
@@ -664,12 +715,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   // VideoGenerationNode: アスペクト比セレクト
   if (field.id === 'aspectRatio' && isVideoGenNode) {
     const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
-    const hasConnectedImage = useCanvasStore.getState().edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
-    const ratios = (
-      hasConnectedImage && currentVideoModel?.i2vSupportedAspectRatios
-        ? currentVideoModel.i2vSupportedAspectRatios
-        : currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']
-    ) as string[]
+    const ratios = (currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']) as string[]
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
@@ -1036,6 +1082,7 @@ function CameraListPanel({ nodeId }: { nodeId: string }) {
 function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
+  const isMobile = useIsMobile()
   const listNode = nodes.find((n) => n.id === listNodeId)
   if (!listNode) return null
 
@@ -1058,6 +1105,30 @@ function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
   const accentColor = mode === 'text' ? '#6366F1' : '#8B5CF6'
   const sectionLabel = mode === 'text' ? 'リストプロンプト' : 'リスト画像'
   const disconnectedLabel = '未接続（グラフで接続してください）'
+
+  // モバイル + 画像モード: 参照画像と同じ 4列グリッド
+  if (isMobile && mode === 'image') {
+    return (
+      <div className="mb-3">
+        <div className="text-[11px] font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{sectionLabel}</div>
+        <div className="grid grid-cols-4 gap-2">
+          {slots.map(({ index, nodeId }) => (
+            nodeId ? (
+              <ImageUploadField key={index} nodeId={nodeId} label="" />
+            ) : (
+              <div
+                key={index}
+                className="relative rounded-lg overflow-hidden flex items-center justify-center"
+                style={{ aspectRatio: '1 / 1', border: '1px dashed var(--border)', background: 'var(--bg-canvas)' }}
+              >
+                <ImageIcon size={16} color="var(--border-active)" />
+              </div>
+            )
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mb-3">
@@ -1112,6 +1183,7 @@ function CapsuleStagePanel({
 }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
+  const isMobile = useIsMobile()
   const i = activePreviewIndex
   const stage = stages[i]
   if (!stage) return null
@@ -1179,19 +1251,39 @@ function CapsuleStagePanel({
           // globalInputs + stageInputs を統合してから ListNode スロット分を除外
           const allInputs = [...globalInputs, ...stage.stageInputs]
             .filter((input) => !listSlotNodeIds.has(input.nodeId))
-          // TextPrompt・PromptEnhancer を先頭、ReferenceImage を後ろに並べ替え
-          const sorted = [
-            ...allInputs.filter((i) => i.nodeType === 'textPrompt' || i.nodeType === 'promptEnhancer'),
-            ...allInputs.filter((i) => i.nodeType === 'referenceImage'),
-          ]
-          return sorted.map((input) =>
-            input.nodeType === 'referenceImage' ? (
-              <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-            ) : input.nodeType === 'promptEnhancer' ? (
-              <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-            ) : (
-              <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
-            )
+          const textInputs = allInputs.filter((i) => i.nodeType === 'textPrompt' || i.nodeType === 'promptEnhancer')
+          const refImages = allInputs.filter((i) => i.nodeType === 'referenceImage')
+
+          return (
+            <>
+              {textInputs.map((input) =>
+                input.nodeType === 'promptEnhancer' ? (
+                  <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+                ) : (
+                  <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+                )
+              )}
+              {refImages.length > 0 && (
+                isMobile ? (
+                  // モバイル: 4列グリッド
+                  <div className="mb-3">
+                    <div className="text-[11px] text-[var(--text-secondary)] mb-1.5 font-medium">
+                      {refImages.length === 1 ? refImages[0].label : '参照画像'}
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {refImages.map((input) => (
+                        <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label="" />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  // デスクトップ: 縦並び
+                  refImages.map((input) => (
+                    <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+                  ))
+                )
+              )}
+            </>
           )
         })()}
 
@@ -1217,20 +1309,7 @@ function CapsuleStagePanel({
 // ────────────────────────────────────────────
 // プレビュー: 画像・動画
 // ────────────────────────────────────────────
-async function downloadFile(url: string, filename: string) {
-  try {
-    const res = await fetch(url)
-    const blob = await res.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objectUrl
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(url, '_blank')
-  }
-}
+
 
 function ImagePreview({ src }: { src: string }) {
   return (
@@ -1755,6 +1834,318 @@ function DisplayNodeThumbnailGrid({
 }
 
 // ────────────────────────────────────────────
+// モバイル専用: 大プレビュー + 下部カルーセル
+// ────────────────────────────────────────────
+function MobileStagePreview({
+  stages,
+  activeIndex,
+}: {
+  stages: CapsuleStageInfo[]
+  activeIndex: number
+}) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
+  const setEdges = useCanvasStore((s) => s.setEdges)
+  const stage = stages[activeIndex]
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [isMuted, setIsMuted] = useState(true)
+  const [showControls, setShowControls] = useState(true)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => { setSelectedIdx(0) }, [activeIndex])
+  useEffect(() => { setIsPlaying(true); setIsMuted(true); setShowControls(true) }, [selectedIdx])
+
+  // 下流ステージへの接続情報（LargePreview と同ロジック）
+  const downstreamLinks = useMemo((): DownstreamLink[] => {
+    if (!stage?.displayNodeIds) return []
+    const displayIdSet = new Set(stage.displayNodeIds)
+    return edges
+      .filter((e) => displayIdSet.has(e.source))
+      .map((e) => {
+        const targetNode = nodes.find((n) => n.id === e.target)
+        if (
+          targetNode?.type !== 'imageGenerationNode' &&
+          targetNode?.type !== 'videoGenerationNode'
+        ) return null
+        return {
+          displayNodeId: e.source,
+          genNodeId: e.target,
+          targetHandle: e.targetHandle ?? 'in-image',
+        } satisfies DownstreamLink
+      })
+      .filter((l): l is DownstreamLink => l !== null)
+  }, [stage, edges, nodes])
+
+  const hasDownstream = downstreamLinks.length > 0
+  const selectedDisplayIds = useMemo(
+    () => new Set(downstreamLinks.map((l) => l.displayNodeId)),
+    [downstreamLinks]
+  )
+
+  function handleSelectForDownstream(displayNodeId: string) {
+    if (!stage?.displayNodeIds || !hasDownstream) return
+    const { edges: latestEdges } = useCanvasStore.getState()
+    const displayIdSet = new Set(stage.displayNodeIds)
+    const downstreamGenIds = new Set(downstreamLinks.map((l) => l.genNodeId))
+    const filteredEdges = latestEdges.filter(
+      (edge) => !(displayIdSet.has(edge.source) && downstreamGenIds.has(edge.target))
+    )
+    const seenGens = new Set<string>()
+    const newEdges = downstreamLinks
+      .filter((l) => {
+        if (seenGens.has(l.genNodeId)) return false
+        seenGens.add(l.genNodeId)
+        return true
+      })
+      .map((l) => ({
+        id: `e-disp-${displayNodeId}-gen-${l.genNodeId}`,
+        source: displayNodeId,
+        sourceHandle: 'out-image-image-out',
+        target: l.genNodeId,
+        targetHandle: l.targetHandle,
+        style: { stroke: '#8B5CF6', strokeWidth: 2 },
+        animated: false,
+        className: '',
+      }))
+    setEdges([...filteredEdges, ...newEdges])
+  }
+
+  const accentColor = stage?.nodeType === 'videoGen' ? '#EC4899' : '#8B5CF6'
+
+  function togglePlay() {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) { v.play(); setIsPlaying(true) }
+    else { v.pause(); setIsPlaying(false) }
+  }
+
+  function toggleMute() {
+    const v = videoRef.current
+    if (!v) return
+    v.muted = !v.muted
+    setIsMuted(v.muted)
+  }
+
+  function renderMain(
+    url: string | undefined,
+    isVideo: boolean,
+    isGenerating: boolean,
+    isFailed: boolean,
+    progress?: string,
+    displayNodeId?: string,
+  ) {
+    if (isGenerating) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2">
+          <div
+            className="w-9 h-9 rounded-full border-2"
+            style={{ borderTopColor: accentColor, borderColor: 'var(--border)', animation: 'spin 0.8s linear infinite' }}
+          />
+          <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{progress || '生成中...'}</span>
+        </div>
+      )
+    }
+    if (isFailed) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <AlertCircle size={28} style={{ color: '#EF4444' }} />
+        </div>
+      )
+    }
+    if (url) {
+      return (
+        <div
+          className="flex-1 relative overflow-hidden"
+          onClick={() => setShowControls((v) => !v)}
+        >
+          {/* absolute inset-0 で確定した高さを持つコンテナを作り、max-h-full が正しく解決されるようにする */}
+          <div className="absolute inset-0 flex items-center justify-center px-3 py-2">
+            {isVideo ? (
+              <video
+                key={url}
+                ref={videoRef}
+                src={url}
+                className="block max-w-full max-h-full rounded-xl object-contain"
+                autoPlay loop playsInline muted={isMuted}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+              />
+            ) : (
+              <img src={url} alt="Generated" className="block max-w-full max-h-full rounded-xl object-contain" />
+            )}
+          </div>
+
+          {/* 下流選択ボタン（右上）— 次のステージで使う画像を選ぶ */}
+          {hasDownstream && displayNodeId && (
+            <button
+              className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full z-10"
+              style={{
+                background: selectedDisplayIds.has(displayNodeId) ? '#8B5CF6' : 'rgba(0,0,0,0.5)',
+                border: selectedDisplayIds.has(displayNodeId) ? 'none' : '2px solid rgba(255,255,255,0.55)',
+                backdropFilter: 'blur(8px)',
+              }}
+              onClick={(e) => { e.stopPropagation(); handleSelectForDownstream(displayNodeId) }}
+              title={selectedDisplayIds.has(displayNodeId) ? '選択中' : '次のステージで使用'}
+            >
+              {selectedDisplayIds.has(displayNodeId) && <Check size={16} color="white" strokeWidth={2.5} />}
+            </button>
+          )}
+
+          {/* 下中央に丸ボタン — タップで表示/非表示 */}
+          {showControls && (
+            <div
+              className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-2 z-10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isVideo && (
+                <>
+                  <button
+                    className="w-9 h-9 flex items-center justify-center rounded-full"
+                    style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: '#fff' }}
+                    onClick={togglePlay}
+                  >
+                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                  </button>
+                  <button
+                    className="w-9 h-9 flex items-center justify-center rounded-full"
+                    style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: '#fff' }}
+                    onClick={toggleMute}
+                  >
+                    {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  </button>
+                </>
+              )}
+              <button
+                className="w-9 h-9 flex items-center justify-center rounded-full"
+                style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: '#fff' }}
+                onClick={() => downloadFile(url, isVideo ? 'video.mp4' : 'image.png')}
+              >
+                <Download size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-2" style={{ color: 'var(--border-active)' }}>
+        <div className="opacity-30"><ImageIcon size={40} strokeWidth={1} /></div>
+        <div className="text-[12px]">まだ生成されていません</div>
+      </div>
+    )
+  }
+
+  if (!stage) {
+    return (
+      <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--border-active)' }}>
+        <div className="opacity-30"><ImageIcon size={40} strokeWidth={1} /></div>
+      </div>
+    )
+  }
+
+  // DisplayNode あり
+  if (stage.displayNodeIds && stage.displayNodeIds.length > 0) {
+    const dispNodes = stage.displayNodeIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter((n): n is NonNullable<typeof n> => !!n)
+
+    const items = dispNodes.map((node) => {
+      const d = node.data as Record<string, unknown>
+      const isVideo = node.type === 'videoDisplayNode'
+      const status = (d.status as string) ?? 'idle'
+      return {
+        id: node.id,
+        isVideo,
+        url: isVideo ? (d.videoUrl as string | undefined) : (d.output as string | undefined),
+        isGenerating: isVideo ? (status === 'queued' || status === 'processing') : status === 'generating',
+        isFailed: isVideo ? status === 'failed' : status === 'error',
+      }
+    })
+
+    const clampedIdx = Math.min(selectedIdx, Math.max(0, items.length - 1))
+    const sel = items[clampedIdx]
+
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden">
+        {/* Large preview + controls */}
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          {sel && renderMain(sel.url, sel.isVideo, sel.isGenerating, sel.isFailed, undefined, sel.id)}
+        </div>
+
+        {/* Thumbnail carousel */}
+        {items.length > 1 && (
+          <div
+            className="flex gap-2 px-3 py-2 flex-shrink-0 overflow-x-auto"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {items.map((item, i) => {
+              const isSelected = hasDownstream && selectedDisplayIds.has(item.id)
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedIdx(i)}
+                  className="relative flex-shrink-0 rounded-xl overflow-hidden"
+                  style={{
+                    width: 56, height: 56,
+                    boxShadow: i === clampedIdx ? `0 0 0 2px ${accentColor}` : 'none',
+                    background: 'var(--bg-elevated)',
+                    outline: 'none',
+                  }}
+                >
+                  {item.isGenerating ? (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div
+                        className="w-4 h-4 rounded-full border-2"
+                        style={{ borderTopColor: accentColor, borderColor: 'var(--border)', animation: 'spin 0.8s linear infinite' }}
+                      />
+                    </div>
+                  ) : item.url && item.isVideo ? (
+                    <video src={item.url} className="w-full h-full object-cover" muted playsInline />
+                  ) : item.url ? (
+                    <img src={item.url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center opacity-30">
+                      <ImageIcon size={16} />
+                    </div>
+                  )}
+                  {/* 選択中インジケーター */}
+                  {isSelected && (
+                    <div
+                      className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                      style={{ background: '#8B5CF6' }}
+                    >
+                      <Check size={9} color="white" strokeWidth={3} />
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // DisplayNode なし: GenNode 自身のステータス
+  const node = nodes.find((n) => n.id === stage.nodeId)
+  const d = (node?.data ?? {}) as Record<string, unknown>
+  const status = (d.status as string) ?? 'idle'
+  const isGenerating = status === 'generating' || status === 'queued' || status === 'processing'
+  const isFailed = status === 'failed' || status === 'error'
+  const outputUrl = stage.nodeType === 'videoGen'
+    ? (d.videoUrl as string | undefined)
+    : (d.output as string | undefined)
+  const progress = stage.nodeType === 'videoGen' ? (d.progress as string | undefined) : undefined
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+      {renderMain(outputUrl, stage.nodeType === 'videoGen', isGenerating, isFailed, progress)}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
 // 右エリア: 大プレビュー
 // ────────────────────────────────────────────
 function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; activeIndex: number }) {
@@ -1924,7 +2315,7 @@ function StepTabs({
   const nodes = useCanvasStore((s) => s.nodes)
 
   return (
-    <div className="flex items-center gap-0 px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+    <div className="flex items-center gap-0 px-2 py-1 md:px-6 md:py-3 flex-shrink-0 overflow-x-auto" style={{ borderBottom: '1px solid var(--border)', scrollbarWidth: 'none' }}>
       {stages.map((stage, i) => {
         const status = getStageStatus(stage.nodeId, nodes, stage.displayNodeIds)
         const isActive = activeIndex === i
@@ -1975,6 +2366,7 @@ export function CapsuleView() {
   const edges = useCanvasStore((s) => s.edges)
   const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
   const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
+  const isMobile = useIsMobile()
 
   const [activePreviewIndex, setActivePreviewIndex] = useState(0)
 
@@ -2005,6 +2397,65 @@ export function CapsuleView() {
         <div className="text-center">
           <div className="text-[14px] font-medium text-[var(--text-tertiary)] mb-1">「{group.data.label}」にノードがありません</div>
           <div className="text-[12px] text-[#52525B]">画像生成・動画生成ノードをグループに追加してください</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (isMobile) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden" style={{ position: 'relative' }}>
+        {/* Read-only overlay */}
+        {!isOwned && (
+          <div
+            className="absolute inset-0 z-50"
+            style={{ cursor: 'not-allowed', background: 'transparent' }}
+          />
+        )}
+
+        {/* Top: preview — 35% + 100px */}
+        <div className="flex flex-col overflow-hidden" style={{ flex: '0 0 calc(35% + 100px)' }}>
+          <StepTabs stages={stages} activeIndex={activePreviewIndex} onChange={handlePreviewChange} />
+          <MobileStagePreview stages={stages} activeIndex={activePreviewIndex} />
+        </div>
+
+        {/* Bottom: input controls — 65% - 100px */}
+        <div
+          className="flex flex-col overflow-hidden"
+          style={{
+            flex: '0 0 calc(65% - 100px)',
+            borderTop: '1px solid var(--border)',
+            background: 'var(--bg-surface)',
+          }}
+        >
+          {/* Panel header */}
+          <div
+            className="flex items-center gap-2.5 px-4 py-4 flex-shrink-0"
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ background: 'var(--bg-panel)' }}
+            >
+              <Layers size={14} style={{ color: '#8B5CF6' }} />
+            </div>
+            <div>
+              <div className="text-[14px] font-semibold text-[var(--text-primary)]">{group.data.label}</div>
+            </div>
+          </div>
+
+          {stages.length > 0 ? (
+            <CapsuleStagePanel
+              stages={stages}
+              globalInputs={inputs}
+              activePreviewIndex={activePreviewIndex}
+              onPreviewChange={handlePreviewChange}
+            />
+          ) : (
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <InputsPanel inputs={inputs} />
+            </div>
+          )}
         </div>
       </div>
     )

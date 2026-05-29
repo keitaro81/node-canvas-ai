@@ -467,11 +467,14 @@ export function Canvas() {
       }
       if (e.key === 'Alt') altStyle.remove()
     }
+    const onBlur = () => altStyle.remove()
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
       altStyle.remove()
     }
   }, [])

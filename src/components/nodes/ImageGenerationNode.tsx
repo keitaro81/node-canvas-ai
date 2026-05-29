@@ -9,7 +9,8 @@ import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadImageFromUrl } from '../../lib/api/storage'
-import { getImageUrlFromNodeData } from '../../lib/utils'
+import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
+import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
 
 function getImageUrlFromNode(node: AppNode): string | null {
   return getImageUrlFromNodeData(node.data)
@@ -20,12 +21,41 @@ const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-pro',                  label: 'Nano Banana Pro' },
   { value: 'fal-ai/recraft/v4/text-to-image',         label: 'Recraft V4' },
   { value: 'fal-ai/recraft/v4/pro/text-to-image',     label: 'Recraft V4 Pro' },
+  { value: 'openai/gpt-image-2',                      label: 'GPT-Image-2' },
 ]
 
 const NB_EDIT_MODELS = [
   { value: 'fal-ai/nano-banana-2',   label: 'Nano Banana 2' },
   { value: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
 ]
+
+const EDIT_MODELS = [
+  ...NB_EDIT_MODELS,
+  { value: 'openai/gpt-image-2',     label: 'GPT-Image-2' },
+]
+
+// インペインティング対応モデル（マスクあり時のみ表示）
+const INPAINT_MODELS = [
+  { value: 'openai/gpt-image-2', label: 'GPT-Image-2' },
+]
+
+const GPT_IMAGE_2_MODELS = new Set(['openai/gpt-image-2'])
+
+// openai/gpt-image-2 の image_size enum（fal.ai API 準拠）
+const GPT_IMAGE_2_SIZES = [
+  { value: 'square_hd',      label: '1:1 HD' },
+  { value: 'square',         label: '1:1' },
+  { value: 'landscape_16_9', label: '16:9' },
+  { value: 'portrait_16_9',  label: '9:16' },
+  { value: 'landscape_4_3',  label: '4:3' },
+  { value: 'portrait_4_3',   label: '3:4' },
+] as const
+
+// edit は auto もサポート
+const GPT_IMAGE_2_EDIT_SIZES = [
+  { value: 'auto',           label: 'auto' },
+  ...GPT_IMAGE_2_SIZES,
+] as const
 
 const NB_RESOLUTIONS: Record<string, string[]> = {
   'fal-ai/nano-banana-2':   ['0.5K', '1K', '2K', '4K'],
@@ -69,6 +99,13 @@ function refHandleTop(i: number): number {
 
 
 /**
+ * 同一セッション内で通常フローとリカバリーフローが競合した場合に
+ * 同じ displayNode の history 登録が二重になるのを防ぐ。
+ * （ユーザーが生成中に別ページへ遷移して戻ると両フローが走ることがある）
+ */
+const completedGenerationNodeIds = new Set<string>()
+
+/**
  * DisplayNode 1件分の生成処理。
  * GenNode の status は呼び出し元（handleGenerate）が管理する。
  */
@@ -78,10 +115,14 @@ async function runGeneration(
   imageUrls: string[],
   params: Record<string, unknown>,
   updateNode: (id: string, data: Partial<NodeData>) => void,
-  onRequestId?: (requestId: string, endpoint: string) => void
+  onRequestId?: (requestId: string, endpoint: string) => void,
+  maskUrl?: string | null
 ) {
   const model = (params.model as string) ?? 'fal-ai/nano-banana-2'
-  const editModel = (params.editModel as string) ?? 'fal-ai/nano-banana-2'
+  // maskUrl がある場合は GPT-image-2 が必須（mask_url パラメーターに対応するのはこのモデルのみ）
+  const editModel = maskUrl
+    ? 'openai/gpt-image-2'
+    : (params.editModel as string) ?? 'fal-ai/nano-banana-2'
   const aspectRatio = (params.aspectRatio as string) ?? '1:1'
   const resolution = (params.resolution as string) ?? '1K'
   const seed = (params.seed as string) ?? ''
@@ -89,12 +130,24 @@ async function runGeneration(
   const isRecraftModel = RECRAFT_MODELS.has(model)
 
   updateNode(displayNodeId, { status: 'generating', output: undefined, params: {} })
+  const workflowId = useWorkflowStore.getState().currentWorkflowId
 
   try {
     let outputImageUrl: string | undefined
     let usedModel: string
 
-    if (imageUrls.length === 0 && isRecraftModel) {
+    if (imageUrls.length === 0 && GPT_IMAGE_2_MODELS.has(model)) {
+      usedModel = model
+      const rawSize = (params.gptImageSize as string) ?? ''
+      const gptImageSize = (!rawSize || rawSize === 'auto') ? 'square_hd' : rawSize
+      const input: Record<string, unknown> = { prompt, image_size: gptImageSize }
+      const result = await fal.subscribe(model, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, model),
+      })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    } else if (imageUrls.length === 0 && isRecraftModel) {
       usedModel = model
       const input: Record<string, unknown> = { prompt, image_size: recraftImageSize }
       if (seed) input.seed = Number(seed)
@@ -111,6 +164,22 @@ async function runGeneration(
       const result = await fal.subscribe(model, {
         input, logs: false,
         onEnqueue: (requestId: string) => onRequestId?.(requestId, model),
+      })
+      outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
+      if (!outputImageUrl) throw new Error('生成に失敗しました')
+    } else if (GPT_IMAGE_2_MODELS.has(editModel)) {
+      const editEndpoint = 'openai/gpt-image-2/edit'
+      usedModel = editEndpoint
+      const gptEditSize = (params.gptImageSize as string) || 'square_hd'
+      const input: Record<string, unknown> = {
+        prompt,
+        image_urls: imageUrls,
+        image_size: gptEditSize,
+      }
+      if (maskUrl) input.mask_url = maskUrl
+      const result = await fal.subscribe(editEndpoint, {
+        input, logs: false,
+        onEnqueue: (requestId: string) => onRequestId?.(requestId, editEndpoint),
       })
       outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
       if (!outputImageUrl) throw new Error('生成に失敗しました')
@@ -151,28 +220,24 @@ async function runGeneration(
     // Storage保存後にStorageURLでgenerationsとthumbnailを更新（fire-and-forget）
     uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
       updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
-      saveGeneration({
-        nodeId: displayNodeId,
-        nodeType: 'image-generation',
-        provider: 'fal',
-        model: usedModel,
-        status: 'completed',
-        outputUrl: storedUrl,
-        inputParams: { prompt, model: usedModel },
-      })
-      useWorkflowStore.getState().updateThumbnail(storedUrl)
-    }).catch(() => {
-      // 保存失敗時はfal.ai URLのままgenerationsとthumbnailを保存
-      saveGeneration({
-        nodeId: displayNodeId,
-        nodeType: 'image-generation',
-        provider: 'fal',
-        model: usedModel,
-        status: 'completed',
-        outputUrl: outputImageUrl!,
-        inputParams: { prompt, model: usedModel },
-      })
-      useWorkflowStore.getState().updateThumbnail(outputImageUrl!)
+      if (!completedGenerationNodeIds.has(displayNodeId)) {
+        completedGenerationNodeIds.add(displayNodeId)
+        saveGeneration({
+          nodeId: displayNodeId,
+          nodeType: 'image-generation',
+          provider: 'fal',
+          model: usedModel,
+          status: 'completed',
+          outputUrl: storedUrl,
+          inputParams: { prompt, model: usedModel },
+        })
+        useWorkflowStore.getState().updateThumbnail(workflowId!, storedUrl)
+      }
+      patchWorkflowNodeOutput(workflowId!, displayNodeId, { output: storedUrl }).catch(() => {})
+    }).catch((uploadErr: unknown) => {
+      console.error('[ImageGen] uploadImageFromUrl failed:', uploadErr)
+      // canvas_data は saveCurrentWorkflow() で fal URL のまま保存済み。
+      // 一時 URL を generations や thumbnail_url に書き込まない（期限切れ URL の混入を防ぐ）
     })
   } catch (err) {
     updateNode(displayNodeId, {
@@ -204,8 +269,27 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   const aspectRatio = (nodeData.params?.aspectRatio as string) ?? '1:1'
   const resolution = (nodeData.params?.resolution as string) ?? '1K'
   const recraftImageSize = (nodeData.params?.recraftImageSize as string) ?? 'square'
+  const gptImageSize = (nodeData.params?.gptImageSize as string) ?? 'square_hd'
   const count = Math.max(1, Math.min(10, (nodeData.params?.count as number) ?? 1))
   const isRecraftModel = RECRAFT_MODELS.has(model)
+  const isGptImage2Model = GPT_IMAGE_2_MODELS.has(model)
+  // hasMask は後で計算するが、UI描画では editModel を GPT-image-2 に強制する必要があるため
+  // ここでは params から直接マスク有無を先読みして effectiveEditModel を決定する
+  const _hasMaskEarly = (() => {
+    const imgEdges = storeEdges.filter(
+      (e) =>
+        e.target === id &&
+        ((REF_HANDLE_IDS as readonly string[]).includes(e.targetHandle ?? '') ||
+          e.targetHandle === 'in-image-1' ||
+          e.targetHandle === 'in-image-reference')
+    )
+    return imgEdges.some((e) => {
+      const n = storeNodes.find((node) => node.id === e.source)
+      return n ? !!getMaskUrlFromNodeData(n.data) : false
+    })
+  })()
+  const effectiveEditModel = _hasMaskEarly ? 'openai/gpt-image-2' : editModel
+  const editIsGptImage2 = GPT_IMAGE_2_MODELS.has(effectiveEditModel)
   const errorMsg = nodeData.params?.error as string | undefined
   const isGenerating = nodeData.status === 'generating'
 
@@ -299,6 +383,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   // 画像接続あり（ListNode 画像モード含む）= Edit mode、テキストモード・なし = T2I
   const hasImages = imageEdges.length > 0 || (isListMode && listNodeMode === 'image')
+
+  // 接続中の参照画像ノードにマスクがあるか
+  const hasMask = imageEdges.some((e) => {
+    const n = storeNodes.find((node) => node.id === e.source)
+    return n ? !!getMaskUrlFromNodeData(n.data) : false
+  })
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -536,6 +626,25 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       params: { ...nodeData.params, error: undefined },
     })
 
+    // 接続中の参照画像ノードからマスクURLを取得（最初に見つかったもの）
+    const connectedMaskUrl = (() => {
+      for (const hid of REF_HANDLE_IDS as readonly string[]) {
+        const edge = allEdges.find(
+          (e) =>
+            e.target === id &&
+            (e.targetHandle === hid ||
+              (hid === 'in-image' &&
+                (e.targetHandle === 'in-image-1' || e.targetHandle === 'in-image-reference')))
+        )
+        if (!edge) continue
+        const n = allNodes.find((n) => n.id === edge.source)
+        if (!n) continue
+        const mask = getMaskUrlFromNodeData(n.data)
+        if (mask) return mask
+      }
+      return null
+    })()
+
     // 全 DisplayNode を並列生成
     // 全 requestId が揃ってから1回だけ保存（並列 onEnqueue の競合を防ぐ）
     let receivedRequestIds = 0
@@ -553,7 +662,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             useWorkflowStore.getState().saveCurrentWorkflow()
           }
         }
-        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode, onRequestId)
+        return runGeneration(displayId, effectivePrompt, imageUrls, nodeData.params, updateNode, onRequestId, connectedMaskUrl)
       })
     )
 
@@ -585,6 +694,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { status: 'generating', params: { ...nodeData.params, error: undefined } })
 
     ;(async () => {
+      const recoveryWorkflowId = useWorkflowStore.getState().currentWorkflowId
       for (const { displayId, requestId, requestEndpoint } of recoverables) {
         try {
           await fal.queue.subscribeToStatus(requestEndpoint, {
@@ -597,11 +707,16 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           const outputImageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url
           if (!outputImageUrl) throw new Error('生成に失敗しました')
           updateNode(displayId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
-          saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: outputImageUrl, inputParams: {} })
-          useWorkflowStore.getState().updateThumbnail(outputImageUrl)
-          // fal.ai の一時URLをSupabase Storageに永続保存（fire-and-forget）
+          // Supabase Storage に永続保存してから history/thumbnail を更新（fal URL の混入を防ぐ）
+          // completedGenerationNodeIds で通常フローとの二重登録も防止
           uploadImageFromUrl(outputImageUrl, displayId).then((storedUrl) => {
             updateNode(displayId, { output: storedUrl } as Partial<NodeData>)
+            if (!completedGenerationNodeIds.has(displayId)) {
+              completedGenerationNodeIds.add(displayId)
+              saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: storedUrl, inputParams: {} })
+              useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId!, storedUrl)
+            }
+            patchWorkflowNodeOutput(recoveryWorkflowId!, displayId, { output: storedUrl }).catch(() => {})
           }).catch(() => {})
         } catch (err) {
           updateNode(displayId, { status: 'error', params: { error: (err as Error).message }, requestId: null, requestEndpoint: null } as Partial<NodeData>)
@@ -723,10 +838,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               className="text-[10px] rounded-full px-1.5 py-0.5 font-medium"
               style={!hasImages
                 ? { background: 'rgba(99,102,241,0.15)', color: '#6366F1' }
+                : hasMask
+                ? { background: 'rgba(34,197,94,0.15)', color: '#22C55E' }
                 : { background: 'rgba(34,197,94,0.15)', color: '#22C55E' }
               }
             >
-              {!hasImages ? 'T2I' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
+              {!hasImages ? 'T2I' : hasMask ? 'Inpaint' : editIsGptImage2 ? 'GPT2 Edit' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
             </span>
           </div>
 
@@ -759,9 +876,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                       <span style={{ color: 'var(--border-active)', fontSize: 16 }}>·</span>
                     )}
                   </div>
-                  <span className="text-[11px]" style={{ color: imgUrl ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                  <span className="flex-1 text-[11px]" style={{ color: imgUrl ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
                     参照 {i + 1}
                   </span>
+                  {imgUrl && srcNode && getMaskUrlFromNodeData(srcNode.data) && (
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#22C55E' }} title="マスクあり" />
+                  )}
                 </div>
               )
             })}
@@ -778,7 +898,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <select
                   className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
                   style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-                  value={editModel}
+                  value={effectiveEditModel}
                   onChange={(e) => {
                     const newEditModel = e.target.value
                     const currentRes = nodeData.params?.resolution as string ?? '1K'
@@ -791,7 +911,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                   }}
                   disabled={isGenerating}
                 >
-                  {NB_EDIT_MODELS.map((m) => (
+                  {(hasMask ? INPAINT_MODELS : EDIT_MODELS).map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
@@ -828,13 +948,30 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             </>
           )}
 
-          {/* Aspect Ratio: Recraftは image_size セレクト、NB系はモデル別比率セレクト */}
+          {/* Aspect Ratio / Size: モデルによって切り替え */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Aspect Ratio</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">
+                {(isGptImage2Model && !hasImages) || (hasImages && editIsGptImage2) ? 'Size' : 'Aspect Ratio'}
+              </label>
               <CapsuleFieldToggle fieldId="aspectRatio" visibility={getCapsuleVisibility('aspectRatio')} onChange={handleCapsuleChange} />
             </div>
-            {!hasImages && isRecraftModel ? (
+            {(isGptImage2Model && !hasImages) || (hasImages && editIsGptImage2) ? (
+              <div className="relative">
+                <select
+                  className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
+                  style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                  value={gptImageSize}
+                  onChange={(e) => updateNode(id, { params: { ...nodeData.params, gptImageSize: e.target.value } })}
+                  disabled={isGenerating}
+                >
+                  {(hasImages && editIsGptImage2 ? GPT_IMAGE_2_EDIT_SIZES : GPT_IMAGE_2_SIZES).map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+              </div>
+            ) : !hasImages && isRecraftModel ? (
               <div className="relative">
                 <select
                   className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
@@ -858,7 +995,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                   onChange={(e) => updateNode(id, { params: { ...nodeData.params, aspectRatio: e.target.value } })}
                   disabled={isGenerating}
                 >
-                  {(NB_ASPECT_RATIOS[hasImages ? editModel : model] ?? NB_ASPECT_RATIOS_DEFAULT).map((ratio) => (
+                  {(NB_ASPECT_RATIOS[hasImages ? effectiveEditModel : model] ?? NB_ASPECT_RATIOS_DEFAULT).map((ratio) => (
                     <option key={ratio} value={ratio}>{ratio}</option>
                   ))}
                 </select>
@@ -869,7 +1006,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
 
           {/* Resolution: NB系モデルのみ */}
           {(() => {
-            const activeModel = hasImages ? editModel : model
+            const activeModel = hasImages ? effectiveEditModel : model
             const resolutions = NB_RESOLUTIONS[activeModel]
             if (!resolutions) return null
             return (

@@ -120,9 +120,6 @@
 }
 
 /* React Flow overrides */
-.react-flow__renderer {
-  background: var(--bg-canvas);
-}
 
 /* Read-only canvas: ノード・エッジの操作を全て無効化 */
 .canvas-readonly .react-flow__node,

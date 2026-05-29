@@ -4,21 +4,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { MonitorPlay, Play, Pause, RotateCcw, Download, Maximize2, Video as VideoIcon, X, Volume2, VolumeX, Loader2, AlertCircle } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import type { VideoDisplayNodeData } from '../../types/nodes'
-
-async function downloadFile(url: string, filename: string) {
-  try {
-    const response = await fetch(url)
-    const blob = await response.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(url, '_blank')
-  }
-}
+import { downloadFile } from '../../lib/downloadFile'
 
 function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as VideoDisplayNodeData
@@ -56,13 +42,21 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   return (
     <>
       <div
-        className={`node-popin relative flex flex-col w-[320px] rounded-xl overflow-visible border transition-all duration-150 ${selected ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]' : 'border-[var(--border)]'}`}
+        className={`node-popin relative flex flex-col w-[280px] rounded-xl overflow-visible border transition-all duration-150 ${selected ? 'border-[#8B5CF6] shadow-[0_0_0_1px_rgba(139,92,246,0.3)]' : 'border-[var(--border)]'}`}
         style={{ background: 'var(--bg-surface)' }}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
           <MonitorPlay size={14} className="shrink-0" style={{ color: '#EC4899' }} />
           <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
+          <button
+            className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag"
+            style={{ color: 'var(--text-tertiary)' }}
+            onClick={() => useCanvasStore.getState().removeNode(id)}
+            title="削除"
+          >
+            <X size={12} />
+          </button>
         </div>
 
         {/* Input handle */}

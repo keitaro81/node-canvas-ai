@@ -18,24 +18,26 @@ import {
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 function SaveStatus() {
   const { isSaving, hasUnsavedChanges, lastSavedAt } = useWorkflowStore()
+  const isMobile = useIsMobile()
 
   if (isSaving) {
     return (
-      <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+      <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--text-tertiary)' }}>
         <CircleNotch size={11} className="animate-spin" />
-        保存中...
+        {!isMobile && '保存中...'}
       </span>
     )
   }
 
   if (hasUnsavedChanges) {
     return (
-      <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--warning)' }}>
+      <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--warning)' }}>
         <Clock size={11} />
-        未保存の変更あり
+        {!isMobile && '未保存の変更あり'}
       </span>
     )
   }
@@ -45,9 +47,9 @@ function SaveStatus() {
     const mins = Math.floor(diff / 60000)
     const label = mins < 1 ? 'たった今' : `${mins}分前`
     return (
-      <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--success)' }}>
+      <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--success)' }}>
         <Check size={11} weight="bold" />
-        {label}に保存
+        {!isMobile && `${label}に保存`}
       </span>
     )
   }
@@ -62,6 +64,7 @@ interface HeaderProps {
 
 export function Header({ theme, onToggleTheme }: HeaderProps) {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { user, signOut } = useAuth()
   const {
     currentWorkflowName,
@@ -131,7 +134,7 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
       }}
     >
       {/* Left: Back + Workflow name + save status */}
-      <div className="flex items-center gap-2 min-w-0" style={{ width: '35%' }}>
+      <div className="flex items-center gap-2 min-w-0" style={{ width: isMobile ? '70%' : '45%' }}>
         {/* Back to home */}
         <button
           onClick={() => navigate('/projects')}
@@ -179,46 +182,49 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
         {currentWorkflowIsOwned && <SaveStatus />}
       </div>
 
-      {/* Center: Mode toggle */}
+      {/* Center: Mode toggle — デスクトップのみ */}
       <div className="flex-1 flex items-center justify-center">
-        <div
-          className="flex items-center p-0.5 rounded-full"
-          style={{
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <button
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150"
-            style={
-              appMode === 'graph'
-                ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
-                : { background: 'transparent', color: 'var(--text-tertiary)' }
-            }
-            onClick={() => setAppMode('graph')}
+        {!isMobile && (
+          <div
+            className="flex items-center p-0.5 rounded-full"
+            style={{
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+            }}
           >
-            <TreeStructure size={13} weight={appMode === 'graph' ? 'bold' : 'regular'} />
-            Canvas
-          </button>
-          <button
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150"
-            style={
-              appMode === 'capsule'
-                ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
-                : { background: 'transparent', color: 'var(--text-tertiary)' }
-            }
-            onClick={() => setAppMode('capsule')}
-          >
-            <Stack size={13} weight={appMode === 'capsule' ? 'bold' : 'regular'} />
-            App
-          </button>
-        </div>
+            <button
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150"
+              style={
+                appMode === 'graph'
+                  ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                  : { background: 'transparent', color: 'var(--text-tertiary)' }
+              }
+              onClick={() => setAppMode('graph')}
+            >
+              <TreeStructure size={13} weight={appMode === 'graph' ? 'bold' : 'regular'} />
+              Canvas
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150"
+              style={
+                appMode === 'capsule'
+                  ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                  : { background: 'transparent', color: 'var(--text-tertiary)' }
+              }
+              onClick={() => setAppMode('capsule')}
+            >
+              <Stack size={13} weight={appMode === 'capsule' ? 'bold' : 'regular'} />
+              App
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Right: Public toggle / Read only + Clone + Theme + User + Settings */}
       <div className="flex items-center justify-end gap-1 shrink-0" style={{ width: '35%' }}>
         {currentWorkflowIsOwned ? (
-          /* Public/Private toggle — 自分のワークフロー */
+          /* Public/Private toggle — 自分のワークフロー（モバイルでは非表示） */
+          !isMobile && (
           <button
             onClick={handleTogglePublic}
             disabled={togglingPublic}
@@ -238,6 +244,7 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
             }
             {currentWorkflowIsPublic ? 'Public' : 'Private'}
           </button>
+          )
         ) : (
           /* Read only + Clone — 他人のワークフロー */
           <>
@@ -264,21 +271,23 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
           </>
         )}
 
-        {/* Theme toggle */}
-        <button
-          onClick={onToggleTheme}
-          className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-          title={theme === 'light' ? 'ダークモードへ' : 'ライトモードへ'}
-        >
-          {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
-        </button>
+        {/* Theme toggle — デスクトップのみ */}
+        {!isMobile && (
+          <button
+            onClick={onToggleTheme}
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            title={theme === 'light' ? 'ダークモードへ' : 'ライトモードへ'}
+          >
+            {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+          </button>
+        )}
 
         {user && (
           <>
-            {currentWorkflowIsOwned && (
+            {!isMobile && currentWorkflowIsOwned && (
               <span
                 className="text-[12px] truncate max-w-[120px]"
                 style={{ color: 'var(--text-tertiary)' }}
@@ -287,27 +296,31 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
                 {user.email}
               </span>
             )}
-            <button
-              onClick={signOut}
-              className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
-              style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-              title="ログアウト"
-            >
-              <SignOut size={15} />
-            </button>
+            {!isMobile && (
+              <button
+                onClick={signOut}
+                className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                title="ログアウト"
+              >
+                <SignOut size={15} />
+              </button>
+            )}
           </>
         )}
-        <button
-          className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-          title="設定"
-        >
-          <Gear size={15} />
-        </button>
+        {!isMobile && (
+          <button
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors duration-150"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            title="設定"
+          >
+            <Gear size={15} />
+          </button>
+        )}
       </div>
     </header>
   )
