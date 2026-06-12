@@ -26,10 +26,12 @@ export async function getUserQuotaUsage(): Promise<{ images: number; videos: num
 }
 
 export async function checkQuota(type: 'image' | 'video'): Promise<{ allowed: boolean; used: number; limit: number }> {
-  // user_metadata はログイン時のJWTにキャッシュされるため、
-  // サーバーから最新情報を取得して設定変更を即時反映させる
+  // メタデータはログイン時のJWTにキャッシュされるため、
+  // サーバーから最新情報を取得して設定変更を即時反映させる。
+  // 上限は app_metadata から読む（service role のみ変更可能）。
+  // user_metadata は本人が auth.updateUser() で書き換えられるため使用しない。
   const { data: { user: freshUser } } = await supabase.auth.getUser()
-  const meta = freshUser?.user_metadata ?? {}
+  const meta = freshUser?.app_metadata ?? {}
   const limitImage = typeof meta.quota_image === 'number' ? meta.quota_image : QUOTA_IMAGE
   const limitVideo = typeof meta.quota_video === 'number' ? meta.quota_video : QUOTA_VIDEO
 
