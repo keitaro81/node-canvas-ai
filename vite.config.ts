@@ -5,6 +5,15 @@ import path from 'path'
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+// SSRF対策: fal.ai の生成物配信ドメイン以外はサーバーサイド fetch しない
+// （api/storage/save-image.ts と同一ロジック。変更時は両方更新する）
+function isAllowedSourceUrl(url: URL): boolean {
+  if (url.protocol !== 'https:') return false
+  return url.hostname === 'fal.media' || url.hostname.endsWith('.fal.media')
+}
+
+const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
 /**
  * ローカル開発専用: 画像をサーバーサイドで fetch して Supabase Storage に保存する
  * Vite Dev Server ミドルウェア。
@@ -43,6 +52,19 @@ function devImageProxyPlugin(): Plugin {
               }
               const { sourceUrl, nodeId } = body
               if (!sourceUrl || !nodeId) throw new Error('Missing sourceUrl or nodeId')
+
+              let parsedSource: URL
+              try {
+                parsedSource = new URL(sourceUrl)
+              } catch {
+                throw new Error('Invalid source URL')
+              }
+              if (!isAllowedSourceUrl(parsedSource)) {
+                throw new Error(`Source URL not allowed: ${parsedSource.hostname}`)
+              }
+              if (!NODE_ID_PATTERN.test(nodeId)) {
+                throw new Error('Invalid nodeId')
+              }
 
               if (!supabaseUrl || !serviceKey) {
                 throw new Error(
