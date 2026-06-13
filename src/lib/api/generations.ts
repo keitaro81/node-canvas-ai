@@ -160,3 +160,40 @@ export async function getMyGenerations(): Promise<GenerationWithWorkflow[]> {
     workflow_name: workflowMap[g.workflow_id] ?? 'Unknown',
   }))
 }
+
+/**
+ * 履歴削除エンドポイントを呼ぶ（DB行 + Storage ファイルをサーバー側 service role で削除）。
+ * - ローカル開発（VITE_FAL_KEY あり）: Vite Dev Server ミドルウェア /dev-proxy/delete-generation
+ * - 本番: Edge Function /api/storage/delete-generation
+ */
+async function callDeleteEndpoint(body: { generationId?: string; workflowId?: string }): Promise<number> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('Not authenticated')
+
+  const url = import.meta.env.VITE_FAL_KEY
+    ? '/dev-proxy/delete-generation'
+    : '/api/storage/delete-generation'
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(err.error ?? `Delete failed (${res.status})`)
+  }
+  const data = await res.json() as { deleted: number }
+  return data.deleted
+}
+
+/** 生成1件を削除する（DB行 + Storage）。クォータ消費は戻さない。 */
+export async function deleteGeneration(generationId: string): Promise<void> {
+  await callDeleteEndpoint({ generationId })
+}
+
+/** ワークフロー配下の全生成物（DB行 + Storage）を削除する。ワークフロー本体の削除前に呼ぶ。 */
+export async function deleteGenerationsByWorkflow(workflowId: string): Promise<number> {
+  return callDeleteEndpoint({ workflowId })
+}

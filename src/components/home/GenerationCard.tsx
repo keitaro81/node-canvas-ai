@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Play, Download, ArrowsOut, X } from '@phosphor-icons/react'
+import { Play, Download, ArrowsOut, X, Trash, CircleNotch } from '@phosphor-icons/react'
 import type { GenerationWithWorkflow } from '../../lib/api/generations'
+import { deleteGeneration } from '../../lib/api/generations'
 import { downloadFile } from '../../lib/downloadFile'
+import { showToast } from '../../hooks/useToast'
 
 interface GenerationCardProps {
   generation: GenerationWithWorkflow
+  onDeleted?: (id: string) => void
 }
 
 function formatDate(dateStr: string): string {
@@ -25,10 +28,12 @@ function isVideoUrl(url: string): boolean {
 }
 
 
-export function GenerationCard({ generation }: GenerationCardProps) {
+export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
   const url = generation.output_url!
   const isVideo = isVideoUrl(url) || generation.node_type === 'video-generation'
   const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const filename = isVideo
     ? `generation-${generation.id.slice(0, 8)}.mp4`
@@ -37,6 +42,19 @@ export function GenerationCard({ generation }: GenerationCardProps) {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation()
     downloadFile(url, filename)
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await deleteGeneration(generation.id)
+      onDeleted?.(generation.id)
+      // 成功時は親が一覧から除去するためアンマウントされる
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '削除に失敗しました', 'error')
+      setDeleting(false)
+      setConfirmOpen(false)
+    }
   }
 
   return (
@@ -99,6 +117,14 @@ export function GenerationCard({ generation }: GenerationCardProps) {
               title="拡大表示"
             >
               <ArrowsOut size={15} weight="bold" />
+            </button>
+            <button
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+              style={{ background: 'rgba(239,68,68,0.85)' }}
+              onClick={(e) => { e.stopPropagation(); setConfirmOpen(true) }}
+              title="削除"
+            >
+              <Trash size={15} weight="bold" />
             </button>
           </div>
 
@@ -165,6 +191,14 @@ export function GenerationCard({ generation }: GenerationCardProps) {
               </button>
               <button
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white"
+                style={{ background: 'rgba(239,68,68,0.85)' }}
+                onClick={(e) => { e.stopPropagation(); setLightboxOpen(false); setConfirmOpen(true) }}
+                title="削除"
+              >
+                <Trash size={15} weight="bold" />
+              </button>
+              <button
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white"
                 style={{ background: 'rgba(0,0,0,0.6)' }}
                 onClick={() => setLightboxOpen(false)}
                 title="閉じる"
@@ -191,6 +225,48 @@ export function GenerationCard({ generation }: GenerationCardProps) {
               >
                 <Download size={13} weight="bold" />
                 Download
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 削除確認ダイアログ */}
+      {confirmOpen && createPortal(
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)', zIndex: 100000 }}
+          onClick={() => { if (!deleting) setConfirmOpen(false) }}
+        >
+          <div
+            className="rounded-xl p-5 w-[320px]"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+              生成物を削除
+            </p>
+            <p className="text-[12px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+              この画像／動画をサーバーからも完全に削除します。この操作は取り消せません。
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium disabled:opacity-50"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+                onClick={() => setConfirmOpen(false)}
+                disabled={deleting}
+              >
+                キャンセル
+              </button>
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-white disabled:opacity-60"
+                style={{ background: '#EF4444' }}
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting && <CircleNotch size={13} className="animate-spin" />}
+                削除
               </button>
             </div>
           </div>

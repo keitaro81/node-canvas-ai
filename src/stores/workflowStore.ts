@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { showToast } from '../hooks/useToast'
 import { getProjects, createProject } from '../lib/api/projects'
+import { deleteGenerationsByWorkflow } from '../lib/api/generations'
 import {
   getWorkflows,
   getWorkflow,
@@ -179,6 +180,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   async deleteWorkflow(id: string): Promise<void> {
+    // 先に配下の生成物（DB行 + Storage ファイル）を削除して孤児化を防ぐ。
+    // 失敗してもワークフロー本体の削除は進める（UXを止めない）。
+    try {
+      await deleteGenerationsByWorkflow(id)
+    } catch (err) {
+      console.warn('[deleteWorkflow] 生成物のカスケード削除に失敗:', err)
+    }
     await deleteWorkflow(id)
     const { currentWorkflowId } = get()
     await get().loadWorkflows()

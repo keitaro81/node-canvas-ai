@@ -14,6 +14,61 @@ function isAllowedSourceUrl(url: URL): boolean {
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
+// 履歴削除のサーバーロジック（api/storage/delete-generation.ts と同一。変更時は両方更新）
+function parseStorageUrl(url: string | null): { bucket: string; path: string } | null {
+  if (!url) return null
+  const marker = '/object/public/'
+  const i = url.indexOf(marker)
+  if (i === -1) return null
+  const rest = url.slice(i + marker.length)
+  const slash = rest.indexOf('/')
+  if (slash === -1) return null
+  return { bucket: rest.slice(0, slash), path: decodeURIComponent(rest.slice(slash + 1)) }
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function removeStorageObjects(admin: any, urls: (string | null)[]): Promise<void> {
+  const byBucket = new Map<string, string[]>()
+  for (const u of urls) {
+    const parsed = parseStorageUrl(u)
+    if (!parsed) continue
+    const list = byBucket.get(parsed.bucket) ?? []
+    list.push(parsed.path)
+    byBucket.set(parsed.bucket, list)
+  }
+  for (const [bucket, paths] of byBucket) {
+    const { error } = await admin.storage.from(bucket).remove(paths)
+    if (error) console.warn(`[dev-delete] storage remove failed (${bucket}):`, error.message)
+  }
+}
+async function deleteGenerationServer(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  userId: string,
+  body: { generationId?: string; workflowId?: string },
+): Promise<{ deleted: number }> {
+  if (body.generationId) {
+    const { data: gen } = await admin
+      .from('generations').select('id, output_url, user_id').eq('id', body.generationId).maybeSingle()
+    if (!gen) throw new Error('Not found')
+    if (gen.user_id !== userId) throw new Error('Forbidden')
+    await removeStorageObjects(admin, [gen.output_url])
+    await admin.from('generations').delete().eq('id', gen.id)
+    return { deleted: 1 }
+  }
+  if (body.workflowId) {
+    const { data: wf } = await admin.from('workflows').select('id, project_id').eq('id', body.workflowId).maybeSingle()
+    if (!wf) return { deleted: 0 }
+    const { data: project } = await admin.from('projects').select('user_id').eq('id', wf.project_id).maybeSingle()
+    if (!project || project.user_id !== userId) throw new Error('Forbidden')
+    const { data: gens } = await admin.from('generations').select('id, output_url').eq('workflow_id', body.workflowId)
+    const rows = (gens ?? []) as { id: string; output_url: string | null }[]
+    await removeStorageObjects(admin, rows.map((r) => r.output_url))
+    await admin.from('generations').delete().eq('workflow_id', body.workflowId)
+    return { deleted: rows.length }
+  }
+  throw new Error('Missing generationId or workflowId')
+}
+
 /**
  * ローカル開発専用: 画像をサーバーサイドで fetch して Supabase Storage に保存する
  * Vite Dev Server ミドルウェア。
@@ -103,6 +158,44 @@ function devImageProxyPlugin(): Plugin {
               res.end(JSON.stringify({ url: publicUrl }))
             } catch (err) {
               console.error('[dev-image-proxy] error:', err)
+              res.writeHead(500, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: String(err) }))
+            }
+          })
+        }
+      )
+
+      // 履歴削除: POST /dev-proxy/delete-generation { generationId | workflowId }
+      server.middlewares.use(
+        '/dev-proxy/delete-generation',
+        async (req: IncomingMessage, res: ServerResponse) => {
+          if (req.method !== 'POST') {
+            res.writeHead(405)
+            res.end()
+            return
+          }
+          const chunks: Buffer[] = []
+          req.on('data', (chunk: Buffer) => chunks.push(chunk))
+          req.on('end', async () => {
+            try {
+              if (!supabaseUrl || !serviceKey) {
+                throw new Error('SUPABASE_SERVICE_ROLE_KEY が .env.local に設定されていません。')
+              }
+              const token = (req.headers.authorization ?? '').replace(/^Bearer /, '')
+              if (!token) throw new Error('No token')
+              const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+                generationId?: string
+                workflowId?: string
+              }
+              const { createClient } = await import('@supabase/supabase-js')
+              const admin = createClient(supabaseUrl, serviceKey)
+              const { data: { user } } = await admin.auth.getUser(token)
+              if (!user) throw new Error('Unauthorized')
+              const result = await deleteGenerationServer(admin, user.id, body)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(result))
+            } catch (err) {
+              console.error('[dev-delete-generation] error:', err)
               res.writeHead(500, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ error: String(err) }))
             }
