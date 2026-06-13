@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useAuthStore } from '../../stores/authStore'
+import { useTeamStore } from '../../stores/teamStore'
 import { showToast } from '../../hooks/useToast'
 import { supabase } from '../../lib/supabase'
 
@@ -10,9 +11,32 @@ function isOAuthUser(user: ReturnType<typeof useAuth>['user']): boolean {
   return provider === 'google' || provider === 'github'
 }
 
+function UsageRow({ label, unit, used, limit, color }: { label: string; unit: string; used: number; limit: number; color: string }) {
+  const ratio = limit > 0 ? (used / limit) * 100 : 0
+  // 0より多ければ必ず見えるよう最小1.5%のスリバーを表示
+  const pct = used > 0 ? Math.min(100, Math.max(1.5, ratio)) : 0
+  const over = limit > 0 && used >= limit
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+        <span className="text-[12px] tabular-nums" style={{ color: over ? '#EF4444' : 'var(--text-primary)' }}>
+          {used} / {limit} {unit}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+        <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, background: over ? '#EF4444' : color }} />
+      </div>
+    </div>
+  )
+}
+
 export function MyPage() {
   const { user, sendPasswordResetEmail } = useAuth()
   const updatePassword = useAuthStore((s) => s.updatePassword)
+  const teamContext = useTeamStore((s) => s.context)
+  const teamLoading = useTeamStore((s) => s.loading)
+  const loadTeamContext = useTeamStore((s) => s.loadTeamContext)
 
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -31,6 +55,9 @@ export function MyPage() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  // 開いたときに当月の使用状況を取り直す（鮮度のため）
+  useEffect(() => { loadTeamContext() }, [loadTeamContext])
 
   async function handleSendReset() {
     if (!user?.email) return
@@ -94,6 +121,31 @@ export function MyPage() {
           {isOAuth && (
             <p className="text-[11px] mt-3" style={{ color: 'var(--text-tertiary)' }}>
               Google アカウントでログイン中
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* Usage section */}
+      <section className="mb-8">
+        <h2 className="text-[11px] font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-tertiary)' }}>
+          Usage
+        </h2>
+        <div
+          className="rounded-xl border px-4 py-4"
+          style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+        >
+          {teamContext ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                今月の生成数（チーム合計・毎月1日リセット）
+              </p>
+              <UsageRow label="画像" unit="枚" used={teamContext.usedImage} limit={teamContext.quotaImageMonthly} color="#8B5CF6" />
+              <UsageRow label="動画" unit="本" used={teamContext.usedVideo} limit={teamContext.quotaVideoMonthly} color="#EC4899" />
+            </div>
+          ) : (
+            <p className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+              {teamLoading ? '読み込み中...' : 'チームに所属していません。運営にお問い合わせください。'}
             </p>
           )}
         </div>
