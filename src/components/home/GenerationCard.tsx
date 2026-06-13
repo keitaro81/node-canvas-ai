@@ -27,8 +27,8 @@ function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|mov)(\?|$)/i.test(url)
 }
 
-// 保存期間（リテンション）。サーバーの自動削除（RETENTION_DAYS）と一致させること。
-const RETENTION_DAYS = 30
+// 保存期間（リテンション）。サーバーの自動削除（cron の DEFAULT_RETENTION_DAYS / RETENTION_DAYS env）と一致させること。
+const RETENTION_DAYS = 90
 function daysUntilDeletion(createdStr: string): number {
   const expiry = new Date(createdStr).getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000
   return Math.ceil((expiry - Date.now()) / (24 * 60 * 60 * 1000))

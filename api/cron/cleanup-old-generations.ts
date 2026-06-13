@@ -3,7 +3,8 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 
 // 保存期間（日）。GenerationCard の RETENTION_DAYS と一致させること。
-const DEFAULT_RETENTION_DAYS = 30
+// 当面90日（ベータの既存履歴を守る）。GA で見直し（容量枠 or 短縮）。RETENTION_DAYS env で上書き可。
+const DEFAULT_RETENTION_DAYS = 90
 // 1回の呼び出しで処理する最大件数（タイムアウト回避。storage.remove はバケット単位で一括）。
 const BATCH = 500
 
