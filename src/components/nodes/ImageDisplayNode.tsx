@@ -1,7 +1,7 @@
 import { memo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps, useNodes, useEdges } from '@xyflow/react'
-import { Monitor, Download, Maximize2, ImageIcon, X, Loader2, AlertCircle, Paintbrush } from 'lucide-react'
+import { Monitor, Download, Maximize2, ImageIcon, ImageOff, X, Loader2, AlertCircle, Paintbrush } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import type { NodeData } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -32,6 +32,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const status = (data.status as string) ?? 'idle'
   const isGenerating = status === 'generating'
   const isError = status === 'error'
+  const isDeleted = (data as { deleted?: boolean }).deleted === true
   const errorMsg = data.params?.error as string | undefined
 
   const handleDownload = (e: React.MouseEvent) => {
@@ -75,6 +76,14 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
           >
             <AlertCircle size={20} style={{ color: '#EF4444' }} />
             <span className="text-[11px] text-center" style={{ color: '#EF4444' }}>{errorMsg || '生成に失敗しました'}</span>
+          </div>
+        ) : isDeleted ? (
+          <div
+            className="flex flex-col items-center justify-center gap-2 rounded-lg py-8 px-3"
+            style={{ border: '1px dashed var(--border)', minHeight: 80 }}
+          >
+            <ImageOff size={20} style={{ color: 'var(--text-tertiary)' }} />
+            <span className="text-[11px] text-center" style={{ color: 'var(--text-tertiary)' }}>画像を表示できません</span>
           </div>
         ) : imageUrl ? (
           <>

@@ -25,6 +25,30 @@ function parseStorageUrl(url: string | null): { bucket: string; path: string } |
   if (slash === -1) return null
   return { bucket: rest.slice(0, slash), path: decodeURIComponent(rest.slice(slash + 1)) }
 }
+function clearDeletedUrlFromCanvas(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  canvasData: any,
+  url: string,
+): { changed: boolean; data: unknown } {
+  if (!canvasData || !Array.isArray(canvasData.nodes)) return { changed: false, data: canvasData }
+  let changed = false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nodes = canvasData.nodes.map((node: any) => {
+    const d = node?.data ?? {}
+    const next = { ...d }
+    let nodeChanged = false
+    for (const f of ['output', 'imageUrl', 'videoUrl', 'uploadedImagePreview']) {
+      if (next[f] === url) { next[f] = null; nodeChanged = true }
+    }
+    if (next.params && next.params.imageUrl === url) {
+      next.params = { ...next.params, imageUrl: null }
+      nodeChanged = true
+    }
+    if (nodeChanged) { next.deleted = true; changed = true; return { ...node, data: next } }
+    return node
+  })
+  return changed ? { changed: true, data: { ...canvasData, nodes } } : { changed: false, data: canvasData }
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function removeStorageObjects(admin: any, urls: (string | null)[]): Promise<void> {
   const byBucket = new Map<string, string[]>()
@@ -48,11 +72,23 @@ async function deleteGenerationServer(
 ): Promise<{ deleted: number }> {
   if (body.generationId) {
     const { data: gen } = await admin
-      .from('generations').select('id, output_url, user_id').eq('id', body.generationId).maybeSingle()
+      .from('generations').select('id, output_url, user_id, workflow_id').eq('id', body.generationId).maybeSingle()
     if (!gen) throw new Error('Not found')
     if (gen.user_id !== userId) throw new Error('Forbidden')
     await removeStorageObjects(admin, [gen.output_url])
     await admin.from('generations').delete().eq('id', gen.id)
+    // キャンバスの参照クリア + サムネ修正（同一ワークフロー）
+    if (gen.output_url && gen.workflow_id) {
+      const { data: wf } = await admin
+        .from('workflows').select('canvas_data, thumbnail_url').eq('id', gen.workflow_id).maybeSingle()
+      if (wf) {
+        const patch: Record<string, unknown> = {}
+        const { changed, data } = clearDeletedUrlFromCanvas(wf.canvas_data, gen.output_url)
+        if (changed) patch.canvas_data = data
+        if (wf.thumbnail_url === gen.output_url) patch.thumbnail_url = null
+        if (Object.keys(patch).length > 0) await admin.from('workflows').update(patch).eq('id', gen.workflow_id)
+      }
+    }
     return { deleted: 1 }
   }
   if (body.workflowId) {

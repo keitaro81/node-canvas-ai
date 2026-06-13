@@ -17,6 +17,7 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const fileName = nodeData.fileName ?? null
   const isGenerating = nodeData.status === 'queued' || nodeData.status === 'processing'
   const isError = nodeData.status === 'failed'
+  const isDeleted = (nodeData as { deleted?: boolean }).deleted === true
 
   useEffect(() => {
     if (videoUrl && videoRef.current && nodeData.autoPlay) {
@@ -91,6 +92,14 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
             >
               <AlertCircle size={24} style={{ color: '#EF4444' }} />
               <span className="text-[11px] text-center px-2" style={{ color: '#EF4444' }}>{nodeData.error || '生成に失敗しました'}</span>
+            </div>
+          ) : isDeleted ? (
+            <div
+              className="flex flex-col items-center justify-center gap-2 rounded-lg py-8"
+              style={{ border: '1px dashed var(--border)', minHeight: 140 }}
+            >
+              <VideoIcon size={28} style={{ color: 'var(--text-tertiary)' }} />
+              <span className="text-[11px] text-center px-2" style={{ color: 'var(--text-tertiary)' }}>動画を表示できません</span>
             </div>
           ) : videoUrl ? (
             <>
