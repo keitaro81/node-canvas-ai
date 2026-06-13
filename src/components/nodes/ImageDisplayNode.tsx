@@ -15,6 +15,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const updateNode = useCanvasStore((s) => s.updateNode)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [showMaskModal, setShowMaskModal] = useState(false)
+  const [imgFailed, setImgFailed] = useState(false)
 
   const incomingEdge = edges.find(
     (e) => e.target === props.id && e.targetHandle === 'in-image-image-in'
@@ -34,6 +35,13 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const isError = status === 'error'
   const isDeleted = (data as { deleted?: boolean }).deleted === true
   const errorMsg = data.params?.error as string | undefined
+
+  // imageUrl が変わったらロード失敗フラグをリセット（レンダー中調整・effect不要）
+  const [prevImageUrl, setPrevImageUrl] = useState<string | null>(imageUrl)
+  if (imageUrl !== prevImageUrl) {
+    setPrevImageUrl(imageUrl)
+    setImgFailed(false)
+  }
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -77,7 +85,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
             <AlertCircle size={20} style={{ color: '#EF4444' }} />
             <span className="text-[11px] text-center" style={{ color: '#EF4444' }}>{errorMsg || '生成に失敗しました'}</span>
           </div>
-        ) : isDeleted ? (
+        ) : (isDeleted || imgFailed) ? (
           <div
             className="flex flex-col items-center justify-center gap-2 rounded-lg py-8 px-3"
             style={{ border: '1px dashed var(--border)', minHeight: 80 }}
@@ -96,6 +104,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
                 src={imageUrl}
                 alt="Display"
                 className="w-full h-auto block"
+                onError={() => setImgFailed(true)}
               />
               {maskPreviewDataUrl && (
                 <img

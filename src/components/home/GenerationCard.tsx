@@ -27,6 +27,13 @@ function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|mov)(\?|$)/i.test(url)
 }
 
+// 保存期間（リテンション）。サーバーの自動削除（cron の DEFAULT_RETENTION_DAYS / RETENTION_DAYS env）と一致させること。
+const RETENTION_DAYS = 90
+function daysUntilDeletion(createdStr: string): number {
+  const expiry = new Date(createdStr).getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000
+  return Math.ceil((expiry - Date.now()) / (24 * 60 * 60 * 1000))
+}
+
 
 export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
   const url = generation.output_url!
@@ -149,6 +156,15 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
             {formatDate(generation.created_at)}
           </p>
+          {(() => {
+            const d = daysUntilDeletion(generation.created_at)
+            const urgent = d <= 3
+            return (
+              <p className="text-[10px] mt-0.5" style={{ color: urgent ? '#F59E0B' : 'var(--text-tertiary)' }}>
+                {d > 0 ? `あと${d}日で削除` : 'まもなく削除されます'}
+              </p>
+            )
+          })()}
         </div>
       </div>
 

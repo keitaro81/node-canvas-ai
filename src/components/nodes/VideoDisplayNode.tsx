@@ -11,6 +11,7 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [videoFailed, setVideoFailed] = useState(false)
   const updateNode = useCanvasStore((s) => s.updateNode)
 
   const videoUrl = nodeData.videoUrl ?? null
@@ -18,6 +19,13 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const isGenerating = nodeData.status === 'queued' || nodeData.status === 'processing'
   const isError = nodeData.status === 'failed'
   const isDeleted = (nodeData as { deleted?: boolean }).deleted === true
+
+  // videoUrl が変わったら失敗フラグをリセット（レンダー中調整・effect不要）
+  const [prevVideoUrl, setPrevVideoUrl] = useState<string | null>(videoUrl)
+  if (videoUrl !== prevVideoUrl) {
+    setPrevVideoUrl(videoUrl)
+    setVideoFailed(false)
+  }
 
   useEffect(() => {
     if (videoUrl && videoRef.current && nodeData.autoPlay) {
@@ -93,7 +101,7 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
               <AlertCircle size={24} style={{ color: '#EF4444' }} />
               <span className="text-[11px] text-center px-2" style={{ color: '#EF4444' }}>{nodeData.error || '生成に失敗しました'}</span>
             </div>
-          ) : isDeleted ? (
+          ) : (isDeleted || videoFailed) ? (
             <div
               className="flex flex-col items-center justify-center gap-2 rounded-lg py-8"
               style={{ border: '1px dashed var(--border)', minHeight: 140 }}
@@ -119,6 +127,7 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
                   style={{ maxHeight: 200, objectFit: 'contain' }}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
+                  onError={() => setVideoFailed(true)}
                 />
                 {/* Hover overlay */}
                 <div
