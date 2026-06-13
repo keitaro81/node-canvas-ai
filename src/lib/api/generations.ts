@@ -1,43 +1,25 @@
 import { supabase } from '../supabase'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useAuthStore } from '../../stores/authStore'
+import { useTeamStore } from '../../stores/teamStore'
+import { getMyTeamContext } from './teams'
 import type { Database } from '../../types/database'
 
-export const QUOTA_IMAGE = 100
-export const QUOTA_VIDEO = 7
-
-export async function getUserQuotaUsage(): Promise<{ images: number; videos: number }> {
-  const userId = useAuthStore.getState().user?.id
-  if (!userId) return { images: 0, videos: 0 }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from('generations') as any)
-    .select('node_type')
-    .eq('user_id', userId)
-    .eq('status', 'completed')
-
-  if (error) return { images: 0, videos: 0 }
-
-  const rows = (data ?? []) as { node_type: string | null }[]
-  return {
-    images: rows.filter((r) => r.node_type === 'image-generation').length,
-    videos: rows.filter((r) => r.node_type === 'video-generation').length,
-  }
-}
-
+/**
+ * 生成前のクォータ事前チェック（UX用の表示・早期ブロック）。
+ * 月次・チーム合計で判定。実際の強制は fal proxy がサーバー側で行う（クライアントは信用されない）。
+ * 最新の当月消費を取得するため、毎回チームコンテキストを取り直す。
+ * 未所属（運営未登録）の場合は生成不可（allowed=false）。
+ */
 export async function checkQuota(type: 'image' | 'video'): Promise<{ allowed: boolean; used: number; limit: number }> {
-  // メタデータはログイン時のJWTにキャッシュされるため、
-  // サーバーから最新情報を取得して設定変更を即時反映させる。
-  // 上限は app_metadata から読む（service role のみ変更可能）。
-  // user_metadata は本人が auth.updateUser() で書き換えられるため使用しない。
-  const { data: { user: freshUser } } = await supabase.auth.getUser()
-  const meta = freshUser?.app_metadata ?? {}
-  const limitImage = typeof meta.quota_image === 'number' ? meta.quota_image : QUOTA_IMAGE
-  const limitVideo = typeof meta.quota_video === 'number' ? meta.quota_video : QUOTA_VIDEO
+  const ctx = await getMyTeamContext()
+  // 取得結果を teamStore にも反映（表示の鮮度を保つ）
+  useTeamStore.setState({ context: ctx })
+  if (!ctx) return { allowed: false, used: 0, limit: 0 }
 
-  const { images, videos } = await getUserQuotaUsage()
-  if (type === 'image') return { allowed: images < limitImage, used: images, limit: limitImage }
-  return { allowed: videos < limitVideo, used: videos, limit: limitVideo }
+  const used = type === 'image' ? ctx.usedImage : ctx.usedVideo
+  const limit = type === 'image' ? ctx.quotaImageMonthly : ctx.quotaVideoMonthly
+  return { allowed: used < limit, used, limit }
 }
 
 type GenerationRow = Database['public']['Tables']['generations']['Row']
@@ -62,6 +44,7 @@ export async function saveGeneration(params: {
   if (!workflowId) return null
 
   const userId = useAuthStore.getState().user?.id ?? null
+  const teamId = useTeamStore.getState().context?.teamId ?? null
 
   try {
     const row = await createGeneration({
@@ -74,6 +57,7 @@ export async function saveGeneration(params: {
       error_message: params.errorMessage ?? null,
       input_params: { model: params.model, ...params.inputParams },
       user_id: userId,
+      team_id: teamId,
     })
     return row.id
   } catch (err) {
