@@ -24,6 +24,39 @@ function parseStorageUrl(url: string | null): { bucket: string; path: string } |
   return { bucket: rest.slice(0, slash), path: decodeURIComponent(rest.slice(slash + 1)) }
 }
 
+/**
+ * canvas_data 内の、削除URLを参照するノードの画像/動画フィールドをクリアし deleted フラグを立てる。
+ * 表示は「表示できません」プレースホルダになり、下流生成は「画像なし」として扱われる（クォータ浪費を防ぐ）。
+ */
+function clearDeletedUrlFromCanvas(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  canvasData: any,
+  url: string,
+): { changed: boolean; data: unknown } {
+  if (!canvasData || !Array.isArray(canvasData.nodes)) return { changed: false, data: canvasData }
+  let changed = false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nodes = canvasData.nodes.map((node: any) => {
+    const d = node?.data ?? {}
+    const next = { ...d }
+    let nodeChanged = false
+    for (const f of ['output', 'imageUrl', 'videoUrl', 'uploadedImagePreview']) {
+      if (next[f] === url) { next[f] = null; nodeChanged = true }
+    }
+    if (next.params && next.params.imageUrl === url) {
+      next.params = { ...next.params, imageUrl: null }
+      nodeChanged = true
+    }
+    if (nodeChanged) {
+      next.deleted = true
+      changed = true
+      return { ...node, data: next }
+    }
+    return node
+  })
+  return changed ? { changed: true, data: { ...canvasData, nodes } } : { changed: false, data: canvasData }
+}
+
 /** Storage オブジェクトをバケットごとにまとめて削除（ベストエフォート）。 */
 async function removeStorageObjects(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +114,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (body.generationId) {
     const { data: gen, error } = await admin
       .from('generations')
-      .select('id, output_url, user_id')
+      .select('id, output_url, user_id, workflow_id')
       .eq('id', body.generationId)
       .maybeSingle()
     if (error) return jsonResponse({ error: 'Lookup failed' }, 500)
@@ -91,6 +124,26 @@ export default async function handler(req: Request): Promise<Response> {
     await removeStorageObjects(admin, [gen.output_url])
     const { error: delErr } = await admin.from('generations').delete().eq('id', gen.id)
     if (delErr) return jsonResponse({ error: 'Delete failed' }, 500)
+
+    // キャンバスの参照クリア + サムネ修正（同一ワークフロー）。失敗してもベストエフォート。
+    if (gen.output_url && gen.workflow_id) {
+      const { data: wf } = await admin
+        .from('workflows')
+        .select('canvas_data, thumbnail_url')
+        .eq('id', gen.workflow_id)
+        .maybeSingle()
+      if (wf) {
+        const patch: Record<string, unknown> = {}
+        const { changed, data } = clearDeletedUrlFromCanvas(wf.canvas_data, gen.output_url)
+        if (changed) patch.canvas_data = data
+        // サムネが該当URLなら null に。ProjectsPage が次の生成物を動的フォールバック表示する。
+        if (wf.thumbnail_url === gen.output_url) patch.thumbnail_url = null
+        if (Object.keys(patch).length > 0) {
+          const { error: upErr } = await admin.from('workflows').update(patch).eq('id', gen.workflow_id)
+          if (upErr) console.warn('[delete-generation] canvas/thumbnail patch failed:', upErr.message)
+        }
+      }
+    }
     return jsonResponse({ deleted: 1 }, 200)
   }
 
