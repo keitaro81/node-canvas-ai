@@ -232,6 +232,14 @@ export function MyPage() {
           </div>
         </section>
       )}
+
+      {/* 法的情報 */}
+      <section className="mt-8 pt-6 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex gap-4 text-[12px]">
+          <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-tertiary)' }}>利用規約</a>
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-tertiary)' }}>プライバシーポリシー</a>
+        </div>
+      </section>
     </div>
   )
 }

@@ -6,8 +6,16 @@ interface AuthGuardProps {
   children: ReactNode
 }
 
+// ログイン不要で閲覧できる公開パス（法務ページ）。AuthModal からは新規タブで開く。
+const PUBLIC_PATHS = ['/terms', '/privacy']
+
 export function AuthGuard({ children }: AuthGuardProps) {
   const { user, loading } = useAuth()
+
+  // 法務ページは認証を要求せず素通し（AuthGuard は Router の外側のため pathname を直接参照）
+  if (PUBLIC_PATHS.includes(window.location.pathname)) {
+    return <>{children}</>
+  }
 
   if (loading) {
     return (
