@@ -4,10 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 
 // 孤児ストレージ GC: どこからも参照されず、かつ猶予期間より古いファイルを削除する。
 // 参照動画（ReferenceVideoNode）等、generations に記録されないファイルが対象。
-const BUCKETS = ['generated-images', 'generated-videos']
 const GRACE_DAYS = 7
 const DB_PAGE = 1000
-const FOLDER_LIMIT = 2000 // 1バケットあたりの最大フォルダ走査数（安全上限）
 
 function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
@@ -84,24 +82,18 @@ export default async function handler(req: Request): Promise<Response> {
   const admin = createClient(supabaseUrl, serviceRoleKey)
   const refs = await buildReferencedSet(admin)
 
+  // storage.objects を1クエリで列挙（Edge の N+1 list タイムアウトを回避）
+  const { data: objects, error: listErr } = await admin.rpc('list_generated_objects')
+  if (listErr) return jsonResponse({ error: `Storage list failed: ${listErr.message}` }, 500)
+
   const orphansByBucket: Record<string, string[]> = {}
   let scannedFiles = 0
-  for (const bucket of BUCKETS) {
-    orphansByBucket[bucket] = []
-    // 直下のフォルダ（<nodeId>）を列挙
-    const { data: folders } = await admin.storage.from(bucket).list('', { limit: FOLDER_LIMIT })
-    for (const folder of (folders ?? []) as { name: string; id: string | null }[]) {
-      if (folder.id !== null) continue // ルート直下のファイルは想定外（フォルダのみ処理）
-      const { data: files } = await admin.storage.from(bucket).list(folder.name, { limit: 100 })
-      for (const f of (files ?? []) as { name: string; created_at: string | null }[]) {
-        scannedFiles++
-        const path = `${folder.name}/${f.name}`
-        if (refs.has(`${bucket}/${path}`)) continue // 参照あり → 残す
-        const created = f.created_at ? Date.parse(f.created_at) : 0
-        if (created && created > cutoff) continue // 猶予期間内 → 残す
-        orphansByBucket[bucket].push(path)
-      }
-    }
+  for (const o of (objects ?? []) as { bucket_id: string; name: string; created_at: string | null }[]) {
+    scannedFiles++
+    if (refs.has(`${o.bucket_id}/${o.name}`)) continue // 参照あり → 残す
+    const created = o.created_at ? Date.parse(o.created_at) : 0
+    if (created && created > cutoff) continue // 猶予期間内 → 残す
+    ;(orphansByBucket[o.bucket_id] ??= []).push(o.name)
   }
 
   const orphanCount = Object.values(orphansByBucket).reduce((s, a) => s + a.length, 0)
