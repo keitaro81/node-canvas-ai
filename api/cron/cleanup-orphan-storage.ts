@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' }
 
 import { createClient } from '@supabase/supabase-js'
+import { withSentry } from '../_sentry'
 
 // 孤児ストレージ GC: どこからも参照されず、かつ猶予期間より古いファイルを削除する。
 // 参照動画（ReferenceVideoNode）等、generations に記録されないファイルが対象。
@@ -65,7 +66,9 @@ async function buildReferencedSet(admin: any): Promise<Set<string>> {
   return refs
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default withSentry(handler)
+
+async function handler(req: Request): Promise<Response> {
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret || req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
     return jsonResponse({ error: 'Forbidden' }, 403)
