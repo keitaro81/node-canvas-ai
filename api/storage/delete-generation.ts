@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' }
 
 import { createClient } from '@supabase/supabase-js'
+import { withSentry } from '../_sentry'
 
 function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), {
@@ -77,7 +78,9 @@ async function removeStorageObjects(
   }
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default withSentry(handler)
+
+async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }

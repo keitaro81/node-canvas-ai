@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' }
 
 import { createClient } from '@supabase/supabase-js'
+import { withSentry } from '../_sentry'
 
 // 保存期間（日）。GenerationCard の RETENTION_DAYS と一致させること。
 // 当面90日（ベータの既存履歴を守る）。GA で見直し（容量枠 or 短縮）。RETENTION_DAYS env で上書き可。
@@ -55,7 +56,9 @@ async function removeStorageObjects(
  * - 1回で最大 BATCH 件。バックログが多い場合は繰り返し呼ぶ（remaining が 0 になるまで）。
  * 注: キャンバスの参照は patch しない（表示ノードの onError プレースホルダで吸収）。
  */
-export default async function handler(req: Request): Promise<Response> {
+export default withSentry(handler)
+
+async function handler(req: Request): Promise<Response> {
   const cronSecret = process.env.CRON_SECRET
   const auth = req.headers.get('authorization')
   if (!cronSecret || auth !== `Bearer ${cronSecret}`) {

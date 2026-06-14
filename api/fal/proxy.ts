@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' }
 
 import { createClient } from '@supabase/supabase-js'
+import { withSentry } from '../_sentry'
 
 const FAL_TARGET_URL_HEADER = 'x-fal-target-url'
 const ALLOWED_FAL_HOSTS = ['fal.run', 'queue.fal.run', 'rest.fal.run', 'storage.fal.run', 'rest.fal.ai', 'queue.fal.ai', 'fal.ai']
@@ -38,7 +39,9 @@ function currentPeriodJst(): string {
   return jst.toISOString().slice(0, 7)
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default withSentry(handler)
+
+async function handler(req: Request): Promise<Response> {
   // fal SDK は credentials を "Authorization: Key <token>" で送ってくる
   // PromptEnhancer の直接 fetch も同形式で送る
   const authHeader = req.headers.get('authorization')

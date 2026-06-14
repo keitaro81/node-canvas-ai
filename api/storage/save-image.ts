@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' }
 
 import { createClient } from '@supabase/supabase-js'
+import { withSentry } from '../_sentry'
 
 // SSRF対策: fal.ai の生成物配信ドメイン以外はサーバーサイド fetch しない
 function isAllowedSourceUrl(url: URL): boolean {
@@ -18,7 +19,9 @@ function jsonResponse(data: object, status: number): Response {
   })
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default withSentry(handler)
+
+async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }
