@@ -38,7 +38,6 @@ import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
 import { ListNode } from '../nodes/ListNode'
 import { CameraListNode } from '../nodes/CameraListNode'
-import { StyleAnalysisNode } from '../nodes/StyleAnalysisNode'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { uploadVideoFile, uploadImageFile } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
@@ -63,7 +62,6 @@ const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   listNode: ListNode,
   cameraListNode: CameraListNode,
-  styleAnalysisNode: StyleAnalysisNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -83,7 +81,6 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   group:           'groupNode',
   list:            'listNode',
   cameraList:      'cameraListNode',
-  styleAnalysis:   'styleAnalysisNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -162,15 +159,6 @@ const PROMPT_ENHANCER_DEFAULT_DATA = {
   params: {},
   status: 'idle' as const,
   inputText: '',
-  outputText: '',
-  model: 'anthropic/claude-haiku-4.5',
-}
-
-const STYLE_ANALYSIS_DEFAULT_DATA = {
-  type: 'styleAnalysis' as const,
-  label: 'Style Analysis',
-  params: {},
-  status: 'idle' as const,
   outputText: '',
   model: 'anthropic/claude-haiku-4.5',
 }
@@ -570,8 +558,6 @@ export function Canvas() {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'cameraList') {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
-      } else if (type === 'styleAnalysis') {
-        data = { ...STYLE_ANALYSIS_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1051,8 +1037,6 @@ export function Canvas() {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'cameraList') {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
-      } else if (type === 'styleAnalysis') {
-        data = { ...STYLE_ANALYSIS_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1089,7 +1073,7 @@ export function Canvas() {
         rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
       }, 50)
     },
-    [addNode, nodes, updateNode]
+    [addNode]
   )
 
   return (
