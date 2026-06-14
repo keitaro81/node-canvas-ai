@@ -56,7 +56,8 @@ async function buildReferencedSet(admin: any): Promise<Set<string>> {
         for (const n of nodes) {
           const d = n?.data ?? {}
           add(d.output); add(d.videoUrl); add(d.imageUrl); add(d.uploadedImagePreview)
-          if (d.params) add(d.params.imageUrl)
+          add(d.maskUrl) // 16c: マスクも自前バケット → 参照集合に含めて誤削除を防ぐ
+          if (d.params) { add(d.params.imageUrl); add(d.params.maskUrl) }
         }
       }
     }

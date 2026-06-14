@@ -38,9 +38,9 @@ import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
 import { ListNode } from '../nodes/ListNode'
 import { CameraListNode } from '../nodes/CameraListNode'
+import { StyleAnalysisNode } from '../nodes/StyleAnalysisNode'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
-import { fal } from '../../lib/ai/fal-client'
-import { uploadVideoFile } from '../../lib/api/storage'
+import { uploadVideoFile, uploadImageFile } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
 import { showToast } from '../../hooks/useToast'
 import { useTheme } from '../../hooks/useTheme'
@@ -63,6 +63,7 @@ const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   listNode: ListNode,
   cameraListNode: CameraListNode,
+  styleAnalysisNode: StyleAnalysisNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -82,6 +83,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   group:           'groupNode',
   list:            'listNode',
   cameraList:      'cameraListNode',
+  styleAnalysis:   'styleAnalysisNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -160,6 +162,15 @@ const PROMPT_ENHANCER_DEFAULT_DATA = {
   params: {},
   status: 'idle' as const,
   inputText: '',
+  outputText: '',
+  model: 'anthropic/claude-haiku-4.5',
+}
+
+const STYLE_ANALYSIS_DEFAULT_DATA = {
+  type: 'styleAnalysis' as const,
+  label: 'Style Analysis',
+  params: {},
+  status: 'idle' as const,
   outputText: '',
   model: 'anthropic/claude-haiku-4.5',
 }
@@ -559,6 +570,8 @@ export function Canvas() {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'cameraList') {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
+      } else if (type === 'styleAnalysis') {
+        data = { ...STYLE_ANALYSIS_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -919,7 +932,7 @@ export function Canvas() {
           if (targetNode?.type === 'referenceImageNode') {
             const previewUrl = URL.createObjectURL(imageFiles[0])
             updateNode(targetNodeId!, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
-            fal.storage.upload(imageFiles[0]).then((uploadedUrl: string) => {
+            uploadImageFile(imageFiles[0], targetNodeId!).then((uploadedUrl: string) => {
               updateNode(targetNodeId!, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
             }).catch(() => {
               updateNode(targetNodeId!, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
@@ -951,7 +964,7 @@ export function Canvas() {
               uploadedImagePreview: previewUrl,
             } as unknown as NodeData,
           })
-          fal.storage.upload(file).then((uploadedUrl: string) => {
+          uploadImageFile(file, nodeId).then((uploadedUrl: string) => {
             updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
           }).catch(() => {})
         })
@@ -1038,6 +1051,8 @@ export function Canvas() {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'cameraList') {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
+      } else if (type === 'styleAnalysis') {
+        data = { ...STYLE_ANALYSIS_DEFAULT_DATA, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1074,7 +1089,7 @@ export function Canvas() {
         rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
       }, 50)
     },
-    [addNode]
+    [addNode, nodes, updateNode]
   )
 
   return (

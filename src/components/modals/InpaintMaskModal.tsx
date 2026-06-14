@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Trash2, Loader2 } from 'lucide-react'
-import { fal } from '../../lib/ai/fal-client'
+import { uploadImageFile } from '../../lib/api/storage'
 
 interface Props {
   imageUrl: string
@@ -168,7 +168,7 @@ export function InpaintMaskModal({ imageUrl, initialPreviewDataUrl, onConfirm, o
         maskCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png')
       })
       const file = new File([blob], 'mask.png', { type: 'image/png' })
-      const maskUrl = await fal.storage.upload(file)
+      const maskUrl = await uploadImageFile(file, 'mask')
       onConfirm(maskUrl, previewDataUrl)
     } catch (err) {
       console.error('Mask upload failed:', err)
