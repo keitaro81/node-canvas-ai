@@ -2,7 +2,7 @@ import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { ImageIcon, X, Loader2, Paintbrush } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { fal } from '../../lib/ai/fal-client'
+import { uploadImageFile } from '../../lib/api/storage'
 import type { ReferenceImageNodeData } from '../../types/nodes'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 
@@ -24,7 +24,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
       setIsUploading(true)
 
       try {
-        const uploadedUrl = await fal.storage.upload(file)
+        const uploadedUrl = await uploadImageFile(file, id)
         updateNode(id, {
           imageUrl: uploadedUrl,
           uploadedImagePreview: previewUrl,

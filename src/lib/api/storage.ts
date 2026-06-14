@@ -16,6 +16,19 @@ export function getPublicUrl(path: string): string {
   return data.publicUrl
 }
 
+/**
+ * 参照画像・マスク等のクライアントアップロードを自前 generated-images バケットに保存し、永続な公開URLを返す（16c）。
+ * 旧: fal.storage.upload（外部）。孤児になったファイルは週次の孤児GCが回収する。
+ * 要: storage の image INSERT ポリシー（migration 0007）。
+ */
+export async function uploadImageFile(file: File, prefix: string): Promise<string> {
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+  const safeExt = ['png', 'jpg', 'jpeg', 'webp'].includes(ext) ? ext : 'png'
+  const path = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`
+  await uploadGeneratedImage(file, path)
+  return getPublicUrl(path)
+}
+
 export async function deleteImage(path: string): Promise<void> {
   const { error } = await supabase.storage.from(IMAGE_BUCKET).remove([path])
   if (error) throw error
