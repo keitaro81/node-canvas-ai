@@ -8,7 +8,7 @@ import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { uploadImageFromUrl } from '../../lib/api/storage'
+import { uploadImageFromUrl, getSignedUrl } from '../../lib/api/storage'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
 
@@ -218,8 +218,10 @@ async function runGeneration(
     useWorkflowStore.getState().saveCurrentWorkflow()
 
     // Storage保存後にStorageURLでgenerationsとthumbnailを更新（fire-and-forget）
-    uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
-      updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
+    uploadImageFromUrl(outputImageUrl!, displayNodeId).then(async (storedUrl) => {
+      // 非公開バケット化: 表示は署名URL、永続化は canonical（保存時に正規化）
+      const signedUrl = (await getSignedUrl(storedUrl)) ?? storedUrl
+      updateNode(displayNodeId, { output: signedUrl } as Partial<NodeData>)
       if (!completedGenerationNodeIds.has(displayNodeId)) {
         completedGenerationNodeIds.add(displayNodeId)
         saveGeneration({
@@ -709,8 +711,9 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           updateNode(displayId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
           // Supabase Storage に永続保存してから history/thumbnail を更新（fal URL の混入を防ぐ）
           // completedGenerationNodeIds で通常フローとの二重登録も防止
-          uploadImageFromUrl(outputImageUrl, displayId).then((storedUrl) => {
-            updateNode(displayId, { output: storedUrl } as Partial<NodeData>)
+          uploadImageFromUrl(outputImageUrl, displayId).then(async (storedUrl) => {
+            const signedUrl = (await getSignedUrl(storedUrl)) ?? storedUrl
+            updateNode(displayId, { output: signedUrl } as Partial<NodeData>)
             if (!completedGenerationNodeIds.has(displayId)) {
               completedGenerationNodeIds.add(displayId)
               saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: storedUrl, inputParams: {} })

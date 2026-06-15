@@ -1,4 +1,6 @@
 import { supabase } from '../supabase'
+import { toCanonicalRef } from './storage'
+import { signWorkflowThumbnails } from './signMedia'
 import type { Database } from '../../types/database'
 
 type WorkflowRow = Database['public']['Tables']['workflows']['Row']
@@ -14,8 +16,9 @@ export async function getWorkflows(projectId: string): Promise<WorkflowRow[]> {
     .eq('project_id', projectId)
     .order('updated_at', { ascending: false })
   if (error) throw error
+  // 非公開バケット化: カード表示用に thumbnail_url を署名URL化（読込口）
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []) as any
+  return signWorkflowThumbnails((data ?? []) as any)
 }
 
 export async function getWorkflow(id: string): Promise<WorkflowRow> {
@@ -68,15 +71,18 @@ export async function getPublicWorkflows(): Promise<WorkflowRow[]> {
     .eq('is_public' as any, true)
     .order('updated_at', { ascending: false })
   if (error) throw error
+  // 非公開バケット化: コミュニティカード用に thumbnail_url を署名URL化（読込口）
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []) as any
+  return signWorkflowThumbnails((data ?? []) as any)
 }
 
 export async function updateWorkflowThumbnail(id: string, thumbnailUrl: string): Promise<void> {
+  // 署名URLを保存しないよう canonical へ正規化（書込口）
+  const canonical = toCanonicalRef(thumbnailUrl) ?? thumbnailUrl
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = supabase.from('workflows') as any
   const { error } = await table
-    .update({ thumbnail_url: thumbnailUrl, updated_at: new Date().toISOString() })
+    .update({ thumbnail_url: canonical, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
 }
@@ -98,8 +104,13 @@ export async function patchWorkflowNodeOutput(
   } | null
   if (!canvasData?.nodes) return
 
+  // 署名URLを保存しないよう、URL文字列フィールドを canonical へ正規化（書込口）
+  const canonicalUpdate: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(dataUpdate)) {
+    canonicalUpdate[k] = typeof v === 'string' ? (toCanonicalRef(v) ?? v) : v
+  }
   const nodes = canvasData.nodes.map((n) =>
-    n.id === nodeId ? { ...n, data: { ...n.data, ...dataUpdate } } : n
+    n.id === nodeId ? { ...n, data: { ...n.data, ...canonicalUpdate } } : n
   )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = supabase.from('workflows') as any

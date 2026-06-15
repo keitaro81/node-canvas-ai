@@ -7,6 +7,7 @@ import type { NodeData } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 import { downloadFile } from '../../lib/downloadFile'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps) {
   const data = props.data as NodeData
@@ -15,17 +16,18 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const updateNode = useCanvasStore((s) => s.updateNode)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [showMaskModal, setShowMaskModal] = useState(false)
-  const [imgFailed, setImgFailed] = useState(false)
 
   const incomingEdge = edges.find(
     (e) => e.target === props.id && e.targetHandle === 'in-image-image-in'
   )
   const sourceNode = incomingEdge ? nodes.find((n) => n.id === incomingEdge.source) : null
-  const imageUrl =
+  const rawImageUrl =
     (data.output as string | undefined) ||
     ((sourceNode?.data as NodeData)?.output as string | undefined) ||
     (data.params?.imageUrl as string | undefined) ||
     null
+  // 非公開バケット化: 失効/取りこぼし時に再署名する安全網（imgFailed もフックが管理）
+  const { url: imageUrl, onError: onImageError, failed: imgFailed, freshUrl } = useSignedMedia(rawImageUrl)
 
   const maskUrl = (data.params?.maskUrl as string | undefined) || null
   const maskPreviewDataUrl = (data.params?.maskPreviewDataUrl as string | undefined) || null
@@ -36,17 +38,10 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const isDeleted = (data as { deleted?: boolean }).deleted === true
   const errorMsg = data.params?.error as string | undefined
 
-  // imageUrl が変わったらロード失敗フラグをリセット（レンダー中調整・effect不要）
-  const [prevImageUrl, setPrevImageUrl] = useState<string | null>(imageUrl)
-  if (imageUrl !== prevImageUrl) {
-    setPrevImageUrl(imageUrl)
-    setImgFailed(false)
-  }
-
-  const handleDownload = (e: React.MouseEvent) => {
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!imageUrl) return
-    downloadFile(imageUrl, 'node-canvas-image.png')
+    const url = await freshUrl()
+    if (url) downloadFile(url, 'node-canvas-image.png')
   }
 
   const handleMaskConfirm = (url: string, previewDataUrl: string) => {
@@ -104,7 +99,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
                 src={imageUrl}
                 alt="Display"
                 className="w-full h-auto block"
-                onError={() => setImgFailed(true)}
+                onError={onImageError}
               />
               {maskPreviewDataUrl && (
                 <img

@@ -12,6 +12,7 @@ import {
   toggleWorkflowPublic,
   type WorkflowRow,
 } from '../lib/api/workflows'
+import { canonicalizeCanvasNodes, signCanvasNodes } from '../lib/api/signMedia'
 import { useCanvasStore, loadCanvasState } from './canvasStore'
 import type { AppNode } from './canvasStore'
 import type { Edge } from '@xyflow/react'
@@ -104,10 +105,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
         return { ...node, data }
       })
+      // 非公開バケット化: 保存済みの canonical URL を表示用の署名URLへ変換する（読込口）
+      const signedNodes = await signCanvasNodes(restoredNodes)
       // nodes/edges/capsuleGroupId を原子的にセット。
       // 別々に set() すると「エッジ空」のundoスナップショットが混入するため loadCanvasState を使う。
       loadCanvasState(
-        restoredNodes as AppNode[],
+        signedNodes as AppNode[],
         canvasData?.edges ?? [],
         canvasData?.capsuleGroupId ?? null
       )
@@ -141,8 +144,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         const { uploadedImagePreview: _, ...rest } = d
         return { ...node, data: rest }
       })
+      // 非公開バケット化: 署名URL（/object/sign?token=）を保存し直さないよう canonical へ正規化する（書込口）
+      const canonicalNodes = canonicalizeCanvasNodes(sanitizedNodes)
       await updateWorkflow(currentWorkflowId, {
-        canvas_data: { nodes: sanitizedNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
+        canvas_data: { nodes: canonicalNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
       })
       set({ hasUnsavedChanges: false, lastSavedAt: new Date() })
     } catch (err) {

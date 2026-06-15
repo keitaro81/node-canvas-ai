@@ -2,7 +2,8 @@ import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Film, X, Loader2, Play, Pause } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { uploadVideoFile } from '../../lib/api/storage'
+import { uploadVideoFile, getSignedUrl } from '../../lib/api/storage'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceVideoNodeData, NodeData } from '../../types/nodes'
 
 const ACCEPTED_VIDEO_TYPES = 'video/mp4,video/quicktime,video/webm'
@@ -15,11 +16,12 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
   const [isPlaying, setIsPlaying] = useState(false)
 
   // blob: URLはリロードで無効になるため、videoUrl（永続URL）を優先
-  const displayUrl = (() => {
+  const rawDisplayUrl = (() => {
     const preview = nodeData.uploadedVideoPreview
     if (preview && !preview.startsWith('blob:')) return preview
     return nodeData.videoUrl || preview || null
   })()
+  const { url: displayUrl, onError: onVideoError } = useSignedMedia(rawDisplayUrl)
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -29,9 +31,11 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
 
       try {
         const uploadedUrl = await uploadVideoFile(file, id)
+        // 非公開バケット化: セッション中の表示用に署名URLを node.data へ（保存時に canonical へ正規化）
+        const signedUrl = (await getSignedUrl(uploadedUrl)) ?? uploadedUrl
         updateNode(id, {
-          videoUrl: uploadedUrl,
-          uploadedVideoPreview: uploadedUrl,
+          videoUrl: signedUrl,
+          uploadedVideoPreview: signedUrl,
         } as Parameters<typeof updateNode>[1])
       } catch {
         updateNode(id, {
@@ -138,6 +142,7 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
               style={{ maxHeight: 140, objectFit: 'contain' }}
               loop
               playsInline
+              onError={onVideoError}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onClick={(e) => {

@@ -5,6 +5,7 @@ import type { GenerationWithWorkflow } from '../../lib/api/generations'
 import { deleteGeneration } from '../../lib/api/generations'
 import { downloadFile } from '../../lib/downloadFile'
 import { showToast } from '../../hooks/useToast'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 interface GenerationCardProps {
   generation: GenerationWithWorkflow
@@ -36,8 +37,11 @@ function daysUntilDeletion(createdStr: string): number {
 
 
 export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
-  const url = generation.output_url!
-  const isVideo = isVideoUrl(url) || generation.node_type === 'video-generation'
+  const rawUrl = generation.output_url!
+  const isVideo = isVideoUrl(rawUrl) || generation.node_type === 'video-generation'
+  // 非公開バケット化: 表示は署名URL（読込口で署名済み）、失効時は onError で再署名
+  const { url: signedUrl, onError, freshUrl } = useSignedMedia(rawUrl)
+  const url = signedUrl ?? rawUrl
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -46,9 +50,10 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
     ? `generation-${generation.id.slice(0, 8)}.mp4`
     : `generation-${generation.id.slice(0, 8)}.png`
 
-  const handleDownload = (e: React.MouseEvent) => {
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    downloadFile(url, filename)
+    const fresh = await freshUrl()
+    if (fresh) downloadFile(fresh, filename)
   }
 
   const handleDelete = async () => {
@@ -90,6 +95,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
                 muted
                 playsInline
                 preload="metadata"
+                onError={onError}
               />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div
@@ -101,7 +107,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
               </div>
             </>
           ) : (
-            <img src={url} alt="" className="w-full h-full object-cover" />
+            <img src={url} alt="" className="w-full h-full object-cover" onError={onError} />
           )}
 
           {/* Hover overlay with action buttons */}
@@ -186,12 +192,14 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
                 controls
                 autoPlay
                 style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'block' }}
+                onError={onError}
               />
             ) : (
               <img
                 src={url}
                 alt=""
                 style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', display: 'block' }}
+                onError={onError}
               />
             )}
 
@@ -200,7 +208,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
               <button
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white"
                 style={{ background: 'rgba(0,0,0,0.6)' }}
-                onClick={(e) => { e.stopPropagation(); downloadFile(url, filename) }}
+                onClick={handleDownload}
                 title="ダウンロード"
               >
                 <Download size={15} weight="bold" />
@@ -237,7 +245,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
               <button
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-white transition-colors"
                 style={{ background: 'rgba(139,92,246,0.8)' }}
-                onClick={(e) => { e.stopPropagation(); downloadFile(url, filename) }}
+                onClick={handleDownload}
               >
                 <Download size={13} weight="bold" />
                 Download

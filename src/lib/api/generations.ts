@@ -1,4 +1,6 @@
 import { supabase } from '../supabase'
+import { toCanonicalRef } from './storage'
+import { signGenerationRows, signUrlRecord } from './signMedia'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useTeamStore } from '../../stores/teamStore'
@@ -53,7 +55,7 @@ export async function saveGeneration(params: {
       node_type: params.nodeType,
       provider: params.provider,
       status: params.status,
-      output_url: params.outputUrl ?? null,
+      output_url: params.outputUrl ? (toCanonicalRef(params.outputUrl) ?? params.outputUrl) : null,
       error_message: params.errorMessage ?? null,
       input_params: { model: params.model, ...params.inputParams },
       user_id: userId,
@@ -78,10 +80,14 @@ export async function createGeneration(data: GenerationInsert): Promise<Generati
 }
 
 export async function updateGeneration(id: string, data: GenerationUpdate): Promise<GenerationRow> {
+  // 署名URLを保存しないよう output_url を canonical へ正規化する（書込口）
+  const patch = data.output_url
+    ? { ...data, output_url: toCanonicalRef(data.output_url) ?? data.output_url }
+    : data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: generation, error } = await (supabase as any)
     .from('generations')
-    .update(data)
+    .update(patch)
     .eq('id', id)
     .select()
     .single()
@@ -96,7 +102,7 @@ export async function getGenerations(workflowId: string): Promise<GenerationRow[
     .eq('workflow_id', workflowId)
     .order('created_at', { ascending: false })
   if (error) throw error
-  return data
+  return signGenerationRows(data)
 }
 
 /** ワークフローIDごとに最新の生成物URLを1件取得する */
@@ -117,7 +123,7 @@ export async function getLatestGenerationUrlsByWorkflow(
   for (const g of (data ?? []) as { workflow_id: string; output_url: string }[]) {
     if (!map[g.workflow_id]) map[g.workflow_id] = g.output_url
   }
-  return map
+  return signUrlRecord(map)
 }
 
 export type GenerationWithWorkflow = GenerationRow & { workflow_name: string }
@@ -155,10 +161,11 @@ export async function getMyGenerations(): Promise<GenerationWithWorkflow[]> {
     .limit(200)
   if (genError) throw genError
 
-  return ((generations ?? []) as GenerationRow[]).map((g) => ({
+  const rows = ((generations ?? []) as GenerationRow[]).map((g) => ({
     ...g,
     workflow_name: workflowMap[g.workflow_id] ?? 'Unknown',
   }))
+  return signGenerationRows(rows)
 }
 
 /**

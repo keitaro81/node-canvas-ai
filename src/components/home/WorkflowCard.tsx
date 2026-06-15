@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { DotsThree, Globe, Lock, Play, PencilSimple, Trash, Copy, Stack } from '@phosphor-icons/react'
 import type { WorkflowRow } from '../../lib/api/workflows'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 interface WorkflowCardProps {
   workflow: WorkflowRow
@@ -47,7 +48,9 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const isPublic = (workflow as { is_public?: boolean }).is_public ?? false
-  const thumbnailUrl = thumbnailOverride ?? (workflow as { thumbnail_url?: string | null }).thumbnail_url
+  const rawThumbnailUrl = thumbnailOverride ?? (workflow as { thumbnail_url?: string | null }).thumbnail_url
+  // 非公開バケット化: サムネは署名URL（読込口で署名済み）、失効時は onError で再署名
+  const { url: thumbnailUrl, onError: onThumbError } = useSignedMedia(rawThumbnailUrl)
   const isVideo = thumbnailUrl ? isVideoUrl(thumbnailUrl) : false
   // モバイルでAppモードなしのカードはグレーアウト（クリック不可）
   const isDisabled = isMobile && hasAppMode === false
@@ -134,11 +137,11 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
         {thumbnailUrl && !isVideo && (
-          <img src={thumbnailUrl} alt={workflow.name} className="w-full h-full object-cover" />
+          <img src={thumbnailUrl} alt={workflow.name} className="w-full h-full object-cover" onError={onThumbError} />
         )}
         {thumbnailUrl && isVideo && (
           <>
-            <video src={thumbnailUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+            <video src={thumbnailUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" onError={onThumbError} />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-8 h-8 rounded-full flex items-center justify-center opacity-80"
                 style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>

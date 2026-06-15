@@ -5,27 +5,22 @@ import { MonitorPlay, Play, Pause, RotateCcw, Download, Maximize2, Video as Vide
 import { useCanvasStore } from '../../stores/canvasStore'
 import type { VideoDisplayNodeData } from '../../types/nodes'
 import { downloadFile } from '../../lib/downloadFile'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as VideoDisplayNodeData
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [videoFailed, setVideoFailed] = useState(false)
   const updateNode = useCanvasStore((s) => s.updateNode)
 
-  const videoUrl = nodeData.videoUrl ?? null
+  const rawVideoUrl = nodeData.videoUrl ?? null
+  // 非公開バケット化: 失効/取りこぼし時に再署名する安全網（videoFailed もフックが管理）
+  const { url: videoUrl, onError: onVideoError, failed: videoFailed, freshUrl } = useSignedMedia(rawVideoUrl)
   const fileName = nodeData.fileName ?? null
   const isGenerating = nodeData.status === 'queued' || nodeData.status === 'processing'
   const isError = nodeData.status === 'failed'
   const isDeleted = (nodeData as { deleted?: boolean }).deleted === true
-
-  // videoUrl が変わったら失敗フラグをリセット（レンダー中調整・effect不要）
-  const [prevVideoUrl, setPrevVideoUrl] = useState<string | null>(videoUrl)
-  if (videoUrl !== prevVideoUrl) {
-    setPrevVideoUrl(videoUrl)
-    setVideoFailed(false)
-  }
 
   useEffect(() => {
     if (videoUrl && videoRef.current && nodeData.autoPlay) {
@@ -42,10 +37,10 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
     }
   }
 
-  const handleDownload = (e: React.MouseEvent) => {
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!videoUrl) return
-    downloadFile(videoUrl, fileName || 'video.mp4')
+    const url = await freshUrl()
+    if (url) downloadFile(url, fileName || 'video.mp4')
   }
 
   return (
@@ -127,7 +122,7 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
                   style={{ maxHeight: 200, objectFit: 'contain' }}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
-                  onError={() => setVideoFailed(true)}
+                  onError={onVideoError}
                 />
                 {/* Hover overlay */}
                 <div
@@ -241,7 +236,7 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
               <button
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white nodrag"
                 style={{ background: 'rgba(0,0,0,0.6)' }}
-                onClick={(e) => { e.stopPropagation(); downloadFile(videoUrl, fileName || 'video.mp4') }}
+                onClick={handleDownload}
                 title="ダウンロード"
               >
                 <Download size={14} />
