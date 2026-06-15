@@ -344,7 +344,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
       ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
-  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, hasConnectedImageNode, getConnectedPrompt, updateNode])
+  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, getConnectedPrompt, updateNode])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {

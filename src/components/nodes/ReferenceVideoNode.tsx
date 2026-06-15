@@ -142,7 +142,11 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
               onPause={() => setIsPlaying(false)}
               onClick={(e) => {
                 const v = e.currentTarget
-                v.paused ? v.play() : v.pause()
+                if (v.paused) {
+                  v.play()
+                } else {
+                  v.pause()
+                }
               }}
             />
             {/* Play/pause overlay */}

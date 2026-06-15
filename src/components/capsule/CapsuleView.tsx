@@ -831,11 +831,11 @@ function StageGenerateButton({
 }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
+  const updateNode = useCanvasStore((s) => s.updateNode)
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   if ((nodeType as string) === 'referenceImage') return null
 
-  const updateNode = useCanvasStore((s) => s.updateNode)
   const d = node.data as Record<string, unknown>
   const count = nodeType === 'videoGen'
     ? Math.max(1, Math.min(10, (d.count as number) ?? 1))
@@ -988,12 +988,12 @@ function StageGenerateButton({
 function CameraListPanel({ nodeId }: { nodeId: string }) {
   const updateNode = useCanvasStore((s) => s.updateNode)
   const node = useCanvasStore((s) => s.nodes.find((n) => n.id === nodeId))
+  const [customInput, setCustomInput] = useState('')
   if (!node) return null
 
   const cd = node.data as unknown as CameraListNodeData
   const selectedPresets = cd.selectedPresets ?? []
   const customAngles = cd.customAngles ?? []
-  const [customInput, setCustomInput] = useState('')
 
   function togglePreset(presetId: string) {
     const next = selectedPresets.includes(presetId)
@@ -1853,8 +1853,20 @@ function MobileStagePreview({
   const [showControls, setShowControls] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
 
-  useEffect(() => { setSelectedIdx(0) }, [activeIndex])
-  useEffect(() => { setIsPlaying(true); setIsMuted(true); setShowControls(true) }, [selectedIdx])
+  // ステージ切替で選択をリセット、選択切替で再生状態をリセット
+  // effect での setState を避けるため、レンダー中に前回値と比較して調整する
+  const [prevActiveIndex, setPrevActiveIndex] = useState(activeIndex)
+  if (activeIndex !== prevActiveIndex) {
+    setPrevActiveIndex(activeIndex)
+    setSelectedIdx(0)
+  }
+  const [prevSelectedIdx, setPrevSelectedIdx] = useState(selectedIdx)
+  if (selectedIdx !== prevSelectedIdx) {
+    setPrevSelectedIdx(selectedIdx)
+    setIsPlaying(true)
+    setIsMuted(true)
+    setShowControls(true)
+  }
 
   // 下流ステージへの接続情報（LargePreview と同ロジック）
   const downstreamLinks = useMemo((): DownstreamLink[] => {

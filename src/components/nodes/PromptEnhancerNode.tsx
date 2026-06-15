@@ -40,8 +40,8 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
   const [exportOpen, setExportOpen] = useState(false)
   const [localInput, setLocalInput] = useState(inputText)
   const [localOutput, setLocalOutput] = useState(outputText)
-  const isComposing = useRef(false)
-  const isOutputComposing = useRef(false)
+  const [isComposing, setIsComposing] = useState(false)
+  const [isOutputComposing, setIsOutputComposing] = useState(false)
   const nodeRef = useRef<HTMLDivElement>(null)
 
   // 外部クリックでドロップダウンを閉じる
@@ -56,14 +56,19 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [])
 
-  // 外部からの変更（接続ノード等）をローカル状態に同期
-  useEffect(() => {
-    if (!isComposing.current) setLocalInput(inputText)
-  }, [inputText])
+  // 外部からの変更（接続ノード等）をローカル状態に同期（IME変換中はスキップ）
+  // effect での setState を避けるため、レンダー中に前回値と比較して調整する
+  const [prevInputText, setPrevInputText] = useState(inputText)
+  if (inputText !== prevInputText) {
+    setPrevInputText(inputText)
+    if (!isComposing) setLocalInput(inputText)
+  }
 
-  useEffect(() => {
-    if (!isOutputComposing.current) setLocalOutput(outputText)
-  }, [outputText])
+  const [prevOutputText, setPrevOutputText] = useState(outputText)
+  if (outputText !== prevOutputText) {
+    setPrevOutputText(outputText)
+    if (!isOutputComposing) setLocalOutput(outputText)
+  }
 
   const handleRun = useCallback(async () => {
     const prompt = inputText
@@ -222,13 +227,13 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
             value={localInput}
             onChange={(e) => {
               setLocalInput(e.target.value)
-              if (!isComposing.current) {
+              if (!isComposing) {
                 updateNode(id, { inputText: e.target.value } as never)
               }
             }}
-            onCompositionStart={() => { isComposing.current = true }}
+            onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={(e) => {
-              isComposing.current = false
+              setIsComposing(false)
               updateNode(id, { inputText: (e.target as HTMLTextAreaElement).value } as never)
             }}
             onKeyDown={(e) => e.stopPropagation()}
@@ -262,13 +267,13 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
             value={localOutput}
             onChange={(e) => {
               setLocalOutput(e.target.value)
-              if (!isOutputComposing.current) {
+              if (!isOutputComposing) {
                 updateNode(id, { outputText: e.target.value } as never)
               }
             }}
-            onCompositionStart={() => { isOutputComposing.current = true }}
+            onCompositionStart={() => setIsOutputComposing(true)}
             onCompositionEnd={(e) => {
-              isOutputComposing.current = false
+              setIsOutputComposing(false)
               updateNode(id, { outputText: (e.target as HTMLTextAreaElement).value } as never)
             }}
             onKeyDown={(e) => e.stopPropagation()}

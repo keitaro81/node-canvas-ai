@@ -667,7 +667,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     )
 
     updateNode(id, { status: 'done' })
-  }, [id, count, imageEdges, storeNodes, hasImages, nodeData.params, updateNode, getConnectedPrompt])
+  }, [id, count, nodeData.params, updateNode, getConnectedPrompt])
 
   // ページリロード後のリカバリー
   const isRecoveringRef = useRef(false)
