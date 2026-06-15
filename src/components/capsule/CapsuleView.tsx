@@ -10,6 +10,7 @@ import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { downloadFile } from '../../lib/downloadFile'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -831,11 +832,11 @@ function StageGenerateButton({
 }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
+  const updateNode = useCanvasStore((s) => s.updateNode)
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   if ((nodeType as string) === 'referenceImage') return null
 
-  const updateNode = useCanvasStore((s) => s.updateNode)
   const d = node.data as Record<string, unknown>
   const count = nodeType === 'videoGen'
     ? Math.max(1, Math.min(10, (d.count as number) ?? 1))
@@ -988,12 +989,12 @@ function StageGenerateButton({
 function CameraListPanel({ nodeId }: { nodeId: string }) {
   const updateNode = useCanvasStore((s) => s.updateNode)
   const node = useCanvasStore((s) => s.nodes.find((n) => n.id === nodeId))
+  const [customInput, setCustomInput] = useState('')
   if (!node) return null
 
   const cd = node.data as unknown as CameraListNodeData
   const selectedPresets = cd.selectedPresets ?? []
   const customAngles = cd.customAngles ?? []
-  const [customInput, setCustomInput] = useState('')
 
   function togglePreset(presetId: string) {
     const next = selectedPresets.includes(presetId)
@@ -1312,9 +1313,10 @@ function CapsuleStagePanel({
 
 
 function ImagePreview({ src }: { src: string }) {
+  const { url, onError } = useSignedMedia(src)
   return (
     <div className="relative group/img max-w-full max-h-full">
-      <img src={src} alt="Generated" className="max-w-full max-h-full rounded-lg block" style={{ objectFit: 'contain' }} />
+      <img src={url ?? src} alt="Generated" className="max-w-full max-h-full rounded-lg block" style={{ objectFit: 'contain' }} onError={onError} />
       <div
         className="absolute inset-0 rounded-lg opacity-0 group-hover/img:opacity-100 transition-opacity duration-150 flex items-end justify-end p-3"
         style={{ background: 'linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.5) 100%)' }}
@@ -1322,7 +1324,7 @@ function ImagePreview({ src }: { src: string }) {
         <button
           className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors"
           style={{ background: 'rgba(0,0,0,0.6)' }}
-          onClick={() => downloadFile(src, 'generated.png')}
+          onClick={() => downloadFile(url ?? src, 'generated.png')}
           title="ダウンロード"
         >
           <Download size={16} />
@@ -1336,6 +1338,7 @@ function VideoPreview({ src }: { src: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(true)
   const [muted, setMuted] = useState(false)
+  const { url, onError } = useSignedMedia(src)
 
   function togglePlay() {
     const v = videoRef.current
@@ -1355,12 +1358,13 @@ function VideoPreview({ src }: { src: string }) {
     <div className="relative group/vid max-w-full max-h-full">
       <video
         ref={videoRef}
-        src={src}
+        src={url ?? src}
         className="max-w-full max-h-full rounded-lg block"
         style={{ objectFit: 'contain' }}
         autoPlay
         loop
         playsInline
+        onError={onError}
       />
       <div
         className="absolute inset-0 rounded-lg opacity-0 group-hover/vid:opacity-100 transition-opacity duration-150 flex items-end justify-end p-3 gap-2"
@@ -1385,7 +1389,7 @@ function VideoPreview({ src }: { src: string }) {
         <button
           className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors"
           style={{ background: 'rgba(0,0,0,0.6)' }}
-          onClick={() => downloadFile(src, 'generated.mp4')}
+          onClick={() => downloadFile(url ?? src, 'generated.mp4')}
           title="ダウンロード"
         >
           <Download size={16} />
@@ -1853,8 +1857,20 @@ function MobileStagePreview({
   const [showControls, setShowControls] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
 
-  useEffect(() => { setSelectedIdx(0) }, [activeIndex])
-  useEffect(() => { setIsPlaying(true); setIsMuted(true); setShowControls(true) }, [selectedIdx])
+  // ステージ切替で選択をリセット、選択切替で再生状態をリセット
+  // effect での setState を避けるため、レンダー中に前回値と比較して調整する
+  const [prevActiveIndex, setPrevActiveIndex] = useState(activeIndex)
+  if (activeIndex !== prevActiveIndex) {
+    setPrevActiveIndex(activeIndex)
+    setSelectedIdx(0)
+  }
+  const [prevSelectedIdx, setPrevSelectedIdx] = useState(selectedIdx)
+  if (selectedIdx !== prevSelectedIdx) {
+    setPrevSelectedIdx(selectedIdx)
+    setIsPlaying(true)
+    setIsMuted(true)
+    setShowControls(true)
+  }
 
   // 下流ステージへの接続情報（LargePreview と同ロジック）
   const downstreamLinks = useMemo((): DownstreamLink[] => {

@@ -33,16 +33,23 @@ export function useGenerationPolling(taskId: string | null): UseGenerationPollin
     setIsPolling(false)
   }, [])
 
+  // Reset state when taskId changes (adjust during render to avoid setState in effect)
+  const [prevTaskId, setPrevTaskId] = useState<string | null>(null)
+  if (taskId !== prevTaskId) {
+    setPrevTaskId(taskId)
+    if (taskId) {
+      setStatus('pending')
+      setResult(null)
+      setError(null)
+      setIsPolling(true)
+    }
+  }
+
   useEffect(() => {
     if (!taskId) return
 
-    // Reset state when taskId changes
     pollCountRef.current = 0
     activeTaskIdRef.current = taskId
-    setStatus('pending')
-    setResult(null)
-    setError(null)
-    setIsPolling(true)
 
     const poll = async () => {
       // Guard: task changed or polling was stopped externally

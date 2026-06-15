@@ -2,7 +2,8 @@ import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { ImageIcon, X, Loader2, Paintbrush } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { uploadImageFile } from '../../lib/api/storage'
+import { uploadImageFile, getSignedUrl } from '../../lib/api/storage'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceImageNodeData } from '../../types/nodes'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 
@@ -13,7 +14,8 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [showMaskModal, setShowMaskModal] = useState(false)
 
-  const displayUrl = nodeData.uploadedImagePreview || nodeData.imageUrl || null
+  const rawDisplayUrl = nodeData.uploadedImagePreview || nodeData.imageUrl || null
+  const { url: displayUrl, onError: onImageError } = useSignedMedia(rawDisplayUrl)
   const maskUrl = nodeData.maskUrl || null
   const maskPreviewDataUrl = nodeData.maskPreviewDataUrl || null
 
@@ -25,8 +27,10 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
 
       try {
         const uploadedUrl = await uploadImageFile(file, id)
+        // 非公開バケット化: セッション中の表示・fal参照用に署名URLを node.data へ（保存時に canonical へ正規化）
+        const signedUrl = (await getSignedUrl(uploadedUrl)) ?? uploadedUrl
         updateNode(id, {
-          imageUrl: uploadedUrl,
+          imageUrl: signedUrl,
           uploadedImagePreview: previewUrl,
         } as Parameters<typeof updateNode>[1])
       } catch {
@@ -141,6 +145,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
                 src={displayUrl}
                 alt="Reference"
                 className="w-full h-auto block"
+                onError={onImageError}
               />
               {maskPreviewDataUrl && (
                 <img

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   Gear,
@@ -24,6 +24,13 @@ function SaveStatus() {
   const { isSaving, hasUnsavedChanges, lastSavedAt } = useWorkflowStore()
   const isMobile = useIsMobile()
 
+  // 「◯分前に保存」の表示を1分ごとに更新する（レンダー中に Date.now() を呼ばないため state で保持）
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
+
   if (isSaving) {
     return (
       <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--text-tertiary)' }}>
@@ -43,7 +50,7 @@ function SaveStatus() {
   }
 
   if (lastSavedAt) {
-    const diff = Date.now() - lastSavedAt.getTime()
+    const diff = now - lastSavedAt.getTime()
     const mins = Math.floor(diff / 60000)
     const label = mins < 1 ? 'たった今' : `${mins}分前`
     return (

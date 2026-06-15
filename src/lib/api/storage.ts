@@ -117,3 +117,111 @@ export async function uploadVideoFromUrl(sourceUrl: string, nodeId: string): Pro
   const { data } = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path)
   return data.publicUrl
 }
+
+// ===== 署名URL層（バケット非公開化 L1） =====
+// DB保存形は /object/public/<bucket>/<path>（canonical）のまま。読込口で署名URLへ変換し、
+// 書込口で canonical へ正規化する。fal.media・blob:・data:・外部URL は対象外（素通し）。
+
+export type StorageTier = 'private' | 'public'
+
+// 将来の「明示公開」アセット用バケット（L2）。L1では予約のみ・未使用。
+export const PUBLIC_MEDIA_BUCKET = 'public-media'
+
+const PRIVATE_BUCKETS = new Set<string>([IMAGE_BUCKET, VIDEO_BUCKET])
+
+// 署名URLの有効期限（秒）。長め=再署名チャーン最小／流出URLは24hで失効。tunable。
+export const SIGNED_URL_TTL = 60 * 60 * 24
+
+/**
+ * 保存値から自前バケットの { bucket, path } を抽出する。
+ * 公開形式 /object/public/<bucket>/<path> と署名形式 /object/sign/<bucket>/<path>?token=... の両方を認識。
+ * fal.media・blob:・data:・外部URL・null は対象外として null を返す。
+ */
+export function toStoragePath(value: string | null | undefined): { bucket: string; path: string } | null {
+  if (!value || typeof value !== 'string') return null
+  for (const marker of ['/object/public/', '/object/sign/']) {
+    const i = value.indexOf(marker)
+    if (i === -1) continue
+    let rest = value.slice(i + marker.length)
+    const q = rest.indexOf('?')
+    if (q !== -1) rest = rest.slice(0, q)
+    const slash = rest.indexOf('/')
+    if (slash === -1) return null
+    const bucket = rest.slice(0, slash)
+    if (!PRIVATE_BUCKETS.has(bucket)) return null
+    const path = decodeURIComponent(rest.slice(slash + 1))
+    return path ? { bucket, path } : null
+  }
+  return null
+}
+
+/**
+ * 永続保存用の canonical 参照（/object/public/<bucket>/<path>）へ正規化する。
+ * 署名URL・公開URLは canonical へ戻し、それ以外（fal/blob/data/外部/null）は素通し。
+ */
+export function toCanonicalRef(value: string | null | undefined): string | null | undefined {
+  if (!value) return value
+  const parsed = toStoragePath(value)
+  if (!parsed) return value
+  return supabase.storage.from(parsed.bucket).getPublicUrl(parsed.path).data.publicUrl
+}
+
+/** 単一の値を署名URL化する（自前バケット以外・失敗時は元値）。onError 再署名で使用。 */
+export async function getSignedUrl(value: string | null | undefined): Promise<string | null | undefined> {
+  if (!value) return value
+  const parsed = toStoragePath(value)
+  if (!parsed) return value
+  try {
+    const { data, error } = await supabase.storage.from(parsed.bucket).createSignedUrl(parsed.path, SIGNED_URL_TTL)
+    if (error || !data?.signedUrl) return value
+    return data.signedUrl
+  } catch {
+    return value
+  }
+}
+
+/**
+ * 複数の値を一括署名する。返り値は「元の入力文字列 → 署名URL」の Map。
+ * 自前バケットの値のみ署名（バケット単位 createSignedUrls で N+1 回避）。
+ * 失敗した値は Map に入れない（呼び出し側が元値を維持）。1件失敗で全体を壊さない。
+ */
+export async function getSignedUrls(values: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  // bucket -> (path -> 同一パスを指す元の入力値の配列)
+  const buckets = new Map<string, Map<string, string[]>>()
+  for (const v of values) {
+    if (!v || out.has(v)) continue
+    const parsed = toStoragePath(v)
+    if (!parsed) continue
+    let pm = buckets.get(parsed.bucket)
+    if (!pm) { pm = new Map(); buckets.set(parsed.bucket, pm) }
+    const arr = pm.get(parsed.path)
+    if (arr) arr.push(v)
+    else pm.set(parsed.path, [v])
+  }
+  for (const [bucket, pm] of buckets) {
+    const paths = [...pm.keys()]
+    if (!paths.length) continue
+    try {
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrls(paths, SIGNED_URL_TTL)
+      if (error || !data) continue
+      for (const item of data) {
+        if (item.error || !item.signedUrl || !item.path) continue
+        const vals = pm.get(item.path)
+        if (vals) for (const v of vals) out.set(v, item.signedUrl)
+      }
+    } catch {
+      // この bucket の署名失敗は無視（呼び出し側が元値を維持）
+      continue
+    }
+  }
+  return out
+}
+
+/**
+ * 将来の公開アセット tier（L2）のための予約シグネチャ。L1では未実装。
+ * 「公開」操作で private バケットの対象を public-media バケットへコピーし公開URLを返す想定。
+ */
+export async function publishAsset(_bucket: string, _path: string): Promise<string> {
+  throw new Error('publishAsset: not implemented (reserved for L2 public tier)')
+}

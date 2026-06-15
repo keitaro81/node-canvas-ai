@@ -1073,7 +1073,7 @@ export function Canvas() {
         rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
       }, 50)
     },
-    [addNode]
+    [addNode, nodes, updateNode]
   )
 
   return (
