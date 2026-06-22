@@ -17,11 +17,12 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
 
-  // blob: URLはリロードで無効になるため、videoUrl（永続URL）を優先
+  // 画像ノードと同パターン: アップロード中は blob プレビュー、保存/リロードで除去され videoUrl(Mode1署名)へ。
+  // 非blobの uploadedVideoPreview（旧バグで混入した canonical 等）は無視し videoUrl を使う。
   const rawDisplayUrl = (() => {
     const preview = nodeData.uploadedVideoPreview
-    if (preview && !preview.startsWith('blob:')) return preview
-    return nodeData.videoUrl || preview || null
+    if (preview && preview.startsWith('blob:')) return preview
+    return nodeData.videoUrl || null
   })()
   const { url: displayUrl, onError: onVideoError } = useSignedMedia(rawDisplayUrl, currentWorkflowId)
 
@@ -33,11 +34,13 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
 
       try {
         const uploadedUrl = await uploadVideoFile(file, id)
-        // L2: 自分がアップしたオブジェクトをサーバー署名（表示用）。保存時に canonical へ正規化。
+        // L2: 自分がアップしたオブジェクトをサーバー署名（fal参照/生成入力用）。保存時に canonical へ正規化。
         const signedUrl = await signOwnUpload(uploadedUrl)
+        // 画像ノードと同様、即時表示は blob プレビューに任せ、videoUrl に署名URLを保持する
+        // （署名が省略され canonical でも、保存後のリロードで Mode1 署名され表示は壊れない）
         updateNode(id, {
           videoUrl: signedUrl,
-          uploadedVideoPreview: signedUrl,
+          uploadedVideoPreview: previewUrl,
         } as Parameters<typeof updateNode>[1])
       } catch {
         updateNode(id, {

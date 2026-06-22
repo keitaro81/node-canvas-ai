@@ -104,6 +104,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           const { uploadedImagePreview: _, ...rest } = d
           data = rest
         }
+        if (typeof data.uploadedVideoPreview === 'string' && data.uploadedVideoPreview.startsWith('blob:')) {
+          const { uploadedVideoPreview: _v, ...rest } = data
+          data = rest
+        }
         // requestId がある場合はリカバリー対象のため error にリセットしない
         if (data.status === 'generating' && !data.requestId) {
           data = { ...data, status: 'error', errorMessage: 'ページの再読み込みにより生成が中断されました' }
@@ -147,8 +151,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // blob: URL はセッション限りなので保存から除外する
       const sanitizedNodes = nodes.map((node) => {
         const d = node.data as Record<string, unknown>
-        if (!d.uploadedImagePreview) return node
-        const { uploadedImagePreview: _, ...rest } = d
+        if (!d.uploadedImagePreview && !d.uploadedVideoPreview) return node
+        const { uploadedImagePreview: _i, uploadedVideoPreview: _v, ...rest } = d
         return { ...node, data: rest }
       })
       // 非公開バケット化: 署名URL（/object/sign?token=）を保存し直さないよう canonical へ正規化する（書込口）
