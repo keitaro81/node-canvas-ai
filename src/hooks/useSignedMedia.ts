@@ -1,13 +1,17 @@
 import { useCallback, useState } from 'react'
-import { getSignedUrl, toCanonicalRef } from '../lib/api/storage'
+import { signMediaRequest, toCanonicalRef } from '../lib/api/storage'
 
 /**
- * 表示用メディアURLの onError 再署名フック（バケット非公開化 L1 の安全網）。
- * 入力は通常すでに署名済みURL（読込口で署名済み）。失効・seam取りこぼし・>TTLで読み込みに失敗したら、
- * canonical へ戻して1回だけ再署名して差し替える。再署名でも直らなければ failed=true を返す。
- * ダウンロード直前用に freshUrl()（その場で再署名）も提供。
+ * 表示用メディアURLの onError 再署名フック（L2: サーバー署名）。
+ * 失効・seam取りこぼし・>TTLで読み込みに失敗したら canonical へ戻して1回だけ再署名し差し替える。
+ * canvas メディアは workflowId を渡して「ワークフローアクセス認可」で再署名、
+ * カード(History/サムネ)は workflowId 無し＝Mode urls（生成出力の所有/共有判定）で再署名する。
+ * 再署名でも直らなければ failed=true。ダウンロード直前用に freshUrl() も提供。
  */
-export function useSignedMedia(initial: string | null | undefined): {
+export function useSignedMedia(
+  initial: string | null | undefined,
+  workflowId?: string | null,
+): {
   url: string | null | undefined
   onError: () => void
   failed: boolean
@@ -26,28 +30,29 @@ export function useSignedMedia(initial: string | null | undefined): {
     setFailed(false)
   }
 
+  const resign = useCallback(async (): Promise<string | undefined> => {
+    const canonical = toCanonicalRef(url ?? initial)
+    if (!canonical) return undefined
+    const map = await signMediaRequest(workflowId ? { workflowId } : { urls: [canonical] })
+    return map[canonical]
+  }, [url, initial, workflowId])
+
   const onError = useCallback(() => {
     if (retried) {
       setFailed(true)
       return
     }
     setRetried(true)
-    const canonical = toCanonicalRef(url ?? initial)
-    if (!canonical) {
-      setFailed(true)
-      return
-    }
-    void getSignedUrl(canonical).then((fresh) => {
+    void resign().then((fresh) => {
       if (fresh && fresh !== (url ?? initial)) setUrl(fresh)
       else setFailed(true)
     })
-  }, [retried, url, initial])
+  }, [retried, resign, url, initial])
 
   const freshUrl = useCallback(async (): Promise<string | null | undefined> => {
-    const canonical = toCanonicalRef(url ?? initial)
-    const fresh = await getSignedUrl(canonical)
+    const fresh = await resign()
     return fresh ?? url ?? initial
-  }, [url, initial])
+  }, [resign, url, initial])
 
   return { url, onError, failed, freshUrl }
 }

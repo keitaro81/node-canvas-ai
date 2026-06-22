@@ -2,7 +2,8 @@ import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { ImageIcon, X, Loader2, Paintbrush } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { uploadImageFile, getSignedUrl } from '../../lib/api/storage'
+import { useWorkflowStore } from '../../stores/workflowStore'
+import { uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceImageNodeData } from '../../types/nodes'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
@@ -10,12 +11,13 @@ import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ReferenceImageNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
+  const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showMaskModal, setShowMaskModal] = useState(false)
 
   const rawDisplayUrl = nodeData.uploadedImagePreview || nodeData.imageUrl || null
-  const { url: displayUrl, onError: onImageError } = useSignedMedia(rawDisplayUrl)
+  const { url: displayUrl, onError: onImageError } = useSignedMedia(rawDisplayUrl, currentWorkflowId)
   const maskUrl = nodeData.maskUrl || null
   const maskPreviewDataUrl = nodeData.maskPreviewDataUrl || null
 
@@ -27,8 +29,8 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
 
       try {
         const uploadedUrl = await uploadImageFile(file, id)
-        // 非公開バケット化: セッション中の表示・fal参照用に署名URLを node.data へ（保存時に canonical へ正規化）
-        const signedUrl = (await getSignedUrl(uploadedUrl)) ?? uploadedUrl
+        // L2: 自分がアップしたオブジェクトをサーバー署名（表示・fal参照用）。保存時に canonical へ正規化。
+        const signedUrl = await signOwnUpload(uploadedUrl)
         updateNode(id, {
           imageUrl: signedUrl,
           uploadedImagePreview: previewUrl,

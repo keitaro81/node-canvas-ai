@@ -14,11 +14,23 @@ import {
   Globe,
   Lock,
   Copy,
+  UsersThree,
+  CaretDown,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import type { WorkflowVisibility } from '../../lib/api/workflows'
+
+type IconCmp = React.ComponentType<{ size?: number; weight?: 'regular' | 'fill' | 'bold'; style?: React.CSSProperties }>
+
+// 可視性セレクタの表示メタ（private=自分のみ / team=同チーム共有 / public=コミュニティ）
+const VISIBILITY_META: Record<WorkflowVisibility, { label: string; desc: string; Icon: IconCmp; color: string; bg: string; border: string }> = {
+  private: { label: 'Private', desc: '自分のみ', Icon: Lock, color: 'var(--text-secondary)', bg: 'var(--bg-elevated)', border: 'var(--border)' },
+  team: { label: 'Team', desc: '同じチームに共有', Icon: UsersThree, color: '#6366F1', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.25)' },
+  public: { label: 'Public', desc: 'Communityに公開', Icon: Globe, color: '#22C55E', bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.25)' },
+}
 
 function SaveStatus() {
   const { isSaving, hasUnsavedChanges, lastSavedAt } = useWorkflowStore()
@@ -76,11 +88,11 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
   const {
     currentWorkflowName,
     currentWorkflowId,
-    currentWorkflowIsPublic,
+    currentWorkflowVisibility,
     currentWorkflowIsOwned,
     renameWorkflow,
     setCurrentWorkflowName,
-    togglePublic,
+    setVisibility,
     cloneWorkflow,
   } = useWorkflowStore()
   const appMode = useCanvasStore((s) => s.appMode)
@@ -89,7 +101,19 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
   const [draft, setDraft] = useState(currentWorkflowName)
   const [togglingPublic, setTogglingPublic] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const [visMenuOpen, setVisMenuOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const visMenuRef = useRef<HTMLDivElement>(null)
+
+  // 可視性メニューの外側クリックで閉じる
+  useEffect(() => {
+    if (!visMenuOpen) return
+    function onDown(e: MouseEvent) {
+      if (visMenuRef.current && !visMenuRef.current.contains(e.target as Node)) setVisMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [visMenuOpen])
 
   function startEdit() {
     setDraft(currentWorkflowName)
@@ -112,10 +136,12 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
     if (e.key === 'Escape') setEditing(false)
   }
 
-  async function handleTogglePublic() {
+  async function handleSetVisibility(v: WorkflowVisibility) {
+    setVisMenuOpen(false)
+    if (v === currentWorkflowVisibility) return
     setTogglingPublic(true)
     try {
-      await togglePublic()
+      await setVisibility(v)
     } finally {
       setTogglingPublic(false)
     }
@@ -232,25 +258,67 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
         {currentWorkflowIsOwned ? (
           /* Public/Private toggle — 自分のワークフロー（モバイルでは非表示） */
           !isMobile && (
-          <button
-            onClick={handleTogglePublic}
-            disabled={togglingPublic}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150 disabled:opacity-50"
-            style={
-              currentWorkflowIsPublic
-                ? { background: 'rgba(34,197,94,0.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,0.25)' }
-                : { background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }
-            }
-            title={currentWorkflowIsPublic ? 'Communityに公開中 — クリックで非公開に' : 'クリックでCommunityに公開'}
-          >
-            {togglingPublic
-              ? <CircleNotch size={11} className="animate-spin" />
-              : currentWorkflowIsPublic
-                ? <Globe size={11} weight="fill" />
-                : <Lock size={11} />
-            }
-            {currentWorkflowIsPublic ? 'Public' : 'Private'}
-          </button>
+          <div className="relative" ref={visMenuRef}>
+            <button
+              onClick={() => setVisMenuOpen((o) => !o)}
+              disabled={togglingPublic}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150 disabled:opacity-50"
+              style={{
+                background: VISIBILITY_META[currentWorkflowVisibility].bg,
+                color: VISIBILITY_META[currentWorkflowVisibility].color,
+                border: `1px solid ${VISIBILITY_META[currentWorkflowVisibility].border}`,
+              }}
+              title="表示範囲を変更"
+            >
+              {togglingPublic ? (
+                <CircleNotch size={11} className="animate-spin" />
+              ) : (
+                (() => {
+                  const Cur = VISIBILITY_META[currentWorkflowVisibility].Icon
+                  return <Cur size={11} weight={currentWorkflowVisibility === 'private' ? 'regular' : 'fill'} />
+                })()
+              )}
+              {VISIBILITY_META[currentWorkflowVisibility].label}
+              <CaretDown size={9} weight="bold" style={{ opacity: 0.6 }} />
+            </button>
+            {visMenuOpen && (
+              <div
+                className="absolute right-0 z-50 rounded-lg overflow-hidden"
+                style={{
+                  top: 'calc(100% + 4px)',
+                  minWidth: 184,
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                }}
+              >
+                {(['private', 'team', 'public'] as WorkflowVisibility[]).map((v) => {
+                  const meta = VISIBILITY_META[v]
+                  const ItemIcon = meta.Icon
+                  const active = v === currentWorkflowVisibility
+                  return (
+                    <button
+                      key={v}
+                      onClick={() => handleSetVisibility(v)}
+                      className="flex items-start gap-2 w-full px-3 py-2 text-left transition-colors duration-150"
+                      style={{ background: active ? 'var(--bg-elevated)' : 'transparent' }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = active ? 'var(--bg-elevated)' : 'transparent' }}
+                    >
+                      <ItemIcon size={13} weight={v === 'private' ? 'regular' : 'fill'} style={{ color: meta.color, marginTop: 1, flexShrink: 0 }} />
+                      <span className="flex flex-col min-w-0">
+                        <span className="flex items-center gap-1.5 text-[12px] font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {meta.label}
+                          {active && <Check size={11} weight="bold" style={{ color: meta.color }} />}
+                        </span>
+                        <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{meta.desc}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           )
         ) : (
           /* Read only + Clone — 他人のワークフロー */

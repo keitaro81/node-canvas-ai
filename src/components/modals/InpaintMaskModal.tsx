@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Trash2, Loader2 } from 'lucide-react'
-import { uploadImageFile, getSignedUrl } from '../../lib/api/storage'
+import { uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 
 interface Props {
   imageUrl: string
@@ -169,8 +169,8 @@ export function InpaintMaskModal({ imageUrl, initialPreviewDataUrl, onConfirm, o
       })
       const file = new File([blob], 'mask.png', { type: 'image/png' })
       const storedMaskUrl = await uploadImageFile(file, 'mask')
-      // 非公開バケット化: fal がサーバー側で fetch するため署名URLを渡す（node.data 保存時に canonical へ正規化）
-      const maskUrl = (await getSignedUrl(storedMaskUrl)) ?? storedMaskUrl
+      // L2: 自分がアップしたマスクをサーバー署名（fal がサーバー側 fetch・node.data 保存時に canonical へ正規化）
+      const maskUrl = await signOwnUpload(storedMaskUrl)
       onConfirm(maskUrl, previewDataUrl)
     } catch (err) {
       console.error('Mask upload failed:', err)

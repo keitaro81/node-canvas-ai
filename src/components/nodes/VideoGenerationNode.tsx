@@ -11,7 +11,7 @@ import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress } from '../../lib/ai/types'
 import { saveGeneration, updateGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { uploadVideoFromUrl, getSignedUrl } from '../../lib/api/storage'
+import { uploadVideoFromUrl, signOwnUpload } from '../../lib/api/storage'
 import { showToast } from '../../hooks/useToast'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 
@@ -277,8 +277,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           })
           // Storage アップロード後にノード・サムネ・History を Supabase 永続 URL に差し替え
           uploadVideoFromUrl(result.videoUrl, displayId).then(async (storedUrl) => {
-            // 非公開バケット化: 表示は署名URL、永続化は canonical
-            const signedUrl = (await getSignedUrl(storedUrl)) ?? storedUrl
+            // L2: 自分がアップした動画をサーバー署名（表示用）、永続化は canonical
+            const signedUrl = await signOwnUpload(storedUrl)
             upd(updateNode, displayId, { videoUrl: signedUrl })
             if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, storedUrl)
             if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch((e) => {
@@ -427,7 +427,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               activeDisplayNodeId: null,
             })
             uploadVideoFromUrl(result.videoUrl, displayId ?? id).then(async (storedUrl) => {
-              const signedUrl = (await getSignedUrl(storedUrl)) ?? storedUrl
+              const signedUrl = await signOwnUpload(storedUrl)
               if (displayId) upd(updateNode, displayId, { videoUrl: signedUrl })
               if (recoveryWorkflowId) useWorkflowStore.getState().updateThumbnail(recoveryWorkflowId, storedUrl)
               saveGeneration({

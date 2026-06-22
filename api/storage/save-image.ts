@@ -105,5 +105,16 @@ async function handler(req: Request): Promise<Response> {
     .from('generated-images')
     .getPublicUrl(path)
 
-  return jsonResponse({ url: publicUrl }, 200)
+  // L2: 即時表示用に署名URLも返す（このオブジェクトは service role アップ＝owner null のため ownUrls では署名不可）
+  let signedUrl: string | null = null
+  try {
+    const { data: signed } = await adminSupabase.storage
+      .from('generated-images')
+      .createSignedUrl(path, 60 * 60 * 24)
+    signedUrl = signed?.signedUrl ?? null
+  } catch {
+    signedUrl = null
+  }
+
+  return jsonResponse({ url: publicUrl, signedUrl }, 200)
 }
