@@ -2,7 +2,8 @@ import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Film, X, Loader2, Play, Pause } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { uploadVideoFile, getSignedUrl } from '../../lib/api/storage'
+import { useWorkflowStore } from '../../stores/workflowStore'
+import { uploadVideoFile, signOwnUpload } from '../../lib/api/storage'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceVideoNodeData, NodeData } from '../../types/nodes'
 
@@ -11,6 +12,7 @@ const ACCEPTED_VIDEO_TYPES = 'video/mp4,video/quicktime,video/webm'
 function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ReferenceVideoNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
+  const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -21,7 +23,7 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
     if (preview && !preview.startsWith('blob:')) return preview
     return nodeData.videoUrl || preview || null
   })()
-  const { url: displayUrl, onError: onVideoError } = useSignedMedia(rawDisplayUrl)
+  const { url: displayUrl, onError: onVideoError } = useSignedMedia(rawDisplayUrl, currentWorkflowId)
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -31,8 +33,8 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
 
       try {
         const uploadedUrl = await uploadVideoFile(file, id)
-        // 非公開バケット化: セッション中の表示用に署名URLを node.data へ（保存時に canonical へ正規化）
-        const signedUrl = (await getSignedUrl(uploadedUrl)) ?? uploadedUrl
+        // L2: 自分がアップしたオブジェクトをサーバー署名（表示用）。保存時に canonical へ正規化。
+        const signedUrl = await signOwnUpload(uploadedUrl)
         updateNode(id, {
           videoUrl: signedUrl,
           uploadedVideoPreview: signedUrl,

@@ -76,6 +76,32 @@ export async function getPublicWorkflows(): Promise<WorkflowRow[]> {
   return signWorkflowThumbnails((data ?? []) as any)
 }
 
+// L2: ワークフロー可視性（private=本人のみ / team=同チーム共有 / public=コミュニティ）
+export type WorkflowVisibility = 'private' | 'team' | 'public'
+
+/** 可視性を設定。is_public も後方互換で同期（getPublicWorkflows 等が動き続ける）。 */
+export async function setWorkflowVisibility(id: string, visibility: WorkflowVisibility): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const table = supabase.from('workflows') as any
+  const { error } = await table
+    .update({ visibility, is_public: visibility === 'public', updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
+/** チーム共有ワークフロー（visibility='team'・RLS で自チームのみ）を取得（サムネ署名つき）。 */
+export async function getTeamWorkflows(): Promise<WorkflowRow[]> {
+  const { data, error } = await supabase
+    .from('workflows')
+    .select('*')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .eq('visibility' as any, 'team')
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return signWorkflowThumbnails((data ?? []) as any)
+}
+
 export async function updateWorkflowThumbnail(id: string, thumbnailUrl: string): Promise<void> {
   // 署名URLを保存しないよう canonical へ正規化（書込口）
   const canonical = toCanonicalRef(thumbnailUrl) ?? thumbnailUrl

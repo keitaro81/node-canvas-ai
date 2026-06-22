@@ -19,7 +19,7 @@
 | 0005 | Storage ポリシークリーンアップ（未使用・誤設定の3ポリシー除去） | 済 2026-06-13 | 済 2026-06-13 |
 | 0006 | 孤児GC用 storage.objects 列挙 RPC（list_generated_objects） | 済 2026-06-13 | 済 2026-06-13 |
 | 0007 | generated-images へのクライアントアップロード許可（16c: 参照画像/マスク永続化） | 済 2026-06-14 | 済 2026-06-14 |
-| 0008 | generated-images/videos を private 化 + 認証ユーザー SELECT 許可（バケット非公開化 L1） | 未適用 | 未適用 |
+| 0008 | generated-images/videos を private 化 + 認証ユーザー SELECT 許可（バケット非公開化 L1） | 済 2026-06-15 | 済 2026-06-15 |
 
 > **0004 は適用しない**: 2026-06-13 の RLS 監査で確認した現状を IaC として記録したドキュメント。本番/ステージングには既に同ポリシーが存在するため実行不要（実行すると drop+create で一瞬 RLS ギャップが生じる）。新規DB再現・ドリフト diff の基準として使う。監査詳細はメモリ `project_rls_audit.md`。
 
@@ -27,4 +27,4 @@
 
 > 着手順2の設計根拠はメモリ `project_team_quota_design.md` を参照。
 
-> **0008 は2部構成・段階適用（コードと分離）**: (A) 認証 SELECT ポリシーを先に両DBへ → 新コードをデプロイし **public のまま検証** → (B) `storage.buckets.public=false`（カットオーバー、ファイル内でコメントアウト済み・別途実行）。署名URLは public バケットでも動くため後方互換。ロールバックは `public=true` に戻すだけ（データ変更なし）。設計はメモリ `project_ga_security_audit.md` の着手順5「バケット非公開化 L1」。
+> **0008 ✅ 適用完了（2026-06-15・本番/staging とも (A)+(B) 適用＝private 化済み・ログアウトで raw 公開URL が 404 を実地確認）**。2部構成・段階適用だった: (A) 認証 SELECT ポリシーを先に両DBへ → 新コードをデプロイし **public のまま検証** → (B) `storage.buckets.public=false`（カットオーバー、ファイル内でコメントアウト・別途実行）。署名URLは public バケットでも動くため後方互換。ロールバックは `public=true` に戻すだけ（データ変更なし）。設計はメモリ `project_ga_security_audit.md` の着手順5「バケット非公開化 L1」。

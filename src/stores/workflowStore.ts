@@ -10,6 +10,8 @@ import {
   deleteWorkflow,
   updateWorkflowThumbnail,
   toggleWorkflowPublic,
+  setWorkflowVisibility,
+  type WorkflowVisibility,
   type WorkflowRow,
 } from '../lib/api/workflows'
 import { canonicalizeCanvasNodes, signCanvasNodes } from '../lib/api/signMedia'
@@ -29,6 +31,7 @@ interface WorkflowState {
   currentWorkflowId: string | null
   currentWorkflowName: string
   currentWorkflowIsPublic: boolean
+  currentWorkflowVisibility: WorkflowVisibility
   currentWorkflowIsOwned: boolean  // 自分のプロジェクト配下かどうか
   workflows: WorkflowRow[]
   isSaving: boolean
@@ -47,6 +50,7 @@ interface WorkflowState {
   markUnsavedChanges(): void
   initializeDefaultProject(): Promise<string>
   togglePublic(): Promise<void>
+  setVisibility(visibility: WorkflowVisibility): Promise<void>
   updateThumbnail(workflowId: string, url: string): Promise<void>
   cloneWorkflow(sourceId?: string): Promise<string>  // クローンして新しいworkflowIdを返す
 }
@@ -55,6 +59,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   currentWorkflowId: null,
   currentWorkflowName: 'Untitled Workflow',
   currentWorkflowIsPublic: false,
+  currentWorkflowVisibility: 'private',
   currentWorkflowIsOwned: true,
   workflows: [],
   isSaving: false,
@@ -105,8 +110,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
         return { ...node, data }
       })
-      // 非公開バケット化: 保存済みの canonical URL を表示用の署名URLへ変換する（読込口）
-      const signedNodes = await signCanvasNodes(restoredNodes)
+      // 非公開バケット化(L1)+テナント分離(L2): canonical URL を、サーバーが WF アクセス認可した上で署名URLへ変換
+      const signedNodes = await signCanvasNodes(restoredNodes, id)
       // nodes/edges/capsuleGroupId を原子的にセット。
       // 別々に set() すると「エッジ空」のundoスナップショットが混入するため loadCanvasState を使う。
       loadCanvasState(
@@ -120,6 +125,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         currentWorkflowId: id,
         currentWorkflowName: workflow.name,
         currentWorkflowIsPublic: (workflow as { is_public?: boolean }).is_public ?? false,
+        currentWorkflowVisibility: (workflow as { visibility?: WorkflowVisibility }).visibility
+          ?? ((workflow as { is_public?: boolean }).is_public ? 'public' : 'private'),
         currentWorkflowIsOwned: isOwned,
         hasUnsavedChanges: false,
         lastSavedAt: new Date(workflow.updated_at),
@@ -221,8 +228,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     await toggleWorkflowPublic(currentWorkflowId, next)
     set((state) => ({
       currentWorkflowIsPublic: next,
+      currentWorkflowVisibility: next ? 'public' : 'private',
       workflows: state.workflows.map((w) =>
         w.id === currentWorkflowId ? { ...w, is_public: next } : w
+      ),
+    }))
+  },
+
+  async setVisibility(visibility: WorkflowVisibility): Promise<void> {
+    const { currentWorkflowId } = get()
+    if (!currentWorkflowId) return
+    await setWorkflowVisibility(currentWorkflowId, visibility)
+    set((state) => ({
+      currentWorkflowVisibility: visibility,
+      currentWorkflowIsPublic: visibility === 'public',
+      workflows: state.workflows.map((w) =>
+        w.id === currentWorkflowId ? { ...w, visibility, is_public: visibility === 'public' } : w
       ),
     }))
   },

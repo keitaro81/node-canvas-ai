@@ -39,7 +39,7 @@ export async function deleteImage(path: string): Promise<void> {
  * - ローカル開発（VITE_FAL_KEY あり）: Vite Dev Server ミドルウェア経由（サーバーサイド fetch + service role key）
  * - 本番: Edge Function 経由（service role key でアップロード）
  */
-export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Promise<string> {
+export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Promise<{ url: string; signedUrl: string | null }> {
   // ローカル開発環境: Vite Dev Server ミドルウェア /dev-proxy/save-image 経由
   // （CORS 問題を回避し、service role key で RLS 制約も突破する）
   if (import.meta.env.VITE_FAL_KEY) {
@@ -52,8 +52,8 @@ export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Pro
       const err = await res.json() as { error?: string }
       throw new Error(err.error ?? 'Dev proxy save failed')
     }
-    const data = await res.json() as { url: string }
-    return data.url
+    const data = await res.json() as { url: string; signedUrl?: string | null }
+    return { url: data.url, signedUrl: data.signedUrl ?? null }
   }
 
   const { data: { session } } = await supabase.auth.getSession()
@@ -74,8 +74,8 @@ export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Pro
     throw new Error(err.error ?? 'Image upload failed')
   }
 
-  const data = await res.json() as { url: string }
-  return data.url
+  const data = await res.json() as { url: string; signedUrl?: string | null }
+  return { url: data.url, signedUrl: data.signedUrl ?? null }
 }
 
 /**
@@ -166,56 +166,43 @@ export function toCanonicalRef(value: string | null | undefined): string | null 
   return supabase.storage.from(parsed.bucket).getPublicUrl(parsed.path).data.publicUrl
 }
 
-/** 単一の値を署名URL化する（自前バケット以外・失敗時は元値）。onError 再署名で使用。 */
-export async function getSignedUrl(value: string | null | undefined): Promise<string | null | undefined> {
-  if (!value) return value
-  const parsed = toStoragePath(value)
-  if (!parsed) return value
+/**
+ * L2 テナント分離: 署名はサーバー（/api/storage/sign-media, service role）が所有者検証つきで行う。
+ * - workflowId : そのワークフローにアクセス可能なら canvas_data+thumbnail の全メディアを署名
+ * - urls       : generations.output_url（own or その WF が public/team 共有なら署名）
+ * - ownUrls    : storage.objects.owner が本人のオブジェクトのみ署名（アップロード直後の即時表示）
+ * 返り値は { 入力canonicalURL: 署名URL }（不可は省略）。失敗時は空（呼び出し側が元値を維持）。
+ */
+export async function signMediaRequest(body: {
+  workflowId?: string | null
+  urls?: Array<string | null | undefined>
+  ownUrls?: Array<string | null | undefined>
+}): Promise<Record<string, string>> {
+  const urls = (body.urls ?? []).filter((u): u is string => typeof u === 'string' && !!u)
+  const ownUrls = (body.ownUrls ?? []).filter((u): u is string => typeof u === 'string' && !!u)
+  if (!body.workflowId && !urls.length && !ownUrls.length) return {}
   try {
-    const { data, error } = await supabase.storage.from(parsed.bucket).createSignedUrl(parsed.path, SIGNED_URL_TTL)
-    if (error || !data?.signedUrl) return value
-    return data.signedUrl
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+    if (!token) return {}
+    const endpoint = import.meta.env.VITE_FAL_KEY ? '/dev-proxy/sign-media' : '/api/storage/sign-media'
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ workflowId: body.workflowId ?? undefined, urls, ownUrls }),
+    })
+    if (!res.ok) return {}
+    const data = await res.json() as { map?: Record<string, string> }
+    return data.map ?? {}
   } catch {
-    return value
+    return {}
   }
 }
 
-/**
- * 複数の値を一括署名する。返り値は「元の入力文字列 → 署名URL」の Map。
- * 自前バケットの値のみ署名（バケット単位 createSignedUrls で N+1 回避）。
- * 失敗した値は Map に入れない（呼び出し側が元値を維持）。1件失敗で全体を壊さない。
- */
-export async function getSignedUrls(values: Array<string | null | undefined>): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  // bucket -> (path -> 同一パスを指す元の入力値の配列)
-  const buckets = new Map<string, Map<string, string[]>>()
-  for (const v of values) {
-    if (!v || out.has(v)) continue
-    const parsed = toStoragePath(v)
-    if (!parsed) continue
-    let pm = buckets.get(parsed.bucket)
-    if (!pm) { pm = new Map(); buckets.set(parsed.bucket, pm) }
-    const arr = pm.get(parsed.path)
-    if (arr) arr.push(v)
-    else pm.set(parsed.path, [v])
-  }
-  for (const [bucket, pm] of buckets) {
-    const paths = [...pm.keys()]
-    if (!paths.length) continue
-    try {
-      const { data, error } = await supabase.storage.from(bucket).createSignedUrls(paths, SIGNED_URL_TTL)
-      if (error || !data) continue
-      for (const item of data) {
-        if (item.error || !item.signedUrl || !item.path) continue
-        const vals = pm.get(item.path)
-        if (vals) for (const v of vals) out.set(v, item.signedUrl)
-      }
-    } catch {
-      // この bucket の署名失敗は無視（呼び出し側が元値を維持）
-      continue
-    }
-  }
-  return out
+/** L2: アップロード直後の即時表示用。自分がアップしたオブジェクト(owner=本人)のみサーバー署名。失敗時は元値。 */
+export async function signOwnUpload(url: string): Promise<string> {
+  const map = await signMediaRequest({ ownUrls: [url] })
+  return map[url] ?? url
 }
 
 /**
