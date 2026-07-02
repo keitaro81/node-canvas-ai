@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+// `_` プレフィックス = Vercel が /api 配下で関数化しない共有モジュール（_sentry.ts と同じ規約）
+import { teamManage, type TeamManageBody } from './api/team/_teamLogic'
 
 // SSRF対策: fal.ai の生成物配信ドメイン以外はサーバーサイド fetch しない
 // （api/storage/save-image.ts と同一ロジック。変更時は両方更新する）
@@ -401,6 +403,37 @@ function devImageProxyPlugin(): Plugin {
               res.end(JSON.stringify({ map: result.map }))
             } catch (err) {
               console.error('[dev-sign-media] error:', err)
+              res.writeHead(500, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: String(err) }))
+            }
+          })
+        }
+      )
+
+      // チーム管理: POST /dev-proxy/team-manage { action, ... } → teamManage（api/team/teamLogic 共用）
+      server.middlewares.use(
+        '/dev-proxy/team-manage',
+        async (req: IncomingMessage, res: ServerResponse) => {
+          if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
+          const chunks: Buffer[] = []
+          req.on('data', (chunk: Buffer) => chunks.push(chunk))
+          req.on('end', async () => {
+            try {
+              if (!supabaseUrl || !serviceKey) {
+                throw new Error('SUPABASE_SERVICE_ROLE_KEY が .env.local に設定されていません。')
+              }
+              const token = (req.headers.authorization ?? '').replace(/^Bearer /, '')
+              if (!token) throw new Error('No token')
+              const body = JSON.parse(Buffer.concat(chunks).toString()) as TeamManageBody
+              const { createClient } = await import('@supabase/supabase-js')
+              const admin = createClient(supabaseUrl, serviceKey)
+              const { data: { user } } = await admin.auth.getUser(token)
+              if (!user) throw new Error('Unauthorized')
+              const result = await teamManage(admin, user.id, body)
+              res.writeHead(result.status, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(result.body))
+            } catch (err) {
+              console.error('[dev-team-manage] error:', err)
               res.writeHead(500, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ error: String(err) }))
             }

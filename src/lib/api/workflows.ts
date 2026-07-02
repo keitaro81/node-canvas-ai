@@ -81,11 +81,22 @@ export type WorkflowVisibility = 'private' | 'team' | 'public'
 
 /** 可視性を設定。is_public も後方互換で同期（getPublicWorkflows 等が動き続ける）。 */
 export async function setWorkflowVisibility(id: string, visibility: WorkflowVisibility): Promise<void> {
+  const patch: Record<string, unknown> = {
+    visibility,
+    is_public: visibility === 'public',
+    updated_at: new Date().toISOString(),
+  }
+  // 'team' 共有＝「今の所属チーム」への共有。workflows.team_id は作成時トリガでしか設定されないため、
+  // チーム移動後に古い WF が旧（空になった）チームへ共有されて誰にも見えない事故を防ぐべく、共有時点の所属で揃える。
+  // （RLS: team_members SELECT は自チーム行のみ＝どの行でも team_id は自分のチーム。1人1チーム enforce 済み）
+  if (visibility === 'team') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: m } = await (supabase.from('team_members') as any).select('team_id').limit(1).maybeSingle()
+    if (m?.team_id) patch.team_id = m.team_id
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = supabase.from('workflows') as any
-  const { error } = await table
-    .update({ visibility, is_public: visibility === 'public', updated_at: new Date().toISOString() })
-    .eq('id', id)
+  const { error } = await table.update(patch).eq('id', id)
   if (error) throw error
 }
 

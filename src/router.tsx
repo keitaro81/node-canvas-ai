@@ -3,6 +3,8 @@ import { HomeLayout } from './components/home/HomeLayout'
 import { ProjectsPage } from './components/home/ProjectsPage'
 import { CommunityPage } from './components/home/CommunityPage'
 import { TeamPage } from './components/home/TeamPage'
+import { TeamSettingsPage } from './components/home/TeamSettingsPage'
+import { JoinPage } from './components/home/JoinPage'
 import { HistoryPage } from './components/home/HistoryPage'
 import { MyPage } from './components/home/MyPage'
 import { CanvasPage } from './components/canvas/CanvasPage'
@@ -22,6 +24,7 @@ export const router = createBrowserRouter([
     children: [
       { path: '/projects', element: <ProjectsPage /> },
       { path: '/team', element: <TeamPage /> },
+      { path: '/team/settings', element: <TeamSettingsPage /> },
       { path: '/community', element: <CommunityPage /> },
       { path: '/history', element: <HistoryPage /> },
       { path: '/account', element: <MyPage /> },
@@ -31,4 +34,6 @@ export const router = createBrowserRouter([
     path: '/canvas/:workflowId',
     element: <CanvasPage />,
   },
+  // 招待リンクの着地（AuthGuard 配下＝未ログインはログイン後にここへ）
+  { path: '/join/:token', element: <JoinPage /> },
 ])
