@@ -12,8 +12,10 @@ const PUBLIC_PATHS = ['/terms', '/privacy']
 export function AuthGuard({ children }: AuthGuardProps) {
   const { user, loading } = useAuth()
 
-  // 法務ページは認証を要求せず素通し（AuthGuard は Router の外側のため pathname を直接参照）
-  if (PUBLIC_PATHS.includes(window.location.pathname)) {
+  // 法務ページは認証を要求せず素通し（AuthGuard は Router の外側のため pathname を直接参照）。
+  // /join/:token（招待リンク着地）も公開: 未ログインでもチーム名確認とアカウント作成（invite-gated signup）が
+  // できるよう JoinPage 側で認証状態に応じて表示を切り替える。
+  if (PUBLIC_PATHS.includes(window.location.pathname) || window.location.pathname.startsWith('/join/')) {
     return <>{children}</>
   }
 

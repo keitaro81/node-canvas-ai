@@ -82,13 +82,17 @@ create unique index team_invites_one_active on team_invites(team_id) where revok
 
 ### 6.2 エンドポイント（すべて Edge / service role・`withSentry`・dev middleware ミラー）
 
-| エンドポイント | 権限 | 動作 |
+| アクション（`POST /api/team/manage`） | 権限 | 動作 |
 |---|---|---|
-| `POST /api/team/invite` | owner | 旧リンク revoke → 新 `team_invites` 発行。`{ url, token, expiresAt }` を返す |
-| `POST /api/team/join` | 認証済み（誰でも・token が鍵） | token 検証→呼出者を T へ張替。下記6.3 |
-| `POST /api/team/leave` | 本人 | 本人を新個人チームへ戻す（6.4） |
-| `POST /api/team/remove` | owner | `{ userId }` を新個人チームへ戻す。owner/最後のownerガード |
-| `POST /api/team/role` | owner | `{ userId, role }` 昇格/降格。最後のownerガード |
+| `invite` | owner | 旧リンク revoke → 新 `team_invites` 発行。`{ token, expiresAt }` を返す |
+| `preview` | **未認証可**（token が鍵） | token 検証のみ・チーム名を返す（参加確認画面用・書込なし） |
+| `signup` | **未認証可**（token が鍵） | **invite-gated signup（追補 2026-07-02）**: token 検証→`admin.createUser`(email_confirm)→自動参加。人数キャップ50。重複メールは 409 `already_registered` |
+| `join` | 認証済み（誰でも・token が鍵） | token 検証→呼出者を T へ張替。下記6.3。人数キャップ50 |
+| `leave` | 本人 | 本人を新個人チームへ戻す（6.4） |
+| `remove` | owner | `{ userId }` を新個人チームへ戻す。owner/最後のownerガード |
+| `role` | owner | `{ userId, role }` 昇格/降格。最後のownerガード |
+
+**追補（2026-07-02）invite-gated signup**: 運用モデル「運営は支店チーム作成+owner 登録のみ、メンバーは招待リンクで自己完結」を実装。`/join/:token` は AuthGuard の公開パスとなり、未ログイン時は「アカウント作成 or ログイン」フォームを表示（作成→自動ログイン→参加→フルリロード）。全体の signup 設定（Supabase ブロック）に依らず、有効な招待トークン所持者のみ service role がアカウントを作成する＝ゲート付き登録。メール確認は GA のメール基盤導入時に必須化を検討。
 
 **なぜ RLS でなくエンドポイントか**：参加は「他チームからの移動＋token 検証」で RLS では安全に表現できない。member 行の書込（移動/削除/role）は cross-user で service role が安全。
 
