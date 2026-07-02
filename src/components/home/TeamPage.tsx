@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { CircleNotch } from '@phosphor-icons/react'
+import { CircleNotch, Gear } from '@phosphor-icons/react'
 import { getTeamWorkflows } from '../../lib/api/workflows'
 import type { WorkflowRow } from '../../lib/api/workflows'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -40,6 +40,14 @@ export function TeamPage() {
             Workflows shared with your team
           </p>
         </div>
+        <button
+          onClick={() => navigate('/team/settings')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium shrink-0 transition-colors"
+          style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+        >
+          <Gear size={13} />
+          メンバー管理
+        </button>
       </div>
 
       {/* Content */}
