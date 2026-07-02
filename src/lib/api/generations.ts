@@ -1,41 +1,27 @@
 import { supabase } from '../supabase'
+import { toCanonicalRef } from './storage'
+import { signGenerationRows, signUrlRecord } from './signMedia'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useAuthStore } from '../../stores/authStore'
+import { useTeamStore } from '../../stores/teamStore'
+import { getMyTeamContext } from './teams'
 import type { Database } from '../../types/database'
 
-export const QUOTA_IMAGE = 100
-export const QUOTA_VIDEO = 7
-
-export async function getUserQuotaUsage(): Promise<{ images: number; videos: number }> {
-  const userId = useAuthStore.getState().user?.id
-  if (!userId) return { images: 0, videos: 0 }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from('generations') as any)
-    .select('node_type')
-    .eq('user_id', userId)
-    .eq('status', 'completed')
-
-  if (error) return { images: 0, videos: 0 }
-
-  const rows = (data ?? []) as { node_type: string | null }[]
-  return {
-    images: rows.filter((r) => r.node_type === 'image-generation').length,
-    videos: rows.filter((r) => r.node_type === 'video-generation').length,
-  }
-}
-
+/**
+ * 生成前のクォータ事前チェック（UX用の表示・早期ブロック）。
+ * 月次・チーム合計で判定。実際の強制は fal proxy がサーバー側で行う（クライアントは信用されない）。
+ * 最新の当月消費を取得するため、毎回チームコンテキストを取り直す。
+ * 未所属（運営未登録）の場合は生成不可（allowed=false）。
+ */
 export async function checkQuota(type: 'image' | 'video'): Promise<{ allowed: boolean; used: number; limit: number }> {
-  // user_metadata はログイン時のJWTにキャッシュされるため、
-  // サーバーから最新情報を取得して設定変更を即時反映させる
-  const { data: { user: freshUser } } = await supabase.auth.getUser()
-  const meta = freshUser?.user_metadata ?? {}
-  const limitImage = typeof meta.quota_image === 'number' ? meta.quota_image : QUOTA_IMAGE
-  const limitVideo = typeof meta.quota_video === 'number' ? meta.quota_video : QUOTA_VIDEO
+  const ctx = await getMyTeamContext()
+  // 取得結果を teamStore にも反映（表示の鮮度を保つ）
+  useTeamStore.setState({ context: ctx })
+  if (!ctx) return { allowed: false, used: 0, limit: 0 }
 
-  const { images, videos } = await getUserQuotaUsage()
-  if (type === 'image') return { allowed: images < limitImage, used: images, limit: limitImage }
-  return { allowed: videos < limitVideo, used: videos, limit: limitVideo }
+  const used = type === 'image' ? ctx.usedImage : ctx.usedVideo
+  const limit = type === 'image' ? ctx.quotaImageMonthly : ctx.quotaVideoMonthly
+  return { allowed: used < limit, used, limit }
 }
 
 type GenerationRow = Database['public']['Tables']['generations']['Row']
@@ -60,6 +46,7 @@ export async function saveGeneration(params: {
   if (!workflowId) return null
 
   const userId = useAuthStore.getState().user?.id ?? null
+  const teamId = useTeamStore.getState().context?.teamId ?? null
 
   try {
     const row = await createGeneration({
@@ -68,10 +55,11 @@ export async function saveGeneration(params: {
       node_type: params.nodeType,
       provider: params.provider,
       status: params.status,
-      output_url: params.outputUrl ?? null,
+      output_url: params.outputUrl ? (toCanonicalRef(params.outputUrl) ?? params.outputUrl) : null,
       error_message: params.errorMessage ?? null,
       input_params: { model: params.model, ...params.inputParams },
       user_id: userId,
+      team_id: teamId,
     })
     return row.id
   } catch (err) {
@@ -92,10 +80,14 @@ export async function createGeneration(data: GenerationInsert): Promise<Generati
 }
 
 export async function updateGeneration(id: string, data: GenerationUpdate): Promise<GenerationRow> {
+  // 署名URLを保存しないよう output_url を canonical へ正規化する（書込口）
+  const patch = data.output_url
+    ? { ...data, output_url: toCanonicalRef(data.output_url) ?? data.output_url }
+    : data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: generation, error } = await (supabase as any)
     .from('generations')
-    .update(data)
+    .update(patch)
     .eq('id', id)
     .select()
     .single()
@@ -110,7 +102,7 @@ export async function getGenerations(workflowId: string): Promise<GenerationRow[
     .eq('workflow_id', workflowId)
     .order('created_at', { ascending: false })
   if (error) throw error
-  return data
+  return signGenerationRows(data)
 }
 
 /** ワークフローIDごとに最新の生成物URLを1件取得する */
@@ -131,7 +123,7 @@ export async function getLatestGenerationUrlsByWorkflow(
   for (const g of (data ?? []) as { workflow_id: string; output_url: string }[]) {
     if (!map[g.workflow_id]) map[g.workflow_id] = g.output_url
   }
-  return map
+  return signUrlRecord(map)
 }
 
 export type GenerationWithWorkflow = GenerationRow & { workflow_name: string }
@@ -169,8 +161,46 @@ export async function getMyGenerations(): Promise<GenerationWithWorkflow[]> {
     .limit(200)
   if (genError) throw genError
 
-  return ((generations ?? []) as GenerationRow[]).map((g) => ({
+  const rows = ((generations ?? []) as GenerationRow[]).map((g) => ({
     ...g,
     workflow_name: workflowMap[g.workflow_id] ?? 'Unknown',
   }))
+  return signGenerationRows(rows)
+}
+
+/**
+ * 履歴削除エンドポイントを呼ぶ（DB行 + Storage ファイルをサーバー側 service role で削除）。
+ * - ローカル開発（VITE_FAL_KEY あり）: Vite Dev Server ミドルウェア /dev-proxy/delete-generation
+ * - 本番: Edge Function /api/storage/delete-generation
+ */
+async function callDeleteEndpoint(body: { generationId?: string; workflowId?: string }): Promise<number> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('Not authenticated')
+
+  const url = import.meta.env.VITE_FAL_KEY
+    ? '/dev-proxy/delete-generation'
+    : '/api/storage/delete-generation'
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(err.error ?? `Delete failed (${res.status})`)
+  }
+  const data = await res.json() as { deleted: number }
+  return data.deleted
+}
+
+/** 生成1件を削除する（DB行 + Storage）。クォータ消費は戻さない。 */
+export async function deleteGeneration(generationId: string): Promise<void> {
+  await callDeleteEndpoint({ generationId })
+}
+
+/** ワークフロー配下の全生成物（DB行 + Storage）を削除する。ワークフロー本体の削除前に呼ぶ。 */
+export async function deleteGenerationsByWorkflow(workflowId: string): Promise<number> {
+  return callDeleteEndpoint({ workflowId })
 }

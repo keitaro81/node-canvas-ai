@@ -1,12 +1,13 @@
 import { memo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps, useNodes, useEdges } from '@xyflow/react'
-import { Monitor, Download, Maximize2, ImageIcon, X, Loader2, AlertCircle, Paintbrush } from 'lucide-react'
+import { Monitor, Download, Maximize2, ImageIcon, ImageOff, X, Loader2, AlertCircle, Paintbrush } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import type { NodeData } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 import { downloadFile } from '../../lib/downloadFile'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps) {
   const data = props.data as NodeData
@@ -20,11 +21,13 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
     (e) => e.target === props.id && e.targetHandle === 'in-image-image-in'
   )
   const sourceNode = incomingEdge ? nodes.find((n) => n.id === incomingEdge.source) : null
-  const imageUrl =
+  const rawImageUrl =
     (data.output as string | undefined) ||
     ((sourceNode?.data as NodeData)?.output as string | undefined) ||
     (data.params?.imageUrl as string | undefined) ||
     null
+  // 非公開バケット化: 失効/取りこぼし時に再署名する安全網（imgFailed もフックが管理）
+  const { url: imageUrl, onError: onImageError, failed: imgFailed, freshUrl } = useSignedMedia(rawImageUrl)
 
   const maskUrl = (data.params?.maskUrl as string | undefined) || null
   const maskPreviewDataUrl = (data.params?.maskPreviewDataUrl as string | undefined) || null
@@ -32,12 +35,13 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const status = (data.status as string) ?? 'idle'
   const isGenerating = status === 'generating'
   const isError = status === 'error'
+  const isDeleted = (data as { deleted?: boolean }).deleted === true
   const errorMsg = data.params?.error as string | undefined
 
-  const handleDownload = (e: React.MouseEvent) => {
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!imageUrl) return
-    downloadFile(imageUrl, 'node-canvas-image.png')
+    const url = await freshUrl()
+    if (url) downloadFile(url, 'node-canvas-image.png')
   }
 
   const handleMaskConfirm = (url: string, previewDataUrl: string) => {
@@ -76,6 +80,14 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
             <AlertCircle size={20} style={{ color: '#EF4444' }} />
             <span className="text-[11px] text-center" style={{ color: '#EF4444' }}>{errorMsg || '生成に失敗しました'}</span>
           </div>
+        ) : (isDeleted || imgFailed) ? (
+          <div
+            className="flex flex-col items-center justify-center gap-2 rounded-lg py-8 px-3"
+            style={{ border: '1px dashed var(--border)', minHeight: 80 }}
+          >
+            <ImageOff size={20} style={{ color: 'var(--text-tertiary)' }} />
+            <span className="text-[11px] text-center" style={{ color: 'var(--text-tertiary)' }}>画像を表示できません</span>
+          </div>
         ) : imageUrl ? (
           <>
             <div
@@ -87,6 +99,7 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
                 src={imageUrl}
                 alt="Display"
                 className="w-full h-auto block"
+                onError={onImageError}
               />
               {maskPreviewDataUrl && (
                 <img

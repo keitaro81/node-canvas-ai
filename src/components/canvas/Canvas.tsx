@@ -39,8 +39,7 @@ import { GroupNode } from '../nodes/GroupNode'
 import { ListNode } from '../nodes/ListNode'
 import { CameraListNode } from '../nodes/CameraListNode'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
-import { fal } from '../../lib/ai/fal-client'
-import { uploadVideoFile } from '../../lib/api/storage'
+import { uploadVideoFile, uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
 import { showToast } from '../../hooks/useToast'
 import { useTheme } from '../../hooks/useTheme'
@@ -919,7 +918,7 @@ export function Canvas() {
           if (targetNode?.type === 'referenceImageNode') {
             const previewUrl = URL.createObjectURL(imageFiles[0])
             updateNode(targetNodeId!, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
-            fal.storage.upload(imageFiles[0]).then((uploadedUrl: string) => {
+            uploadImageFile(imageFiles[0], targetNodeId!).then((uploadedUrl: string) => {
               updateNode(targetNodeId!, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
             }).catch(() => {
               updateNode(targetNodeId!, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
@@ -951,7 +950,7 @@ export function Canvas() {
               uploadedImagePreview: previewUrl,
             } as unknown as NodeData,
           })
-          fal.storage.upload(file).then((uploadedUrl: string) => {
+          uploadImageFile(file, nodeId).then((uploadedUrl: string) => {
             updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
           }).catch(() => {})
         })
@@ -974,11 +973,14 @@ export function Canvas() {
           if (targetNode?.type === 'referenceVideoNode') {
             const previewUrl = URL.createObjectURL(videoFiles[0])
             updateNode(targetNodeId!, { uploadedVideoPreview: previewUrl } as Parameters<typeof updateNode>[1])
-            uploadVideoFile(videoFiles[0], targetNodeId!).then((uploadedUrl: string) => {
-              updateNode(targetNodeId!, { videoUrl: uploadedUrl, uploadedVideoPreview: uploadedUrl } as Parameters<typeof updateNode>[1])
-            }).catch(() => {
-              updateNode(targetNodeId!, { videoUrl: null, uploadedVideoPreview: null } as Parameters<typeof updateNode>[1])
-            })
+            uploadVideoFile(videoFiles[0], targetNodeId!)
+              .then((uploadedUrl: string) => signOwnUpload(uploadedUrl))
+              .then((signedUrl: string) => {
+                // L2: blob プレビューは残し、videoUrl に署名URLを保持（保存で canonical 化→リロードで Mode1 署名）
+                updateNode(targetNodeId!, { videoUrl: signedUrl } as Parameters<typeof updateNode>[1])
+              }).catch(() => {
+                updateNode(targetNodeId!, { videoUrl: null, uploadedVideoPreview: null } as Parameters<typeof updateNode>[1])
+              })
             return
           }
         }
@@ -1006,9 +1008,12 @@ export function Canvas() {
               uploadedVideoPreview: previewUrl,
             } as unknown as NodeData,
           })
-          uploadVideoFile(file, nodeId).then((uploadedUrl: string) => {
-            updateNode(nodeId, { videoUrl: uploadedUrl, uploadedVideoPreview: uploadedUrl } as Parameters<typeof updateNode>[1])
-          }).catch(() => {})
+          uploadVideoFile(file, nodeId)
+            .then((uploadedUrl: string) => signOwnUpload(uploadedUrl))
+            .then((signedUrl: string) => {
+              // L2: blob プレビューは残し、videoUrl に署名URLを保持
+              updateNode(nodeId, { videoUrl: signedUrl } as Parameters<typeof updateNode>[1])
+            }).catch(() => {})
         })
         return
       }
@@ -1074,7 +1079,7 @@ export function Canvas() {
         rfInstance.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })
       }, 50)
     },
-    [addNode]
+    [addNode, nodes, updateNode]
   )
 
   return (

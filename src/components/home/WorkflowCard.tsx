@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
-import { DotsThree, Globe, Lock, Play, PencilSimple, Trash, Copy, Stack } from '@phosphor-icons/react'
+import { DotsThree, Globe, Lock, Play, PencilSimple, Trash, Copy, Stack, UsersThree } from '@phosphor-icons/react'
 import type { WorkflowRow } from '../../lib/api/workflows'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 interface WorkflowCardProps {
   workflow: WorkflowRow
@@ -46,8 +47,12 @@ function getGradient(id: string): string {
 export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete, onRename, onClone }: WorkflowCardProps) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const isPublic = (workflow as { is_public?: boolean }).is_public ?? false
-  const thumbnailUrl = thumbnailOverride ?? (workflow as { thumbnail_url?: string | null }).thumbnail_url
+  const visibility: 'private' | 'team' | 'public' =
+    (workflow as { visibility?: 'private' | 'team' | 'public' }).visibility
+    ?? ((workflow as { is_public?: boolean }).is_public ? 'public' : 'private')
+  const rawThumbnailUrl = thumbnailOverride ?? (workflow as { thumbnail_url?: string | null }).thumbnail_url
+  // 非公開バケット化: サムネは署名URL（読込口で署名済み）、失効時は onError で再署名
+  const { url: thumbnailUrl, onError: onThumbError } = useSignedMedia(rawThumbnailUrl)
   const isVideo = thumbnailUrl ? isVideoUrl(thumbnailUrl) : false
   // モバイルでAppモードなしのカードはグレーアウト（クリック不可）
   const isDisabled = isMobile && hasAppMode === false
@@ -134,11 +139,11 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
         {thumbnailUrl && !isVideo && (
-          <img src={thumbnailUrl} alt={workflow.name} className="w-full h-full object-cover" />
+          <img src={thumbnailUrl} alt={workflow.name} className="w-full h-full object-cover" onError={onThumbError} />
         )}
         {thumbnailUrl && isVideo && (
           <>
-            <video src={thumbnailUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+            <video src={thumbnailUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" onError={onThumbError} />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-8 h-8 rounded-full flex items-center justify-center opacity-80"
                 style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
@@ -154,17 +159,23 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete
         )}
 
         {/* Visibility badge */}
-        <div
-          className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-          style={{
-            background: isPublic ? 'rgba(34,197,94,0.15)' : 'rgba(0,0,0,0.4)',
-            color: isPublic ? '#22C55E' : 'rgba(255,255,255,0.5)',
-            backdropFilter: 'blur(4px)',
-          }}
-        >
-          {isPublic ? <Globe size={10} weight="fill" /> : <Lock size={10} />}
-          {isPublic ? 'Public' : 'Private'}
-        </div>
+        {(() => {
+          const badge = {
+            private: { label: 'Private', Icon: Lock, bg: 'rgba(0,0,0,0.4)', color: 'rgba(255,255,255,0.5)' },
+            team: { label: 'Team', Icon: UsersThree, bg: 'rgba(99,102,241,0.18)', color: '#A5B4FC' },
+            public: { label: 'Public', Icon: Globe, bg: 'rgba(34,197,94,0.15)', color: '#22C55E' },
+          }[visibility]
+          const BadgeIcon = badge.Icon
+          return (
+            <div
+              className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+              style={{ background: badge.bg, color: badge.color, backdropFilter: 'blur(4px)' }}
+            >
+              <BadgeIcon size={10} weight={visibility === 'private' ? 'regular' : 'fill'} />
+              {badge.label}
+            </div>
+          )
+        })()}
 
         {/* App mode not configured badge — モバイルのみ表示 */}
         {isDisabled && (

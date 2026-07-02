@@ -59,7 +59,11 @@ export function HistoryPage() {
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))' }}>
             {generations.map((g) => (
-              <GenerationCard key={g.id} generation={g} />
+              <GenerationCard
+                key={g.id}
+                generation={g}
+                onDeleted={(id) => setGenerations((prev) => prev.filter((x) => x.id !== id))}
+              />
             ))}
           </div>
         )}

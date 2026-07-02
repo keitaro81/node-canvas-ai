@@ -218,8 +218,9 @@ async function runGeneration(
     useWorkflowStore.getState().saveCurrentWorkflow()
 
     // Storage保存後にStorageURLでgenerationsとthumbnailを更新（fire-and-forget）
-    uploadImageFromUrl(outputImageUrl!, displayNodeId).then((storedUrl) => {
-      updateNode(displayNodeId, { output: storedUrl } as Partial<NodeData>)
+    uploadImageFromUrl(outputImageUrl!, displayNodeId).then(({ url: storedUrl, signedUrl }) => {
+      // L2: 表示は save-image が返す署名URL、永続化は canonical
+      updateNode(displayNodeId, { output: signedUrl ?? storedUrl } as Partial<NodeData>)
       if (!completedGenerationNodeIds.has(displayNodeId)) {
         completedGenerationNodeIds.add(displayNodeId)
         saveGeneration({
@@ -667,7 +668,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     )
 
     updateNode(id, { status: 'done' })
-  }, [id, count, imageEdges, storeNodes, hasImages, nodeData.params, updateNode, getConnectedPrompt])
+  }, [id, count, nodeData.params, updateNode, getConnectedPrompt])
 
   // ページリロード後のリカバリー
   const isRecoveringRef = useRef(false)
@@ -709,8 +710,8 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           updateNode(displayId, { status: 'done', output: outputImageUrl, requestId: null, requestEndpoint: null } as Partial<NodeData>)
           // Supabase Storage に永続保存してから history/thumbnail を更新（fal URL の混入を防ぐ）
           // completedGenerationNodeIds で通常フローとの二重登録も防止
-          uploadImageFromUrl(outputImageUrl, displayId).then((storedUrl) => {
-            updateNode(displayId, { output: storedUrl } as Partial<NodeData>)
+          uploadImageFromUrl(outputImageUrl, displayId).then(({ url: storedUrl, signedUrl }) => {
+            updateNode(displayId, { output: signedUrl ?? storedUrl } as Partial<NodeData>)
             if (!completedGenerationNodeIds.has(displayId)) {
               completedGenerationNodeIds.add(displayId)
               saveGeneration({ nodeId: displayId, nodeType: 'image-generation', provider: 'fal', status: 'completed', outputUrl: storedUrl, inputParams: {} })

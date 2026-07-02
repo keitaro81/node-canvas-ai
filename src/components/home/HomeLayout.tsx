@@ -9,6 +9,7 @@ import {
   SignOut,
   CaretUpDown,
   User,
+  UsersThree,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -16,6 +17,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'My Projects' },
+  { to: '/team', icon: UsersThree, label: 'Team' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
 ]

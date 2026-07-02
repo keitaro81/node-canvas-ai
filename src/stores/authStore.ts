@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { configureFal } from '../lib/ai/fal-client'
+import { useTeamStore } from './teamStore'
 
 
 interface AuthState {
@@ -111,6 +112,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     // scope=local でこのデバイスのセッションのみ削除。
     // サーバー側が403を返してもローカル状態は必ずクリアする。
     await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+    useTeamStore.getState().clear()
     set({ user: null, session: null })
   },
 
@@ -118,10 +120,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { data: { session } } = await supabase.auth.getSession()
     configureFal(session?.access_token ?? null)
     set({ user: session?.user ?? null, session, loading: false })
+    // 所属チーム・当月消費をロード（クォータ表示用）。失敗してもアプリは止めない。
+    if (session?.user) void useTeamStore.getState().loadTeamContext()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       configureFal(session?.access_token ?? null)
       set({ user: session?.user ?? null, session })
+      if (session?.user) void useTeamStore.getState().loadTeamContext()
+      else useTeamStore.getState().clear()
     })
 
     return () => subscription.unsubscribe()

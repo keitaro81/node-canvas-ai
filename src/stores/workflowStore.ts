@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { showToast } from '../hooks/useToast'
 import { getProjects, createProject } from '../lib/api/projects'
+import { deleteGenerationsByWorkflow } from '../lib/api/generations'
 import {
   getWorkflows,
   getWorkflow,
@@ -9,8 +10,11 @@ import {
   deleteWorkflow,
   updateWorkflowThumbnail,
   toggleWorkflowPublic,
+  setWorkflowVisibility,
+  type WorkflowVisibility,
   type WorkflowRow,
 } from '../lib/api/workflows'
+import { canonicalizeCanvasNodes, signCanvasNodes } from '../lib/api/signMedia'
 import { useCanvasStore, loadCanvasState } from './canvasStore'
 import type { AppNode } from './canvasStore'
 import type { Edge } from '@xyflow/react'
@@ -27,6 +31,7 @@ interface WorkflowState {
   currentWorkflowId: string | null
   currentWorkflowName: string
   currentWorkflowIsPublic: boolean
+  currentWorkflowVisibility: WorkflowVisibility
   currentWorkflowIsOwned: boolean  // 自分のプロジェクト配下かどうか
   workflows: WorkflowRow[]
   isSaving: boolean
@@ -45,6 +50,7 @@ interface WorkflowState {
   markUnsavedChanges(): void
   initializeDefaultProject(): Promise<string>
   togglePublic(): Promise<void>
+  setVisibility(visibility: WorkflowVisibility): Promise<void>
   updateThumbnail(workflowId: string, url: string): Promise<void>
   cloneWorkflow(sourceId?: string): Promise<string>  // クローンして新しいworkflowIdを返す
 }
@@ -53,6 +59,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   currentWorkflowId: null,
   currentWorkflowName: 'Untitled Workflow',
   currentWorkflowIsPublic: false,
+  currentWorkflowVisibility: 'private',
   currentWorkflowIsOwned: true,
   workflows: [],
   isSaving: false,
@@ -97,16 +104,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           const { uploadedImagePreview: _, ...rest } = d
           data = rest
         }
+        if (typeof data.uploadedVideoPreview === 'string' && data.uploadedVideoPreview.startsWith('blob:')) {
+          const { uploadedVideoPreview: _v, ...rest } = data
+          data = rest
+        }
         // requestId がある場合はリカバリー対象のため error にリセットしない
         if (data.status === 'generating' && !data.requestId) {
           data = { ...data, status: 'error', errorMessage: 'ページの再読み込みにより生成が中断されました' }
         }
         return { ...node, data }
       })
+      // 非公開バケット化(L1)+テナント分離(L2): canonical URL を、サーバーが WF アクセス認可した上で署名URLへ変換
+      const signedNodes = await signCanvasNodes(restoredNodes, id)
       // nodes/edges/capsuleGroupId を原子的にセット。
       // 別々に set() すると「エッジ空」のundoスナップショットが混入するため loadCanvasState を使う。
       loadCanvasState(
-        restoredNodes as AppNode[],
+        signedNodes as AppNode[],
         canvasData?.edges ?? [],
         canvasData?.capsuleGroupId ?? null
       )
@@ -116,6 +129,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         currentWorkflowId: id,
         currentWorkflowName: workflow.name,
         currentWorkflowIsPublic: (workflow as { is_public?: boolean }).is_public ?? false,
+        currentWorkflowVisibility: (workflow as { visibility?: WorkflowVisibility }).visibility
+          ?? ((workflow as { is_public?: boolean }).is_public ? 'public' : 'private'),
         currentWorkflowIsOwned: isOwned,
         hasUnsavedChanges: false,
         lastSavedAt: new Date(workflow.updated_at),
@@ -136,12 +151,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // blob: URL はセッション限りなので保存から除外する
       const sanitizedNodes = nodes.map((node) => {
         const d = node.data as Record<string, unknown>
-        if (!d.uploadedImagePreview) return node
-        const { uploadedImagePreview: _, ...rest } = d
+        if (!d.uploadedImagePreview && !d.uploadedVideoPreview) return node
+        const { uploadedImagePreview: _i, uploadedVideoPreview: _v, ...rest } = d
         return { ...node, data: rest }
       })
+      // 非公開バケット化: 署名URL（/object/sign?token=）を保存し直さないよう canonical へ正規化する（書込口）
+      const canonicalNodes = canonicalizeCanvasNodes(sanitizedNodes)
       await updateWorkflow(currentWorkflowId, {
-        canvas_data: { nodes: sanitizedNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
+        canvas_data: { nodes: canonicalNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
       })
       set({ hasUnsavedChanges: false, lastSavedAt: new Date() })
     } catch (err) {
@@ -179,6 +196,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   async deleteWorkflow(id: string): Promise<void> {
+    // 先に配下の生成物（DB行 + Storage ファイル）を削除して孤児化を防ぐ。
+    // 失敗してもワークフロー本体の削除は進める（UXを止めない）。
+    try {
+      await deleteGenerationsByWorkflow(id)
+    } catch (err) {
+      console.warn('[deleteWorkflow] 生成物のカスケード削除に失敗:', err)
+    }
     await deleteWorkflow(id)
     const { currentWorkflowId } = get()
     await get().loadWorkflows()
@@ -208,8 +232,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     await toggleWorkflowPublic(currentWorkflowId, next)
     set((state) => ({
       currentWorkflowIsPublic: next,
+      currentWorkflowVisibility: next ? 'public' : 'private',
       workflows: state.workflows.map((w) =>
         w.id === currentWorkflowId ? { ...w, is_public: next } : w
+      ),
+    }))
+  },
+
+  async setVisibility(visibility: WorkflowVisibility): Promise<void> {
+    const { currentWorkflowId } = get()
+    if (!currentWorkflowId) return
+    await setWorkflowVisibility(currentWorkflowId, visibility)
+    set((state) => ({
+      currentWorkflowVisibility: visibility,
+      currentWorkflowIsPublic: visibility === 'public',
+      workflows: state.workflows.map((w) =>
+        w.id === currentWorkflowId ? { ...w, visibility, is_public: visibility === 'public' } : w
       ),
     }))
   },

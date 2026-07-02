@@ -1,6 +1,16 @@
 export const config = { runtime: 'edge' }
 
 import { createClient } from '@supabase/supabase-js'
+import { withSentry } from '../_sentry'
+
+// SSRF対策: fal.ai の生成物配信ドメイン以外はサーバーサイド fetch しない
+function isAllowedSourceUrl(url: URL): boolean {
+  if (url.protocol !== 'https:') return false
+  return url.hostname === 'fal.media' || url.hostname.endsWith('.fal.media')
+}
+
+// Storage パスに使うため英数字・ハイフン・アンダースコアのみ許可
+const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
 function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), {
@@ -9,7 +19,9 @@ function jsonResponse(data: object, status: number): Response {
   })
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default withSentry(handler)
+
+async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }
@@ -50,6 +62,20 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonResponse({ error: 'Invalid request body' }, 400)
   }
 
+  let parsedSource: URL
+  try {
+    parsedSource = new URL(sourceUrl)
+  } catch {
+    return jsonResponse({ error: 'Invalid source URL' }, 400)
+  }
+  if (!isAllowedSourceUrl(parsedSource)) {
+    console.warn(`[save-image] rejected source host: ${parsedSource.hostname}`)
+    return jsonResponse({ error: 'Source URL not allowed' }, 400)
+  }
+  if (!NODE_ID_PATTERN.test(nodeId)) {
+    return jsonResponse({ error: 'Invalid nodeId' }, 400)
+  }
+
   // fal.ai の一時 URL から画像を取得
   const imageRes = await fetch(sourceUrl)
   if (!imageRes.ok) {
@@ -79,5 +105,16 @@ export default async function handler(req: Request): Promise<Response> {
     .from('generated-images')
     .getPublicUrl(path)
 
-  return jsonResponse({ url: publicUrl }, 200)
+  // L2: 即時表示用に署名URLも返す（このオブジェクトは service role アップ＝owner null のため ownUrls では署名不可）
+  let signedUrl: string | null = null
+  try {
+    const { data: signed } = await adminSupabase.storage
+      .from('generated-images')
+      .createSignedUrl(path, 60 * 60 * 24)
+    signedUrl = signed?.signedUrl ?? null
+  } catch {
+    signedUrl = null
+  }
+
+  return jsonResponse({ url: publicUrl, signedUrl }, 200)
 }

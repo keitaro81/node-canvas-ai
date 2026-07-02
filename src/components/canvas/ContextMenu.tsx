@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
@@ -117,19 +117,21 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, sourceIsI
       })).filter((group) => group.items.length > 0)
     : MENU_ITEMS
 
-  const [pos, setPos] = useState({ x, y })
-  useEffect(() => {
-    if (!menuRef.current) return
-    const rect = menuRef.current.getBoundingClientRect()
+  // 画面外にはみ出す場合は描画前に位置を補正する（DOM計測が必要なため useLayoutEffect で直接スタイルを更新）
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
     const adjustedX = x + rect.width > window.innerWidth ? x - rect.width : x
     const adjustedY = y + rect.height > window.innerHeight ? y - rect.height : y
-    setPos({ x: Math.max(0, adjustedX), y: Math.max(0, adjustedY) })
+    el.style.left = `${Math.max(0, adjustedX)}px`
+    el.style.top = `${Math.max(0, adjustedY)}px`
   }, [x, y])
 
   const style: React.CSSProperties = {
     position: 'fixed',
-    left: pos.x,
-    top: pos.y,
+    left: x,
+    top: y,
     zIndex: 9999,
   }
 

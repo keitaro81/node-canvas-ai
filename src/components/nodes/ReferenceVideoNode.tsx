@@ -2,7 +2,9 @@ import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Film, X, Loader2, Play, Pause } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { uploadVideoFile } from '../../lib/api/storage'
+import { useWorkflowStore } from '../../stores/workflowStore'
+import { uploadVideoFile, signOwnUpload } from '../../lib/api/storage'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceVideoNodeData, NodeData } from '../../types/nodes'
 
 const ACCEPTED_VIDEO_TYPES = 'video/mp4,video/quicktime,video/webm'
@@ -10,16 +12,19 @@ const ACCEPTED_VIDEO_TYPES = 'video/mp4,video/quicktime,video/webm'
 function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ReferenceVideoNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
+  const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
 
-  // blob: URLはリロードで無効になるため、videoUrl（永続URL）を優先
-  const displayUrl = (() => {
+  // 画像ノードと同パターン: アップロード中は blob プレビュー、保存/リロードで除去され videoUrl(Mode1署名)へ。
+  // 非blobの uploadedVideoPreview（旧バグで混入した canonical 等）は無視し videoUrl を使う。
+  const rawDisplayUrl = (() => {
     const preview = nodeData.uploadedVideoPreview
-    if (preview && !preview.startsWith('blob:')) return preview
-    return nodeData.videoUrl || preview || null
+    if (preview && preview.startsWith('blob:')) return preview
+    return nodeData.videoUrl || null
   })()
+  const { url: displayUrl, onError: onVideoError } = useSignedMedia(rawDisplayUrl, currentWorkflowId)
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -29,9 +34,13 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
 
       try {
         const uploadedUrl = await uploadVideoFile(file, id)
+        // L2: 自分がアップしたオブジェクトをサーバー署名（fal参照/生成入力用）。保存時に canonical へ正規化。
+        const signedUrl = await signOwnUpload(uploadedUrl)
+        // 画像ノードと同様、即時表示は blob プレビューに任せ、videoUrl に署名URLを保持する
+        // （署名が省略され canonical でも、保存後のリロードで Mode1 署名され表示は壊れない）
         updateNode(id, {
-          videoUrl: uploadedUrl,
-          uploadedVideoPreview: uploadedUrl,
+          videoUrl: signedUrl,
+          uploadedVideoPreview: previewUrl,
         } as Parameters<typeof updateNode>[1])
       } catch {
         updateNode(id, {
@@ -138,11 +147,16 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
               style={{ maxHeight: 140, objectFit: 'contain' }}
               loop
               playsInline
+              onError={onVideoError}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onClick={(e) => {
                 const v = e.currentTarget
-                v.paused ? v.play() : v.pause()
+                if (v.paused) {
+                  v.play()
+                } else {
+                  v.pause()
+                }
               }}
             />
             {/* Play/pause overlay */}
