@@ -20,20 +20,27 @@ export interface TeamInfo {
 }
 
 interface ManageBody {
-  action: 'invite' | 'join' | 'preview' | 'leave' | 'remove' | 'role' | 'list'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list'
   token?: string
   userId?: string
   role?: 'owner' | 'member'
+  email?: string
+  password?: string
 }
 
 async function manage(body: ManageBody): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
   const { data: { session } } = await supabase.auth.getSession()
   const token = session?.access_token
-  if (!token) return { ok: false, status: 401, data: { error: 'Not authenticated' } }
+  // preview / signup は未ログインでも呼べる（invite-gated signup）。それ以外は要認証。
+  if (!token && body.action !== 'preview' && body.action !== 'signup') {
+    return { ok: false, status: 401, data: { error: 'Not authenticated' } }
+  }
   const endpoint = import.meta.env.VITE_FAL_KEY ? '/dev-proxy/team-manage' : '/api/team/manage'
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers,
     body: JSON.stringify(body),
   })
   let data: Record<string, unknown> = {}
@@ -70,11 +77,26 @@ export async function joinTeam(token: string): Promise<{ teamId: string; teamNam
   return { teamId: r.data.teamId as string, teamName: (r.data.teamName as string) ?? null }
 }
 
-/** 参加前の確認用: 招待トークンの有効性を検証しチーム名を返す（書込なし）。 */
+/** 参加前の確認用: 招待トークンの有効性を検証しチーム名を返す（書込なし・未ログイン可）。 */
 export async function previewInvite(token: string): Promise<{ teamName: string | null }> {
   const r = await manage({ action: 'preview', token })
   if (!r.ok) throw new Error(errOf(r.data, '招待リンクを確認できませんでした'))
   return { teamName: (r.data.teamName as string) ?? null }
+}
+
+/** invite-gated signup: 招待トークン＋メール/パスワードでアカウント作成し、そのままチームに参加（未ログイン用）。 */
+export async function signupAndJoin(
+  token: string,
+  email: string,
+  password: string,
+): Promise<{ teamId: string; teamName: string | null }> {
+  const r = await manage({ action: 'signup', token, email, password })
+  if (!r.ok) {
+    const err = new Error(errOf(r.data, '登録に失敗しました')) as Error & { code?: string }
+    if (typeof r.data.code === 'string') err.code = r.data.code
+    throw err
+  }
+  return { teamId: r.data.teamId as string, teamName: (r.data.teamName as string) ?? null }
 }
 
 /** チームを離脱（新個人チームへ戻る）。 */

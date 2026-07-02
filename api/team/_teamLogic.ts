@@ -7,11 +7,21 @@
 type Role = 'owner' | 'member'
 
 export interface TeamManageBody {
-  action: 'invite' | 'join' | 'preview' | 'leave' | 'remove' | 'role' | 'list'
-  token?: string // join, preview
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list'
+  token?: string // join, preview, signup
   userId?: string // remove, role の対象
   role?: Role // role
+  email?: string // signup
+  password?: string // signup
 }
+
+/** preview / signup は未認証で呼べる（invite-gated signup）。それ以外は JWT 必須。 */
+export function actionNeedsAuth(action: unknown): boolean {
+  return action !== 'preview' && action !== 'signup'
+}
+
+// 招待リンク経由の参加/登録で許容するチーム人数の上限（リンク漏洩時の大量登録の歯止め）
+const MAX_TEAM_MEMBERS = 50
 
 export interface TeamManageResult {
   status: number
@@ -47,14 +57,17 @@ async function moveToNewPersonalTeam(admin: any, userId: string): Promise<void> 
   await admin.from('team_members').update({ team_id: team.id, role: 'owner' }).eq('user_id', userId)
 }
 
-export async function teamManage(admin: any, callerId: string, body: TeamManageBody): Promise<TeamManageResult> {
-  switch (body?.action) {
+export async function teamManage(admin: any, callerId: string | null, body: TeamManageBody): Promise<TeamManageResult> {
+  const action = body?.action
+  // 未認証で呼べるのは preview / signup のみ
+  if (action === 'preview') return previewInvite(admin, body.token)
+  if (action === 'signup') return signupAndJoin(admin, body.token, body.email, body.password)
+  if (!callerId) return { status: 403, body: { error: 'Forbidden' } }
+  switch (action) {
     case 'invite':
       return invite(admin, callerId)
     case 'join':
       return join(admin, callerId, body.token)
-    case 'preview':
-      return previewInvite(admin, body.token)
     case 'leave':
       return leave(admin, callerId)
     case 'remove':
@@ -66,6 +79,34 @@ export async function teamManage(admin: any, callerId: string, body: TeamManageB
     default:
       return { status: 400, body: { error: 'Unknown action' } }
   }
+}
+
+// ── signup: 招待トークンを登録権限とみなし、アカウント作成→そのままチームに参加（invite-gated signup） ──
+// Supabase 全体の signup 設定に依らず admin API で作成する。メール確認は GA のメール基盤導入時に必須化を検討。
+async function signupAndJoin(admin: any, token?: string, email?: string, password?: string): Promise<TeamManageResult> {
+  const v = await validateInviteToken(admin, token)
+  if ('error' in v) return v.error
+  const em = (email ?? '').trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+    return { status: 400, body: { error: 'メールアドレスの形式が正しくありません' } }
+  }
+  if (!password || password.length < 8) {
+    return { status: 400, body: { error: 'パスワードは8文字以上にしてください' } }
+  }
+  if ((await memberCount(admin, v.teamId)) >= MAX_TEAM_MEMBERS) {
+    return { status: 409, body: { error: 'チームの人数上限に達しています' } }
+  }
+  const { data: created, error } = await admin.auth.admin.createUser({ email: em, password, email_confirm: true })
+  if (error || !created?.user) {
+    const msg = String(error?.message ?? '')
+    if (error?.status === 422 || msg.toLowerCase().includes('already')) {
+      return { status: 409, body: { error: 'このメールアドレスは登録済みです。ログインして参加してください', code: 'already_registered' } }
+    }
+    return { status: 500, body: { error: msg || '登録に失敗しました' } }
+  }
+  await admin.from('team_members').insert({ team_id: v.teamId, user_id: created.user.id, role: 'member' })
+  const { data: t } = await admin.from('teams').select('name').eq('id', v.teamId).maybeSingle()
+  return { status: 200, body: { teamId: v.teamId, teamName: t?.name ?? null } }
 }
 
 // ── invite: owner が招待リンクを発行（旧アクティブを revoke→新規 insert） ──
@@ -112,6 +153,10 @@ async function join(admin: any, callerId: string, token?: string): Promise<TeamM
   if (m && m.team_id === targetTeam) {
     const { data: t } = await admin.from('teams').select('name').eq('id', targetTeam).maybeSingle()
     return { status: 200, body: { teamId: targetTeam, teamName: t?.name, already: true } }
+  }
+
+  if ((await memberCount(admin, targetTeam)) >= MAX_TEAM_MEMBERS) {
+    return { status: 409, body: { error: 'チームの人数上限に達しています' } }
   }
 
   // 最後の owner ガード（呼び出し者が「他メンバーのいるチームの唯一の owner」なら移動不可）
