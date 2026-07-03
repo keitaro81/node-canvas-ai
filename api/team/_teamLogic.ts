@@ -21,8 +21,13 @@ export function actionNeedsAuth(action: unknown): boolean {
   return action !== 'preview' && action !== 'signup'
 }
 
-// 招待リンク経由の参加/登録で許容するチーム人数の上限（リンク漏洩時の大量登録の歯止め）
-const MAX_TEAM_MEMBERS = 50
+// 招待リンク経由の参加/登録で許容するチーム人数の上限（リンク漏洩時の大量登録の歯止め）。
+// 運用に応じて env で調整可能（未設定=50）。支店規模が小さい顧客では小さく絞れる。
+const MAX_TEAM_MEMBERS = Number(process.env.MAX_TEAM_MEMBERS) || 50
+
+// invite-gated signup のバースト抑制: 1チームあたり直近1時間の新規参加がこの数に達したら signup を一時停止(429)。
+// 漏洩リンクからの自動大量登録を、既存の created_at のみで（無DDL・無インフラで）抑える。通常のオンボーディングは超えない想定。
+const SIGNUP_MAX_PER_HOUR = Number(process.env.SIGNUP_MAX_PER_HOUR) || 20
 
 // クォータの月次キー 'YYYY-MM'（JST基準）。api/fal/proxy.ts / src/lib/api/teams.ts の currentPeriodJst と一致させること
 function currentPeriodJst(): string {
@@ -145,6 +150,16 @@ async function signupAndJoin(admin: any, token?: string, email?: string, passwor
   }
   if ((await memberCount(admin, v.teamId)) >= MAX_TEAM_MEMBERS) {
     return { status: 409, body: { error: 'チームの人数上限に達しています' } }
+  }
+  // バースト抑制: 直近1時間に同チームへ参加した人数が閾値以上なら一時停止（漏洩リンクからの大量自動登録対策）
+  const sinceIso = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { count: recentJoins } = await admin
+    .from('team_members')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('team_id', v.teamId)
+    .gt('created_at', sinceIso)
+  if ((recentJoins ?? 0) >= SIGNUP_MAX_PER_HOUR) {
+    return { status: 429, body: { error: '登録が集中しています。しばらくしてから再度お試しください' } }
   }
   const { data: created, error } = await admin.auth.admin.createUser({ email: em, password, email_confirm: true })
   if (error || !created?.user) {

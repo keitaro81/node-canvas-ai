@@ -5,7 +5,11 @@ import { withSentry } from '../_sentry'
 
 const FAL_TARGET_URL_HEADER = 'x-fal-target-url'
 const ALLOWED_FAL_HOSTS = ['fal.run', 'queue.fal.run', 'rest.fal.run', 'storage.fal.run', 'rest.fal.ai', 'queue.fal.ai', 'fal.ai']
-const QUEUE_HOSTS = ['queue.fal.run', 'queue.fal.ai']
+// 生成を実行する（＝課金すべき）ホスト。queue.*（非同期）に加え、同期実行の fal.run / fal.ai も含める。
+// これを含めないと、クライアントは queue しか使わない一方で、認証ユーザーが x-fal-target-url に
+// https://fal.run/<model> を指定して同期生成すると未計測になる（クォータ回避）。
+// アップロード/状態取得の rest.fal.run / storage.fal.run / rest.fal.ai は課金対象に含めない。
+const METERED_GEN_HOSTS = ['queue.fal.run', 'queue.fal.ai', 'fal.run', 'fal.ai']
 
 function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), {
@@ -17,7 +21,7 @@ function jsonResponse(data: object, status: number): Response {
 /**
  * クォータ対象の生成リクエストかを判定する。
  * 対象は「生成の submit」のみ（poll/result の GET、参照画像アップロード、LLM は対象外）。
- * - method POST かつ queue ホスト
+ * - method POST かつ生成実行ホスト（queue.* または同期 fal.run/fal.ai）
  * - /requests/ を含む（poll/result）は除外
  * - any-llm / llava（LLM）は除外
  * - path に -video を含めば動画、それ以外の生成は画像
@@ -25,7 +29,7 @@ function jsonResponse(data: object, status: number): Response {
  */
 function classifyGeneration(method: string, url: URL): 'image' | 'video' | null {
   if (method !== 'POST') return null
-  if (!QUEUE_HOSTS.includes(url.hostname)) return null
+  if (!METERED_GEN_HOSTS.includes(url.hostname)) return null
   const path = url.pathname
   if (path.includes('/requests/')) return null
   if (path.includes('any-llm') || path.includes('llava')) return null
