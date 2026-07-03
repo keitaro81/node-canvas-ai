@@ -11,6 +11,23 @@ import {
   type TeamInfo,
 } from '../../lib/api/team'
 
+// チーム合計消費のプログレスバー（80%で警告色・100%でエラー色）
+function UsageBar({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+  const color = used >= limit ? '#EF4444' : pct >= 80 ? '#F59E0B' : 'var(--accent)'
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[12px] w-8 shrink-0" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="text-[12px] tabular-nums shrink-0" style={{ color: 'var(--text-secondary)' }}>
+        {used} / {limit}
+      </span>
+    </div>
+  )
+}
+
 export function TeamSettingsPage() {
   const [info, setInfo] = useState<TeamInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -198,6 +215,20 @@ export function TeamSettingsPage() {
               </section>
             )}
 
+            {/* 使用状況（今月・チーム合計） */}
+            {info.quota && (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  使用状況{info.usage?.period ? `（${info.usage.period}）` : ''}
+                </h2>
+                <UsageBar label="画像" used={info.usage?.usedImage ?? 0} limit={info.quota.image} />
+                <UsageBar label="動画" used={info.usage?.usedVideo ?? 0} limit={info.quota.video} />
+                <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                  上限はチーム全体で共有され、毎月自動でリセットされます。
+                </p>
+              </section>
+            )}
+
             {/* メンバー一覧 */}
             <section className="flex flex-col gap-3">
               <h2 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -217,6 +248,9 @@ export function TeamSettingsPage() {
                       <p className="text-[13px] truncate" style={{ color: 'var(--text-primary)' }}>
                         {m.email ?? m.userId}
                         {m.isMe && <span className="text-[11px] ml-1.5" style={{ color: 'var(--text-tertiary)' }}>（あなた）</span>}
+                      </p>
+                      <p className="text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
+                        今月: 画像 {m.usedImage} ・ 動画 {m.usedVideo}
                       </p>
                     </div>
                     {/* role バッジ */}

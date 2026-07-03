@@ -8,6 +8,8 @@ export interface TeamMember {
   email: string | null
   role: 'owner' | 'member'
   isMe: boolean
+  usedImage: number
+  usedVideo: number
 }
 
 export interface TeamInfo {
@@ -15,6 +17,7 @@ export interface TeamInfo {
   teamName: string | null
   myRole: 'owner' | 'member'
   quota: { image: number; video: number } | null
+  usage: { period: string; usedImage: number; usedVideo: number } | null
   members: TeamMember[]
   invite: { token: string; expiresAt: string } | null
 }

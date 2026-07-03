@@ -24,6 +24,12 @@ export function actionNeedsAuth(action: unknown): boolean {
 // 招待リンク経由の参加/登録で許容するチーム人数の上限（リンク漏洩時の大量登録の歯止め）
 const MAX_TEAM_MEMBERS = 50
 
+// クォータの月次キー 'YYYY-MM'（JST基準）。api/fal/proxy.ts / src/lib/api/teams.ts の currentPeriodJst と一致させること
+function currentPeriodJst(): string {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return jst.toISOString().slice(0, 7)
+}
+
 export interface TeamManageResult {
   status: number
   body: Record<string, unknown>
@@ -251,10 +257,35 @@ async function listMembers(admin: any, callerId: string): Promise<TeamManageResu
   if (!m) return { status: 400, body: { error: 'チーム未所属です' } }
 
   const { data: rows } = await admin.from('team_members').select('user_id, role, created_at').eq('team_id', m.team_id)
+
+  // 使用状況（当月・メンバー別）。usage_counters は PK(team_id,user_id,period,kind)＝行ごとに一意。
+  // 退職済みメンバーの消費も team 合計には含まれる（メンバー行には出ない）。
+  const period = currentPeriodJst()
+  const { data: usageRows } = await admin
+    .from('usage_counters')
+    .select('user_id, kind, count')
+    .eq('team_id', m.team_id)
+    .eq('period', period)
+  const byMember: Record<string, { image: number; video: number }> = {}
+  let usedImage = 0
+  let usedVideo = 0
+  for (const r of (usageRows ?? []) as Array<{ user_id: string; kind: string; count: number }>) {
+    const u = (byMember[r.user_id] = byMember[r.user_id] ?? { image: 0, video: 0 })
+    if (r.kind === 'image') { u.image += r.count ?? 0; usedImage += r.count ?? 0 }
+    else if (r.kind === 'video') { u.video += r.count ?? 0; usedVideo += r.count ?? 0 }
+  }
+
   const members: Array<Record<string, unknown>> = []
   for (const r of rows ?? []) {
     const { data: u } = await admin.auth.admin.getUserById(r.user_id)
-    members.push({ userId: r.user_id, email: u?.user?.email ?? null, role: r.role, isMe: r.user_id === callerId })
+    members.push({
+      userId: r.user_id,
+      email: u?.user?.email ?? null,
+      role: r.role,
+      isMe: r.user_id === callerId,
+      usedImage: byMember[r.user_id]?.image ?? 0,
+      usedVideo: byMember[r.user_id]?.video ?? 0,
+    })
   }
 
   const { data: team } = await admin
@@ -285,6 +316,7 @@ async function listMembers(admin: any, callerId: string): Promise<TeamManageResu
       teamName: team?.name ?? null,
       myRole: m.role,
       quota: team ? { image: team.quota_image_monthly, video: team.quota_video_monthly } : null,
+      usage: { period, usedImage, usedVideo },
       members,
       invite,
     },
