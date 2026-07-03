@@ -142,7 +142,7 @@ update team_members set team_id=新team, role='owner' where user_id=target
 1. **チーム設定**（`/team/settings`）：支店名・自分のロール・招待リンク（コピー/再発行）・メンバー一覧
 2. **メンバー一覧**：名前/メール・role バッジ・各自の今月消費・owner のみ「削除」「owner 昇格/降格」
 3. **参加ページ**（`/join/:token`）：「{支店名} に参加しますか？」→参加/キャンセル（未ログインはログイン→復帰）
-4. **使用状況**（設定内 or `/team/usage`）：チーム今月消費 vs 上限＋メンバー別内訳（P1）
+4. **使用状況**（チーム設定内）：チーム今月消費 vs 上限のプログレスバー＋メンバー行に個人内訳（✅追補 2026-07-03: `list` 応答に usage を追加・period は JST 'YYYY-MM'） 
 5. **作成者表示**：History/Community/Team WF に「作成者: {member}」バッジ＋フィルタ（P1）
 
 ---
@@ -181,7 +181,7 @@ update team_members set team_id=新team, role='owner' where user_id=target
 
 ## 10. P1 / P2
 
-- **P1**：使用状況ビュー（メンバー別内訳）/ 作成者バッジ＋フィルタ / role 昇格降格UI / 招待リンク有効期限UI
+- **P1**：~~使用状況ビュー（メンバー別内訳）~~（✅2026-07-03 追補済み）/ ~~role 昇格降格UI~~（✅MVP同梱）/ 作成者バッジ＋フィルタ / 招待リンク有効期限UI
 - **P2**：個人別キャップ（土台はP0で確保）/ 全社ロールアップ / メール招待・SSO / 支店間アセット共有
 
 ## 11. Open Questions
