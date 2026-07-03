@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
-import { CircleNotch, Copy, Check, Crown, Trash, ArrowsClockwise, SignOut } from '@phosphor-icons/react'
+import { CircleNotch, Copy, Check, Crown, Trash, ArrowsClockwise, SignOut, PencilSimple } from '@phosphor-icons/react'
 import {
   getTeamInfo,
   createInvite,
   removeMember,
   setMemberRole,
   leaveTeam,
+  renameTeam,
   inviteUrl,
   type TeamInfo,
 } from '../../lib/api/team'
@@ -16,6 +17,8 @@ export function TeamSettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +57,15 @@ export function TeamSettingsPage() {
     } catch { /* ignore */ }
   }
 
+  async function handleRename() {
+    const name = nameDraft.trim()
+    if (!name) return
+    await run(async () => {
+      await renameTeam(name)
+    })
+    setEditingName(false)
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -80,6 +92,61 @@ export function TeamSettingsPage() {
               <div className="text-[12px] px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.2)' }}>
                 {error}
               </div>
+            )}
+
+            {/* チーム名（owner のみ編集可） */}
+            {isOwner && (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>チーム名</h2>
+                {editingName ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      maxLength={60}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleRename()
+                        if (e.key === 'Escape') setEditingName(false)
+                      }}
+                      className="flex-1 text-[13px] rounded-lg px-3 py-2 outline-none"
+                      style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}
+                    />
+                    <button
+                      onClick={() => void handleRename()}
+                      disabled={busy || !nameDraft.trim()}
+                      className="px-3 py-2 rounded-lg text-[12px] font-medium shrink-0 disabled:opacity-50"
+                      style={{ background: 'var(--accent)', color: '#fff' }}
+                    >
+                      保存
+                    </button>
+                    <button
+                      onClick={() => setEditingName(false)}
+                      className="px-3 py-2 rounded-lg text-[12px] shrink-0"
+                      style={{ background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {info.teamName ?? '(未設定)'}
+                    </span>
+                    <button
+                      onClick={() => { setNameDraft(info.teamName ?? ''); setEditingName(true) }}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      title="チーム名を変更"
+                    >
+                      <PencilSimple size={13} />
+                    </button>
+                  </div>
+                )}
+                <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                  支店名など、メンバーや招待画面に表示される名前です。
+                </p>
+              </section>
             )}
 
             {/* 招待リンク（owner のみ） */}

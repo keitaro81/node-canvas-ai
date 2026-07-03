@@ -7,12 +7,13 @@
 type Role = 'owner' | 'member'
 
 export interface TeamManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename'
   token?: string // join, preview, signup
   userId?: string // remove, role の対象
   role?: Role // role
   email?: string // signup
   password?: string // signup
+  name?: string // rename
 }
 
 /** preview / signup は未認証で呼べる（invite-gated signup）。それ以外は JWT 必須。 */
@@ -76,9 +77,25 @@ export async function teamManage(admin: any, callerId: string | null, body: Team
       return changeRole(admin, callerId, body.userId, body.role)
     case 'list':
       return listMembers(admin, callerId)
+    case 'rename':
+      return renameTeam(admin, callerId, body.name)
     default:
       return { status: 400, body: { error: 'Unknown action' } }
   }
+}
+
+// ── rename: owner がチーム名（支店名）を変更 ──
+async function renameTeam(admin: any, callerId: string, name?: string): Promise<TeamManageResult> {
+  const m = await myMembership(admin, callerId)
+  if (!m) return { status: 400, body: { error: 'チーム未所属です' } }
+  if (m.role !== 'owner') return { status: 403, body: { error: 'owner のみ変更できます' } }
+  const trimmed = (name ?? '').trim()
+  if (!trimmed || trimmed.length > 60) {
+    return { status: 400, body: { error: 'チーム名は1〜60文字で入力してください' } }
+  }
+  const { error } = await admin.from('teams').update({ name: trimmed }).eq('id', m.team_id)
+  if (error) return { status: 500, body: { error: error.message } }
+  return { status: 200, body: { teamName: trimmed } }
 }
 
 // ── signup: 招待トークンを登録権限とみなし、アカウント作成→そのままチームに参加（invite-gated signup） ──

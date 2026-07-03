@@ -20,12 +20,13 @@ export interface TeamInfo {
 }
 
 interface ManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename'
   token?: string
   userId?: string
   role?: 'owner' | 'member'
   email?: string
   password?: string
+  name?: string
 }
 
 async function manage(body: ManageBody): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
@@ -115,6 +116,12 @@ export async function removeMember(userId: string): Promise<void> {
 export async function setMemberRole(userId: string, role: 'owner' | 'member'): Promise<void> {
   const r = await manage({ action: 'role', userId, role })
   if (!r.ok) throw new Error(errOf(r.data, '役割の変更に失敗しました'))
+}
+
+/** owner: チーム名（支店名）を変更。 */
+export async function renameTeam(name: string): Promise<void> {
+  const r = await manage({ action: 'rename', name })
+  if (!r.ok) throw new Error(errOf(r.data, 'チーム名の変更に失敗しました'))
 }
 
 /** 招待リンクのフル URL を組み立てる。 */

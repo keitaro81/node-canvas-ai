@@ -91,6 +91,7 @@ create unique index team_invites_one_active on team_invites(team_id) where revok
 | `leave` | 本人 | 本人を新個人チームへ戻す（6.4） |
 | `remove` | owner | `{ userId }` を新個人チームへ戻す。owner/最後のownerガード |
 | `role` | owner | `{ userId, role }` 昇格/降格。最後のownerガード |
+| `rename` | owner | `{ name }` チーム名（支店名）変更。1〜60文字（追補 2026-07-03） |
 
 **追補（2026-07-02）invite-gated signup**: 運用モデル「運営は支店チーム作成+owner 登録のみ、メンバーは招待リンクで自己完結」を実装。`/join/:token` は AuthGuard の公開パスとなり、未ログイン時は「アカウント作成 or ログイン」フォームを表示（作成→自動ログイン→参加→フルリロード）。全体の signup 設定（Supabase ブロック）に依らず、有効な招待トークン所持者のみ service role がアカウントを作成する＝ゲート付き登録。メール確認は GA のメール基盤導入時に必須化を検討。
 
