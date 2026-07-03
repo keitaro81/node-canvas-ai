@@ -23,7 +23,7 @@ export interface TeamInfo {
 }
 
 interface ManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators'
   token?: string
   userId?: string
   role?: 'owner' | 'member'
@@ -125,6 +125,18 @@ export async function setMemberRole(userId: string, role: 'owner' | 'member'): P
 export async function renameTeam(name: string): Promise<void> {
   const r = await manage({ action: 'rename', name })
   if (!r.ok) throw new Error(errOf(r.data, 'チーム名の変更に失敗しました'))
+}
+
+export interface WorkflowCreator {
+  userId: string | null
+  email: string | null
+}
+
+/** 自チームの team 共有 WF の作成者マップ（workflowId → creator）。TeamPage のバッジ/フィルタ用。 */
+export async function getTeamWorkflowCreators(): Promise<Record<string, WorkflowCreator>> {
+  const r = await manage({ action: 'creators' })
+  if (!r.ok) throw new Error(errOf(r.data, '作成者情報の取得に失敗しました'))
+  return (r.data.creators as Record<string, WorkflowCreator>) ?? {}
 }
 
 /** 招待リンクのフル URL を組み立てる。 */

@@ -10,6 +10,7 @@ interface WorkflowCardProps {
   workflow: WorkflowRow
   thumbnailOverride?: string | null
   hasAppMode?: boolean
+  creatorLabel?: string | null // Team ページ用: 作成者表示（email 等）
   onDelete?: (id: string) => void
   onRename?: (id: string, name: string) => Promise<void>
   onClone?: (id: string) => void
@@ -44,7 +45,7 @@ function getGradient(id: string): string {
   return PLACEHOLDER_GRADIENTS[id.charCodeAt(0) % PLACEHOLDER_GRADIENTS.length]
 }
 
-export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete, onRename, onClone }: WorkflowCardProps) {
+export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorLabel, onDelete, onRename, onClone }: WorkflowCardProps) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const visibility: 'private' | 'team' | 'public' =
@@ -219,6 +220,11 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, onDelete
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
             Edited {formatDate(workflow.updated_at)}
           </p>
+          {creatorLabel && (
+            <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--text-tertiary)' }} title={creatorLabel}>
+              作成者: {creatorLabel}
+            </p>
+          )}
         </div>
 
         {/* Menu button + dropdown */}

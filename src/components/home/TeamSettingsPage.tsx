@@ -11,6 +11,17 @@ import {
   type TeamInfo,
 } from '../../lib/api/team'
 
+// 招待リンクの有効期限表示（now はレンダー中の Date.now() を避けるため呼び出し側の state で固定）
+function formatExpiry(iso: string, now: number): string {
+  const d = new Date(iso)
+  const remainMs = d.getTime() - now
+  const date = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+  if (remainMs <= 0) return `${date}（期限切れ）`
+  const days = Math.floor(remainMs / 86400000)
+  const remain = days >= 1 ? `あと${days}日` : `あと${Math.max(1, Math.floor(remainMs / 3600000))}時間`
+  return `${date}（${remain}）`
+}
+
 // チーム合計消費のプログレスバー（80%で警告色・100%でエラー色）
 function UsageBar({ label, used, limit }: { label: string; used: number; limit: number }) {
   const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
@@ -36,6 +47,8 @@ export function TeamSettingsPage() {
   const [copied, setCopied] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  // 期限の残り日数計算用（レンダー中の Date.now() を避ける）
+  const [now] = useState(() => Date.now())
 
   const load = useCallback(async () => {
     try {
@@ -174,33 +187,38 @@ export function TeamSettingsPage() {
                   このリンクを渡すと、相手が開いて参加できます（7日間有効・1本のみ）。
                 </p>
                 {info.invite ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      readOnly
-                      value={inviteUrl(info.invite.token)}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="flex-1 text-[12px] rounded-lg px-3 py-2 outline-none font-mono"
-                      style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                    />
-                    <button
-                      onClick={() => handleCopy(inviteUrl(info.invite!.token))}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium shrink-0"
-                      style={{ background: 'var(--accent)', color: '#fff' }}
-                    >
-                      {copied ? <Check size={13} weight="bold" /> : <Copy size={13} />}
-                      {copied ? 'コピー済み' : 'コピー'}
-                    </button>
-                    <button
-                      onClick={() => run(async () => { await createInvite() })}
-                      disabled={busy}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] shrink-0 disabled:opacity-50"
-                      style={{ background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }}
-                      title="再発行（旧リンクは無効になります）"
-                    >
-                      <ArrowsClockwise size={13} />
-                      再発行
-                    </button>
-                  </div>
+                  <>
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={inviteUrl(info.invite.token)}
+                        onFocus={(e) => e.currentTarget.select()}
+                        className="flex-1 text-[12px] rounded-lg px-3 py-2 outline-none font-mono"
+                        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                      />
+                      <button
+                        onClick={() => handleCopy(inviteUrl(info.invite!.token))}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium shrink-0"
+                        style={{ background: 'var(--accent)', color: '#fff' }}
+                      >
+                        {copied ? <Check size={13} weight="bold" /> : <Copy size={13} />}
+                        {copied ? 'コピー済み' : 'コピー'}
+                      </button>
+                      <button
+                        onClick={() => run(async () => { await createInvite() })}
+                        disabled={busy}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] shrink-0 disabled:opacity-50"
+                        style={{ background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }}
+                        title="再発行（旧リンクは無効になります）"
+                      >
+                        <ArrowsClockwise size={13} />
+                        再発行
+                      </button>
+                    </div>
+                    <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                      有効期限: {formatExpiry(info.invite.expiresAt, now)}
+                    </p>
+                  </>
                 ) : (
                   <button
                     onClick={() => run(async () => { await createInvite() })}
