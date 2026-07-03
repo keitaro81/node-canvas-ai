@@ -227,6 +227,14 @@ export function JoinPage() {
                     ? '参加すると、このチームのワークスペースが利用できます。'
                     : 'ログイン後、このチームへの参加を確認します。'}
                 </p>
+                {/* 規約同意（AuthModal と同一の同意導線・新規タブ） */}
+                <p className="text-[11px] text-center leading-[1.7]" style={{ color: 'var(--text-tertiary)' }}>
+                  アカウントを作成・ログインすることで、
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)' }}>利用規約</a>
+                  および
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)' }}>プライバシーポリシー</a>
+                  に同意したものとみなされます。
+                </p>
               </>
             )}
           </>
