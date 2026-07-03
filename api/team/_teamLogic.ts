@@ -7,7 +7,7 @@
 type Role = 'owner' | 'member'
 
 export interface TeamManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators'
   token?: string // join, preview, signup
   userId?: string // remove, role の対象
   role?: Role // role
@@ -85,9 +85,36 @@ export async function teamManage(admin: any, callerId: string | null, body: Team
       return listMembers(admin, callerId)
     case 'rename':
       return renameTeam(admin, callerId, body.name)
+    case 'creators':
+      return teamCreators(admin, callerId)
     default:
       return { status: 400, body: { error: 'Unknown action' } }
   }
+}
+
+// ── creators: 自チームの team 共有 WF の作成者（TeamPage のバッジ/フィルタ用） ──
+// projects は RLS で本人のみ SELECT 可のためクライアントでは解決できず、service role で引く。
+async function teamCreators(admin: any, callerId: string): Promise<TeamManageResult> {
+  const m = await myMembership(admin, callerId)
+  if (!m) return { status: 400, body: { error: 'チーム未所属です' } }
+  const { data: wfs } = await admin
+    .from('workflows')
+    .select('id, projects(user_id)')
+    .eq('team_id', m.team_id)
+    .eq('visibility', 'team')
+  const rows = (wfs ?? []) as Array<{ id: string; projects?: { user_id?: string | null } | null }>
+  const userIds = [...new Set(rows.map((r) => r.projects?.user_id).filter((v): v is string => !!v))]
+  const emailByUser: Record<string, string | null> = {}
+  for (const uid of userIds) {
+    const { data: u } = await admin.auth.admin.getUserById(uid)
+    emailByUser[uid] = u?.user?.email ?? null
+  }
+  const creators: Record<string, { userId: string | null; email: string | null }> = {}
+  for (const r of rows) {
+    const uid = r.projects?.user_id ?? null
+    creators[r.id] = { userId: uid, email: uid ? (emailByUser[uid] ?? null) : null }
+  }
+  return { status: 200, body: { creators } }
 }
 
 // ── rename: owner がチーム名（支店名）を変更 ──
