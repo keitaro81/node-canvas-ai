@@ -148,6 +148,28 @@ async function main() {
   check('テナント外 B は A の private WF を sign-media できない（403）', (await signMedia({ workflowId: wf[0].id }, jwtB)).status === 403)
   check('所有者 A は自分の WF に 200（map を返す）', (await signMedia({ workflowId: wf[0].id }, jwtA)).status === 200)
   check('sign-media は未認証だと 403', (await signMedia({ workflowId: wf[0].id }, '')).status === 403)
+
+  // ───────────────────────────────────────────────
+  // Group D: 削除/離脱でのクリーンな共有解除（案A）
+  //   member M の team 共有 WF は、owner が M を削除すると private に戻る（旧チームから不可視化）。
+  // ───────────────────────────────────────────────
+  console.log('Group D: 削除時に本人の team 共有 WF が private に戻る（案A）')
+  const emM = `${TAG}-m@example.com`
+  const mId = await createUser(emM, pw); created.users.push(mId)
+  await addMember(teamA, mId, 'member')
+  const mProj = await (await rest('projects', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ user_id: mId, name: `${TAG} m-pj` }) })).json()
+  created.projects.push(mProj[0].id)
+  const mWf = await (await rest('workflows', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ project_id: mProj[0].id, name: `${TAG} m-wf`, canvas_data: { nodes: [], edges: [] }, team_id: teamA, visibility: 'team', is_public: false }) })).json()
+  created.workflows.push(mWf[0].id)
+  const before = await (await rest(`workflows?select=visibility,team_id&id=eq.${mWf[0].id}`)).json()
+  check('前提: M の WF は team 共有', before[0]?.visibility === 'team', JSON.stringify(before[0]))
+  const rmRes = await manage({ action: 'remove', userId: mId }, jwtA)
+  check('remove は 200', rmRes.status === 200, `status=${rmRes.status}`)
+  const after = await (await rest(`workflows?select=visibility,team_id&id=eq.${mWf[0].id}`)).json()
+  check('削除後: M の WF は private に戻る（旧チームから不可視）', after[0]?.visibility === 'private', JSON.stringify(after[0]))
+  check('削除後: M の WF の team_id が旧チームでない（新個人チームへ追従）', after[0]?.team_id && after[0].team_id !== teamA, JSON.stringify(after[0]))
+  const mMem = await (await rest(`team_members?select=team_id&user_id=eq.${mId}`)).json()
+  check('削除後: M は元チームのメンバーではない', mMem[0]?.team_id && mMem[0].team_id !== teamA, JSON.stringify(mMem[0]))
 }
 
 async function cleanup() {
@@ -156,6 +178,9 @@ async function cleanup() {
   for (const id of created.projects) await rest(`projects?id=eq.${id}`, { method: 'DELETE' })
   for (const id of created.users) await auth(`admin/users/${id}`, { method: 'DELETE' })
   for (const id of created.teams) await rest(`teams?id=eq.${id}`, { method: 'DELETE' })
+  // remove/leave がサーバー側で作る個人チーム（"<email> (個人)"）も TAG 一致で掃除
+  const strays = await (await rest(`teams?select=id&name=ilike.*${TAG}*`)).json()
+  for (const t of strays) await rest(`teams?id=eq.${t.id}`, { method: 'DELETE' })
   const left = await (await rest(`teams?select=id&name=ilike.*${TAG}*`)).json()
   console.log(`  残 ${TAG}: teams=${left.length}`)
 }
