@@ -112,12 +112,18 @@ input: { token }
 ```
 - 旧チームに残した自分のワークフロー（team_id=旧）は **本人所有なのでアクセス維持**。ただし「参加前WFを T に team 共有」は team_id がズレる → Open Q（MVPは割り切り）。
 
-### 6.4 退会/削除の「新個人チーム生成」
+### 6.4 退会/削除の「新個人チーム生成」＋共有解除（案A・2026-07-05）
 ```
-create team (name='My Workspace', 既定クォータ)
+create team (name='<email> (個人)', 既定クォータ)
 update team_members set team_id=新team, role='owner' where user_id=target
+-- 案A: 本人資産を新チームへ追従＋旧チームへの team 共有を解除（旧チームから不可視化）
+update workflows set visibility='private'
+  where project_id in (本人のproject) and team_id=旧team and visibility='team'
+update workflows set team_id=新team
+  where project_id in (本人のproject) and team_id=旧team
 ```
 - サインアップ時の個人チーム自動作成ロジックを再利用。
+- **案A（クリーンな削除）**: 削除/離脱した本人の team 共有 WF は **private に戻る**（旧チームのメンバーから見えなくなる）。本人は所有者として My Projects で保持。`leave`/`remove` 共通の `moveToNewPersonalTeam` で処理。統合テスト Group D で回帰固定。
 
 ### 6.5 RLS
 
@@ -174,7 +180,7 @@ update team_members set team_id=新team, role='owner' where user_id=target
 
 - Given owner 発行リンク, When 別ユーザーが「参加」, Then 所属が T になり team 共有 WF が開ける
 - Given 失効/期限切れリンク, When 開く, Then 「無効な招待」表示で参加しない
-- Given member を owner が削除, Then 新個人チームへ移り、**自作の画像/WF は閲覧維持**・team WF は不可
+- Given member を owner が削除, Then 新個人チームへ移り、**自作の画像/WF は閲覧維持**・team WF は不可。**本人が team 共有していた WF は private に戻り旧チームから不可視**（案A・6.4）
 - Given owner が1人, When 離脱/降格, Then ブロック＋理由表示
 - Given メンバー3人が生成, When owner が使用状況閲覧, Then team 合算＋メンバー別内訳（P1）
 - Given 支店キャップ到達, When 生成, Then 既存どおりサーバー拒否（合算判定）

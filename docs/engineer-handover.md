@@ -115,7 +115,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 - **招待**: owner が共有リンク発行（192bit token・7日期限・1チーム1アクティブ）。`/join/:token` で参加。
   - ログイン済み → opt-in 確認して参加。
   - 未ログイン → その場でアカウント作成（invite-gated signup）or ログイン。**人数上限 `MAX_TEAM_MEMBERS`（既定50・env可）＋直近1時間の登録数 `SIGNUP_MAX_PER_HOUR`（既定20・env可）でバースト抑制**。
-- 離脱/削除 = 新しい個人チームへ移動（資産は user 所有なので保持）。
+- 離脱/削除 = 新しい個人チームへ移動（資産は user 所有なので保持）。**その際、本人が team 共有していた WF は private に戻す**（旧チームから不可視化＝クリーンな削除。`moveToNewPersonalTeam`・統合テスト Group D）。
 - UI: [TeamPage.tsx](../src/components/home/TeamPage.tsx)（共有WF一覧＋作成者バッジ/フィルタ）、[TeamSettingsPage.tsx](../src/components/home/TeamSettingsPage.tsx)（メンバー一覧・使用状況バー・招待リンク・チーム名変更）、[JoinPage.tsx](../src/components/home/JoinPage.tsx)。
 - 運用モデル: **運営は「支店チーム作成＋owner登録」だけ**行い、以降のメンバー追加は owner が招待リンクで自走。
 

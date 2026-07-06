@@ -60,13 +60,33 @@ async function ownerCount(admin: any, teamId: string): Promise<number> {
   return count ?? 0
 }
 
-// 退会/削除時: 新しい個人チームを作って user をそこへ移す（資産は user 所有なので失われない）
+// 退会/削除時: 新しい個人チームを作って user をそこへ移す（資産は user 所有なので失われない）。
+// 案A（クリーンな削除）: 本人の資産を新個人チームへ追従させ、旧チームへの team 共有は private に戻す
+// （＝旧チームのメンバーから見えなくする）。離脱・削除の両方がここを通る。
 async function moveToNewPersonalTeam(admin: any, userId: string): Promise<void> {
+  // 移動前に旧チームを控える（共有解除の対象スコープ）
+  const { data: cur } = await admin.from('team_members').select('team_id').eq('user_id', userId).maybeSingle()
+  const oldTeamId: string | null = cur?.team_id ?? null
+
   const { data: u } = await admin.auth.admin.getUserById(userId)
   const email = u?.user?.email ?? userId
   const { data: team, error } = await admin.from('teams').insert({ name: `${email} (個人)` }).select('id').single()
   if (error) throw error
   await admin.from('team_members').update({ team_id: team.id, role: 'owner' }).eq('user_id', userId)
+
+  // 本人所有(project.user_id)の、旧チームに紐づくワークフローを処理
+  if (oldTeamId && oldTeamId !== team.id) {
+    const { data: projs } = await admin.from('projects').select('id').eq('user_id', userId)
+    const projIds = (projs ?? []).map((p: any) => p.id)
+    if (projIds.length) {
+      // 1) 旧チームへの team 共有を解除（private 化）— 先に visibility を落としてから team_id を移す
+      await admin.from('workflows').update({ visibility: 'private' })
+        .in('project_id', projIds).eq('team_id', oldTeamId).eq('visibility', 'team')
+      // 2) 本人資産の team_id を新個人チームへ追従
+      await admin.from('workflows').update({ team_id: team.id })
+        .in('project_id', projIds).eq('team_id', oldTeamId)
+    }
+  }
 }
 
 export async function teamManage(admin: any, callerId: string | null, body: TeamManageBody): Promise<TeamManageResult> {
