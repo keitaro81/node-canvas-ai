@@ -91,6 +91,7 @@ create unique index team_invites_one_active on team_invites(team_id) where revok
 | `leave` | 本人 | 本人を新個人チームへ戻す（6.4） |
 | `remove` | owner | `{ userId }` を新個人チームへ戻す。owner/最後のownerガード |
 | `role` | owner | `{ userId, role }` 昇格/降格。最後のownerガード |
+| `rename` | owner | `{ name }` チーム名（支店名）変更。1〜60文字（追補 2026-07-03） |
 
 **追補（2026-07-02）invite-gated signup**: 運用モデル「運営は支店チーム作成+owner 登録のみ、メンバーは招待リンクで自己完結」を実装。`/join/:token` は AuthGuard の公開パスとなり、未ログイン時は「アカウント作成 or ログイン」フォームを表示（作成→自動ログイン→参加→フルリロード）。全体の signup 設定（Supabase ブロック）に依らず、有効な招待トークン所持者のみ service role がアカウントを作成する＝ゲート付き登録。メール確認は GA のメール基盤導入時に必須化を検討。
 
@@ -111,12 +112,18 @@ input: { token }
 ```
 - 旧チームに残した自分のワークフロー（team_id=旧）は **本人所有なのでアクセス維持**。ただし「参加前WFを T に team 共有」は team_id がズレる → Open Q（MVPは割り切り）。
 
-### 6.4 退会/削除の「新個人チーム生成」
+### 6.4 退会/削除の「新個人チーム生成」＋共有解除（案A・2026-07-05）
 ```
-create team (name='My Workspace', 既定クォータ)
+create team (name='<email> (個人)', 既定クォータ)
 update team_members set team_id=新team, role='owner' where user_id=target
+-- 案A: 本人資産を新チームへ追従＋旧チームへの team 共有を解除（旧チームから不可視化）
+update workflows set visibility='private'
+  where project_id in (本人のproject) and team_id=旧team and visibility='team'
+update workflows set team_id=新team
+  where project_id in (本人のproject) and team_id=旧team
 ```
 - サインアップ時の個人チーム自動作成ロジックを再利用。
+- **案A（クリーンな削除）**: 削除/離脱した本人の team 共有 WF は **private に戻る**（旧チームのメンバーから見えなくなる）。本人は所有者として My Projects で保持。`leave`/`remove` 共通の `moveToNewPersonalTeam` で処理。統合テスト Group D で回帰固定。
 
 ### 6.5 RLS
 
@@ -141,8 +148,8 @@ update team_members set team_id=新team, role='owner' where user_id=target
 1. **チーム設定**（`/team/settings`）：支店名・自分のロール・招待リンク（コピー/再発行）・メンバー一覧
 2. **メンバー一覧**：名前/メール・role バッジ・各自の今月消費・owner のみ「削除」「owner 昇格/降格」
 3. **参加ページ**（`/join/:token`）：「{支店名} に参加しますか？」→参加/キャンセル（未ログインはログイン→復帰）
-4. **使用状況**（設定内 or `/team/usage`）：チーム今月消費 vs 上限＋メンバー別内訳（P1）
-5. **作成者表示**：History/Community/Team WF に「作成者: {member}」バッジ＋フィルタ（P1）
+4. **使用状況**（チーム設定内）：チーム今月消費 vs 上限のプログレスバー＋メンバー行に個人内訳（✅追補 2026-07-03: `list` 応答に usage を追加・period は JST 'YYYY-MM'） 
+5. **作成者表示**：Team ページのカードに「作成者: {email}」＋作成者フィルタ（✅追補 2026-07-03: `creators` アクション＝projects が RLS で本人のみのため service role で解決。招待リンクの有効期限表示も同日追補）
 
 ---
 
@@ -173,14 +180,14 @@ update team_members set team_id=新team, role='owner' where user_id=target
 
 - Given owner 発行リンク, When 別ユーザーが「参加」, Then 所属が T になり team 共有 WF が開ける
 - Given 失効/期限切れリンク, When 開く, Then 「無効な招待」表示で参加しない
-- Given member を owner が削除, Then 新個人チームへ移り、**自作の画像/WF は閲覧維持**・team WF は不可
+- Given member を owner が削除, Then 新個人チームへ移り、**自作の画像/WF は閲覧維持**・team WF は不可。**本人が team 共有していた WF は private に戻り旧チームから不可視**（案A・6.4）
 - Given owner が1人, When 離脱/降格, Then ブロック＋理由表示
 - Given メンバー3人が生成, When owner が使用状況閲覧, Then team 合算＋メンバー別内訳（P1）
 - Given 支店キャップ到達, When 生成, Then 既存どおりサーバー拒否（合算判定）
 
 ## 10. P1 / P2
 
-- **P1**：使用状況ビュー（メンバー別内訳）/ 作成者バッジ＋フィルタ / role 昇格降格UI / 招待リンク有効期限UI
+- **P1**：~~使用状況ビュー（メンバー別内訳）~~ / ~~role 昇格降格UI~~ / ~~作成者バッジ＋フィルタ~~ / ~~招待リンク有効期限UI~~ — **✅全て完了（2026-07-03）**
 - **P2**：個人別キャップ（土台はP0で確保）/ 全社ロールアップ / メール招待・SSO / 支店間アセット共有
 
 ## 11. Open Questions

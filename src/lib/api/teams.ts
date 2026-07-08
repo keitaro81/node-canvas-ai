@@ -8,10 +8,15 @@ export interface TeamContext {
   usedVideo: number
 }
 
+/** 指定時刻の JST 月次キー 'YYYY-MM' を返す（テスト用に時刻注入可能・純関数）。 */
+export function periodForJst(date: Date): string {
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  return jst.toISOString().slice(0, 7)
+}
+
 /** クォータの月次キー 'YYYY-MM'（JST基準。fal proxy の currentPeriodJst と一致させること）。 */
 export function currentPeriodJst(): string {
-  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000)
-  return jst.toISOString().slice(0, 7)
+  return periodForJst(new Date(Date.now()))
 }
 
 /**

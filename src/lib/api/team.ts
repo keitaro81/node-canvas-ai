@@ -8,6 +8,8 @@ export interface TeamMember {
   email: string | null
   role: 'owner' | 'member'
   isMe: boolean
+  usedImage: number
+  usedVideo: number
 }
 
 export interface TeamInfo {
@@ -15,17 +17,19 @@ export interface TeamInfo {
   teamName: string | null
   myRole: 'owner' | 'member'
   quota: { image: number; video: number } | null
+  usage: { period: string; usedImage: number; usedVideo: number } | null
   members: TeamMember[]
   invite: { token: string; expiresAt: string } | null
 }
 
 interface ManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators'
   token?: string
   userId?: string
   role?: 'owner' | 'member'
   email?: string
   password?: string
+  name?: string
 }
 
 async function manage(body: ManageBody): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
@@ -115,6 +119,24 @@ export async function removeMember(userId: string): Promise<void> {
 export async function setMemberRole(userId: string, role: 'owner' | 'member'): Promise<void> {
   const r = await manage({ action: 'role', userId, role })
   if (!r.ok) throw new Error(errOf(r.data, '役割の変更に失敗しました'))
+}
+
+/** owner: チーム名（支店名）を変更。 */
+export async function renameTeam(name: string): Promise<void> {
+  const r = await manage({ action: 'rename', name })
+  if (!r.ok) throw new Error(errOf(r.data, 'チーム名の変更に失敗しました'))
+}
+
+export interface WorkflowCreator {
+  userId: string | null
+  email: string | null
+}
+
+/** 自チームの team 共有 WF の作成者マップ（workflowId → creator）。TeamPage のバッジ/フィルタ用。 */
+export async function getTeamWorkflowCreators(): Promise<Record<string, WorkflowCreator>> {
+  const r = await manage({ action: 'creators' })
+  if (!r.ok) throw new Error(errOf(r.data, '作成者情報の取得に失敗しました'))
+  return (r.data.creators as Record<string, WorkflowCreator>) ?? {}
 }
 
 /** 招待リンクのフル URL を組み立てる。 */
