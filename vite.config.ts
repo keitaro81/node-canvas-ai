@@ -10,6 +10,7 @@ import { teamManage, actionNeedsAuth, type TeamManageBody } from './api/team/_te
 import { saveImageServer } from './api/storage/_saveImageLogic'
 import { deleteGenerationServer } from './api/storage/_deleteGenerationLogic'
 import { signMediaServer } from './api/storage/_signMediaLogic'
+import { adminManage, type AdminManageBody } from './api/admin/_adminLogic'
 
 /**
  * ローカル開発専用: 本番(Vercel)の Edge 関数を代替する Vite Dev Server ミドルウェア群。
@@ -19,6 +20,7 @@ import { signMediaServer } from './api/storage/_signMediaLogic'
 function devImageProxyPlugin(): Plugin {
   let supabaseUrl: string | undefined
   let serviceKey: string | undefined
+  let adminIds: string | undefined // ADMIN_USER_IDS（運営 allowlist）
 
   // JSON ボディを読む（空なら {}）
   const readJson = (req: IncomingMessage): Promise<unknown> =>
@@ -37,6 +39,7 @@ function devImageProxyPlugin(): Plugin {
       const env = loadEnv(mode, process.cwd(), '')
       supabaseUrl = env.VITE_SUPABASE_URL
       serviceKey = env.SUPABASE_SERVICE_ROLE_KEY
+      adminIds = env.ADMIN_USER_IDS
     },
     configureServer(server) {
       // service role admin を作る（未設定なら分かりやすいエラー）
@@ -120,6 +123,23 @@ function devImageProxyPlugin(): Plugin {
           send(res, result.status, result.body)
         } catch (err) {
           console.error('[dev-team-manage] error:', err)
+          send(res, 500, { error: String(err) })
+        }
+      })
+
+      // 運営管理: POST /dev-proxy/admin-manage { action, ... }（JWT 必須＋ADMIN_USER_IDS ゲート）
+      server.middlewares.use('/dev-proxy/admin-manage', async (req: IncomingMessage, res: ServerResponse) => {
+        if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
+        try {
+          const admin = await getAdmin()
+          const token = bearer(req); if (!token) throw new Error('No token')
+          const { data: { user } } = await admin.auth.getUser(token)
+          if (!user) throw new Error('Unauthorized')
+          const body = await readJson(req) as AdminManageBody
+          const result = await adminManage(admin, user.id, adminIds, body)
+          send(res, result.status, result.body)
+        } catch (err) {
+          console.error('[dev-admin-manage] error:', err)
           send(res, 500, { error: String(err) })
         }
       })

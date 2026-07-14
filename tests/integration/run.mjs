@@ -170,6 +170,22 @@ async function main() {
   check('削除後: M の WF の team_id が旧チームでない（新個人チームへ追従）', after[0]?.team_id && after[0].team_id !== teamA, JSON.stringify(after[0]))
   const mMem = await (await rest(`team_members?select=team_id&user_id=eq.${mId}`)).json()
   check('削除後: M は元チームのメンバーではない', mMem[0]?.team_id && mMem[0].team_id !== teamA, JSON.stringify(mMem[0]))
+
+  // ───────────────────────────────────────────────
+  // Group E: 運営コンソールの認可（非運営は admin エンドポイントを叩けない）
+  //   ※ 肯定系（provision 成功）は本番 ADMIN_USER_IDS にテストユーザーを載せられないため対象外。
+  //   非運営が 403 で弾かれること＝スーパーユーザー面のゲートを固定する。
+  // ───────────────────────────────────────────────
+  console.log('Group E: 運営コンソール認可（非運営は 403）')
+  const adminApi = (body, token) => fetch(`${APP_URL}/api/admin/manage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  })
+  check('非運営(A) の admin list は 403', (await adminApi({ action: 'list' }, jwtA)).status === 403)
+  check('非運営(A) の admin provision は 403（アカウント作成させない）',
+    (await adminApi({ action: 'provision', teamName: `${TAG} 不正`, ownerEmail: `${TAG}-evil@example.com` }, jwtA)).status === 403)
+  check('admin エンドポイントは未認証だと 403', (await adminApi({ action: 'list' }, '')).status === 403)
 }
 
 async function cleanup() {

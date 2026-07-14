@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'api/**/*.test.ts'],
     // supabase クライアント初期化用のダミー env（実接続はしない。canonical URL のアサートは host 非依存）。
     env: {
       VITE_SUPABASE_URL: 'https://test.supabase.co',
