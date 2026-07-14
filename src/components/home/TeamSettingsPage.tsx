@@ -174,7 +174,7 @@ export function TeamSettingsPage() {
                   </div>
                 )}
                 <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-                  支店名など、メンバーや招待画面に表示される名前です。
+                  チーム名など、メンバーや招待画面に表示される名前です。
                 </p>
               </section>
             )}
@@ -279,7 +279,7 @@ export function TeamSettingsPage() {
                         : { background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
                     >
                       {m.role === 'owner' && <Crown size={11} weight="fill" />}
-                      {m.role === 'owner' ? 'Owner' : 'Member'}
+                      {m.role === 'owner' ? 'オーナー' : 'メンバー'}
                     </span>
                     {/* owner の操作（自分以外） */}
                     {isOwner && !m.isMe && (
@@ -289,9 +289,9 @@ export function TeamSettingsPage() {
                           disabled={busy}
                           className="px-2 py-1 rounded-lg text-[11px] disabled:opacity-50"
                           style={{ background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }}
-                          title={m.role === 'owner' ? 'member に降格' : 'owner に昇格'}
+                          title={m.role === 'owner' ? 'メンバーに降格' : 'オーナーに昇格'}
                         >
-                          {m.role === 'owner' ? 'member に' : 'owner に'}
+                          {m.role === 'owner' ? 'メンバーに' : 'オーナーに'}
                         </button>
                         <button
                           onClick={() => { if (confirm(`${m.email ?? 'このメンバー'} をチームから削除しますか？`)) void run(() => removeMember(m.userId)) }}

@@ -146,7 +146,7 @@ async function teamCreators(admin: any, callerId: string): Promise<TeamManageRes
 async function renameTeam(admin: any, callerId: string, name?: string): Promise<TeamManageResult> {
   const m = await myMembership(admin, callerId)
   if (!m) return { status: 400, body: { error: 'チーム未所属です' } }
-  if (m.role !== 'owner') return { status: 403, body: { error: 'owner のみ変更できます' } }
+  if (m.role !== 'owner') return { status: 403, body: { error: 'オーナーのみ変更できます' } }
   const trimmed = (name ?? '').trim()
   if (!trimmed || trimmed.length > 60) {
     return { status: 400, body: { error: 'チーム名は1〜60文字で入力してください' } }
@@ -198,7 +198,7 @@ async function signupAndJoin(admin: any, token?: string, email?: string, passwor
 async function invite(admin: any, callerId: string): Promise<TeamManageResult> {
   const m = await myMembership(admin, callerId)
   if (!m) return { status: 400, body: { error: 'チーム未所属です' } }
-  if (m.role !== 'owner') return { status: 403, body: { error: 'owner のみ招待できます' } }
+  if (m.role !== 'owner') return { status: 403, body: { error: 'オーナーのみ招待できます' } }
   await admin.from('team_invites').update({ revoked_at: new Date().toISOString() }).eq('team_id', m.team_id).is('revoked_at', null)
   const { data, error } = await admin
     .from('team_invites')
@@ -250,7 +250,7 @@ async function join(admin: any, callerId: string, token?: string): Promise<TeamM
     if (members > 1 && m.role === 'owner') {
       const owners = await ownerCount(admin, m.team_id)
       if (owners <= 1) {
-        return { status: 409, body: { error: '現在のチームの最後の owner です。先に他メンバーへ owner を譲ってください' } }
+        return { status: 409, body: { error: '現在のチームの最後のオーナーです。先に他メンバーへオーナーを譲ってください' } }
       }
     }
   }
@@ -280,7 +280,7 @@ async function leave(admin: any, callerId: string): Promise<TeamManageResult> {
   if (members <= 1) return { status: 200, body: { noop: true } } // 既に1人＝個人チーム
   if (m.role === 'owner') {
     const owners = await ownerCount(admin, m.team_id)
-    if (owners <= 1) return { status: 409, body: { error: '最後の owner です。先に他メンバーを owner にしてください' } }
+    if (owners <= 1) return { status: 409, body: { error: '最後のオーナーです。先に他メンバーをオーナーにしてください' } }
   }
   await moveToNewPersonalTeam(admin, callerId)
   return { status: 200, body: { left: true } }
@@ -290,7 +290,7 @@ async function leave(admin: any, callerId: string): Promise<TeamManageResult> {
 async function removeMember(admin: any, callerId: string, targetUserId?: string): Promise<TeamManageResult> {
   if (!targetUserId) return { status: 400, body: { error: 'userId がありません' } }
   const m = await myMembership(admin, callerId)
-  if (!m || m.role !== 'owner') return { status: 403, body: { error: 'owner のみ削除できます' } }
+  if (!m || m.role !== 'owner') return { status: 403, body: { error: 'オーナーのみ削除できます' } }
   if (targetUserId === callerId) return { status: 400, body: { error: '自分自身は削除できません（離脱を使用）' } }
   const { data: tgt } = await admin.from('team_members').select('team_id').eq('user_id', targetUserId).maybeSingle()
   if (!tgt || tgt.team_id !== m.team_id) return { status: 404, body: { error: 'そのメンバーは見つかりません' } }
@@ -302,12 +302,12 @@ async function removeMember(admin: any, callerId: string, targetUserId?: string)
 async function changeRole(admin: any, callerId: string, targetUserId?: string, role?: Role): Promise<TeamManageResult> {
   if (!targetUserId || (role !== 'owner' && role !== 'member')) return { status: 400, body: { error: '不正なリクエストです' } }
   const m = await myMembership(admin, callerId)
-  if (!m || m.role !== 'owner') return { status: 403, body: { error: 'owner のみ変更できます' } }
+  if (!m || m.role !== 'owner') return { status: 403, body: { error: 'オーナーのみ変更できます' } }
   const { data: tgt } = await admin.from('team_members').select('team_id, role').eq('user_id', targetUserId).maybeSingle()
   if (!tgt || tgt.team_id !== m.team_id) return { status: 404, body: { error: 'そのメンバーは見つかりません' } }
   if (tgt.role === 'owner' && role === 'member') {
     const owners = await ownerCount(admin, m.team_id)
-    if (owners <= 1) return { status: 409, body: { error: '最後の owner は降格できません' } }
+    if (owners <= 1) return { status: 409, body: { error: '最後のオーナーは降格できません' } }
   }
   await admin.from('team_members').update({ role }).eq('user_id', targetUserId).eq('team_id', m.team_id)
   return { status: 200, body: { updated: true } }

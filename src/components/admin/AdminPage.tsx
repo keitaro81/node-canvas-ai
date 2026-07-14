@@ -60,7 +60,7 @@ export function AdminPage() {
     e.preventDefault()
     setFormError(null)
     setDone(null)
-    if (!teamName.trim() || !ownerEmail.trim()) { setFormError('チーム名と owner メールを入力してください'); return }
+    if (!teamName.trim() || !ownerEmail.trim()) { setFormError('チーム名とオーナーのメールを入力してください'); return }
     setSubmitting(true)
     try {
       const r = await provisionBranch({ teamName: teamName.trim(), ownerEmail: ownerEmail.trim(), quotaImage, quotaVideo })
@@ -125,7 +125,7 @@ export function AdminPage() {
                   className="text-[13px] rounded-lg px-3 py-2 outline-none" style={inputStyle} />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>owner メールアドレス</span>
+                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>オーナーのメールアドレス</span>
                 <input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="manager@company.co.jp"
                   autoComplete="off" className="text-[13px] rounded-lg px-3 py-2 outline-none" style={inputStyle} />
               </label>
@@ -145,7 +145,7 @@ export function AdminPage() {
               className="self-start flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium disabled:opacity-60"
               style={{ background: 'var(--accent)', color: '#fff' }}>
               {submitting ? <CircleNotch size={14} className="animate-spin" /> : <Plus size={14} />}
-              チームと owner を作成
+              チームとオーナーを作成
             </button>
           </form>
 
@@ -176,7 +176,7 @@ export function AdminPage() {
               <thead>
                 <tr style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
                   <th className="text-left font-medium px-3 py-2">チーム名</th>
-                  <th className="text-left font-medium px-3 py-2">owner</th>
+                  <th className="text-left font-medium px-3 py-2">オーナー</th>
                   <th className="text-right font-medium px-3 py-2">人数</th>
                   <th className="text-right font-medium px-3 py-2">画像(今月/上限)</th>
                   <th className="text-right font-medium px-3 py-2">動画(今月/上限)</th>
