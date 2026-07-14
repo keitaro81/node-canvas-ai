@@ -10,6 +10,7 @@ import { MyPage } from './components/home/MyPage'
 import { CanvasPage } from './components/canvas/CanvasPage'
 import { TermsPage } from './components/legal/TermsPage'
 import { PrivacyPage } from './components/legal/PrivacyPage'
+import { AdminPage } from './components/admin/AdminPage'
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +35,8 @@ export const router = createBrowserRouter([
     path: '/canvas/:workflowId',
     element: <CanvasPage />,
   },
+  // 運営コンソール（要ログイン＋サーバー側 ADMIN_USER_IDS ゲート。通常ナビには出さない）
+  { path: '/admin', element: <AdminPage /> },
   // 招待リンクの着地（AuthGuard 配下＝未ログインはログイン後にここへ）
   { path: '/join/:token', element: <JoinPage /> },
 ])

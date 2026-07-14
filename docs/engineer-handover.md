@@ -118,6 +118,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 - 離脱/削除 = 新しい個人チームへ移動（資産は user 所有なので保持）。**その際、本人が team 共有していた WF は private に戻す**（旧チームから不可視化＝クリーンな削除。`moveToNewPersonalTeam`・統合テスト Group D）。
 - UI: [TeamPage.tsx](../src/components/home/TeamPage.tsx)（共有WF一覧＋作成者バッジ/フィルタ）、[TeamSettingsPage.tsx](../src/components/home/TeamSettingsPage.tsx)（メンバー一覧・使用状況バー・招待リンク・チーム名変更）、[JoinPage.tsx](../src/components/home/JoinPage.tsx)。
 - 運用モデル: **運営は「支店チーム作成＋owner登録」だけ**行い、以降のメンバー追加は owner が招待リンクで自走。
+- **運営コンソール `/admin`（Tier 1・運営専用）**: 支店チーム＋owner を1画面で作成＋全支店の一覧/消費。認可は `ADMIN_USER_IDS` allowlist（サーバーで 403・UI もナビ非表示）。コアは [api/admin/_adminLogic.ts](../api/admin/_adminLogic.ts)（Edge `api/admin/manage.ts` と vite dev `/dev-proxy/admin-manage` が共用）。破壊操作（削除/Ban）は未実装（安全側）。将来 Tier 2/3（横断ダッシュボード・監査ログ等）はこの上に積む。
 
 ## 9. クォータ（サーバー強制・チーム単位・月次）
 
@@ -179,6 +180,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 | `SENTRY_DSN` | エラー監視（任意） |
 | `CRON_SECRET` | cron エンドポイント保護 |
 | `MAX_TEAM_MEMBERS` / `SIGNUP_MAX_PER_HOUR` | 招待signupの上限・バースト抑制（任意・既定 50/20） |
+| `ADMIN_USER_IDS` | 運営コンソール `/admin` の allowlist（運営 user_id のカンマ区切り）。未設定なら `/admin` は全員 403 |
 
 > **秘密情報の運用**: service role/FAL_KEY/CRON_SECRET 等はユーザーが生成・設定する（Claude には貼らない）。ローカルの `.env.local` は本番DBを指すため、クロステナント否定テストは一時ユーザーで行い必ず削除する。
 
