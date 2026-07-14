@@ -55,7 +55,7 @@ async function provisionBranch(admin: any, body: AdminManageBody): Promise<Admin
   const name = (body.teamName ?? '').trim()
   const email = (body.ownerEmail ?? '').trim().toLowerCase()
   if (!name || name.length > 60) return { status: 400, body: { error: 'チーム名は1〜60文字で入力してください' } }
-  if (!EMAIL_RE.test(email)) return { status: 400, body: { error: 'owner のメールアドレスの形式が正しくありません' } }
+  if (!EMAIL_RE.test(email)) return { status: 400, body: { error: 'オーナーのメールアドレスの形式が正しくありません' } }
   const quotaImage = normQuota(body.quotaImage, 100)
   const quotaVideo = normQuota(body.quotaVideo, 7)
 
@@ -66,9 +66,9 @@ async function provisionBranch(admin: any, body: AdminManageBody): Promise<Admin
   if (userErr || !created?.user) {
     const msg = String(userErr?.message ?? '')
     if (userErr?.status === 422 || msg.toLowerCase().includes('already')) {
-      return { status: 409, body: { error: 'このメールは既に登録済みです。既存アカウントを owner にする場合は運用手順の SQL 例外を使ってください', code: 'already_registered' } }
+      return { status: 409, body: { error: 'このメールは既に登録済みです。既存アカウントをオーナーにする場合は運用手順の SQL 例外を使ってください', code: 'already_registered' } }
     }
-    return { status: 500, body: { error: msg || 'owner の作成に失敗しました' } }
+    return { status: 500, body: { error: msg || 'オーナーの作成に失敗しました' } }
   }
   const ownerId: string = created.user.id
 
@@ -87,7 +87,7 @@ async function provisionBranch(admin: any, body: AdminManageBody): Promise<Admin
   // owner 所属
   const { error: memErr } = await admin.from('team_members').insert({ team_id: team.id, user_id: ownerId, role: 'owner' })
   if (memErr) {
-    return { status: 500, body: { error: `owner 登録に失敗しました: ${memErr.message}`, teamId: team.id, ownerUserId: ownerId } }
+    return { status: 500, body: { error: `オーナー登録に失敗しました: ${memErr.message}`, teamId: team.id, ownerUserId: ownerId } }
   }
 
   return { status: 200, body: { teamId: team.id, teamName: name, ownerUserId: ownerId, ownerEmail: email, quotaImage, quotaVideo } }
