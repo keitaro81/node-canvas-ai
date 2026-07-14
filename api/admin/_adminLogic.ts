@@ -132,6 +132,8 @@ async function listBranches(admin: any): Promise<AdminResult> {
 
   const branches = []
   for (const t of teamRows) {
+    // メンバー0のチームは孤児（元個人チームの残骸・アカウント削除の残り等）。一覧から除外する。
+    if ((countByTeam[t.id] ?? 0) === 0) continue
     const ownerIds = ownersByTeam[t.id] ?? []
     const ownerEmails: string[] = []
     for (const oid of ownerIds) ownerEmails.push((await resolveEmail(oid)) ?? oid)
