@@ -1,5 +1,5 @@
 // 運営（オペレーター）専用の管理ロジック。Edge(/api/admin/manage) と vite dev(/dev-proxy/admin-manage) が共用。
-// ⚠️ スーパーユーザー面: 他人のアカウント作成・全支店横断を行う。呼び出しは必ず isOperator で allowlist ゲートすること。
+// ⚠️ スーパーユーザー面: 他人のアカウント作成・全チーム横断を行う。呼び出しは必ず isOperator で allowlist ゲートすること。
 // 認可（誰が運営か）は環境変数 ADMIN_USER_IDS（user_id のカンマ区切り）。マイグレーション不要。
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -49,12 +49,12 @@ export async function adminManage(
   }
 }
 
-// ── provision: 支店チーム＋owner アカウント＋owner 所属を一括作成（案A） ──
+// ── provision: チーム＋owner アカウント＋owner 所属を一括作成（案A） ──
 // owner のパスワードはランダム生成して破棄（運営は触れない）。owner は「パスワード再設定」でログインする。
 async function provisionBranch(admin: any, body: AdminManageBody): Promise<AdminResult> {
   const name = (body.teamName ?? '').trim()
   const email = (body.ownerEmail ?? '').trim().toLowerCase()
-  if (!name || name.length > 60) return { status: 400, body: { error: '支店名は1〜60文字で入力してください' } }
+  if (!name || name.length > 60) return { status: 400, body: { error: 'チーム名は1〜60文字で入力してください' } }
   if (!EMAIL_RE.test(email)) return { status: 400, body: { error: 'owner のメールアドレスの形式が正しくありません' } }
   const quotaImage = normQuota(body.quotaImage, 100)
   const quotaVideo = normQuota(body.quotaVideo, 7)
@@ -72,7 +72,7 @@ async function provisionBranch(admin: any, body: AdminManageBody): Promise<Admin
   }
   const ownerId: string = created.user.id
 
-  // 支店チーム作成
+  // チーム作成
   const { data: team, error: teamErr } = await admin
     .from('teams')
     .insert({ name, quota_image_monthly: quotaImage, quota_video_monthly: quotaVideo })
@@ -81,7 +81,7 @@ async function provisionBranch(admin: any, body: AdminManageBody): Promise<Admin
   if (teamErr || !team) {
     // owner は作成済みだが team 失敗。オーファンを避けるため owner を削除して巻き戻す。
     await admin.auth.admin.deleteUser(ownerId).catch(() => {})
-    return { status: 500, body: { error: `支店の作成に失敗しました: ${teamErr?.message ?? ''}` } }
+    return { status: 500, body: { error: `チームの作成に失敗しました: ${teamErr?.message ?? ''}` } }
   }
 
   // owner 所属
@@ -93,7 +93,7 @@ async function provisionBranch(admin: any, body: AdminManageBody): Promise<Admin
   return { status: 200, body: { teamId: team.id, teamName: name, ownerUserId: ownerId, ownerEmail: email, quotaImage, quotaVideo } }
 }
 
-// ── list: 全支店＝名前・クォータ・メンバー数・owner・今月消費 ──
+// ── list: 全チーム＝名前・クォータ・メンバー数・owner・今月消費 ──
 async function listBranches(admin: any): Promise<AdminResult> {
   const { data: teams } = await admin
     .from('teams')
@@ -122,7 +122,7 @@ async function listBranches(admin: any): Promise<AdminResult> {
     else if (u.kind === 'video') t.video += u.count ?? 0
   }
 
-  // owner の email 解決（支店数ぶんの getUserById・ピロット規模なら十分）
+  // owner の email 解決（チーム数ぶんの getUserById・ピロット規模なら十分）
   const emailCache: Record<string, string | null> = {}
   const resolveEmail = async (uid: string): Promise<string | null> => {
     if (uid in emailCache) return emailCache[uid]
