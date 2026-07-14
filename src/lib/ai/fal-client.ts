@@ -17,6 +17,10 @@ export function configureFal(supabaseToken: string | null): void {
   fal.config({
     proxyUrl: "/api/fal/proxy",
     credentials: () => _token ?? "",
+    // proxy 経由では credentials に渡すのは Supabase JWT（プロキシ認証用）であり fal 鍵ではない。
+    // SDK は「ブラウザに credentials がある」だけで警告するため、この分岐では誤警告になる → 抑制する。
+    // （fal 鍵はサーバー側の /api/fal/proxy の FAL_KEY のみ。dev 分岐＝VITE_FAL_KEY 露出側の警告は残す）
+    suppressLocalCredentialsWarning: true,
   });
 }
 
