@@ -4,7 +4,7 @@ import { CircleNotch, Copy, Check, Buildings, Plus, ArrowLeft } from '@phosphor-
 import { listAdminBranches, provisionBranch, type AdminBranchList, type ProvisionResult } from '../../lib/api/admin'
 
 // 運営（オペレーター）専用コンソール（Tier 1）。ADMIN_USER_IDS に載る運営のみアクセス可（サーバーで 403）。
-// 通常ナビには出さない独立ルート（/admin）。支店セットアップ＋全支店一覧。
+// 通常ナビには出さない独立ルート（/admin）。チームセットアップ＋全チーム一覧。
 
 const APP_URL = 'https://node-canvas-ai.vercel.app'
 
@@ -12,14 +12,14 @@ function ownerTemplate(teamName: string, email: string): string {
   return [
     '【Node Canvas AI】アカウント準備のご案内',
     '',
-    `支店「${teamName}」の管理者アカウントを作成しました。`,
+    `チーム「${teamName}」の管理者アカウントを作成しました。`,
     '',
     `1. 下記を開き、「パスワードをお忘れの方」から ${email} でパスワードを設定してください。`,
     `   ${APP_URL}`,
     '2. ログイン後、左メニュー「Team」→「メンバー管理」→「招待リンクを発行」でメンバー用リンクを取得できます。',
-    '3. そのリンクを支店メンバーに配布してください（メンバーはリンクから登録・参加できます）。',
+    '3. そのリンクをチームメンバーに配布してください（メンバーはリンクから登録・参加できます）。',
     '',
-    '※ 招待リンクは7日間有効・最新1本のみ有効です。生成回数の上限は支店全体で共有されます。',
+    '※ 招待リンクは7日間有効・最新1本のみ有効です。生成回数の上限はチーム全体で共有されます。',
   ].join('\n')
 }
 
@@ -60,7 +60,7 @@ export function AdminPage() {
     e.preventDefault()
     setFormError(null)
     setDone(null)
-    if (!teamName.trim() || !ownerEmail.trim()) { setFormError('支店名と owner メールを入力してください'); return }
+    if (!teamName.trim() || !ownerEmail.trim()) { setFormError('チーム名と owner メールを入力してください'); return }
     setSubmitting(true)
     try {
       const r = await provisionBranch({ teamName: teamName.trim(), ownerEmail: ownerEmail.trim(), quotaImage, quotaVideo })
@@ -107,21 +107,21 @@ export function AdminPage() {
           <h1 className="text-[20px] font-semibold" style={{ color: 'var(--text-primary)' }}>運営コンソール</h1>
         </div>
         <p className="text-[12px] mb-6" style={{ color: 'var(--text-tertiary)' }}>
-          支店（チーム）のセットアップと一覧。運営のみアクセス可。{list?.period ? `今月: ${list.period}` : ''}
+          チームのセットアップと一覧。運営のみアクセス可。{list?.period ? `今月: ${list.period}` : ''}
         </p>
 
         {error && <p className="text-[13px] mb-4" style={{ color: 'var(--accent-error)' }}>{error}</p>}
 
-        {/* 支店セットアップ */}
+        {/* チームセットアップ */}
         <section className="rounded-xl p-5 mb-6" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
           <h2 className="text-[13px] font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-            <Plus size={14} /> 支店を追加
+            <Plus size={14} /> チームを追加
           </h2>
           <form onSubmit={handleProvision} className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>支店名</span>
-                <input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="○○株式会社 △△支店"
+                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>チーム名</span>
+                <input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="○○株式会社 △△チーム"
                   className="text-[13px] rounded-lg px-3 py-2 outline-none" style={inputStyle} />
               </label>
               <label className="flex flex-col gap-1">
@@ -145,7 +145,7 @@ export function AdminPage() {
               className="self-start flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium disabled:opacity-60"
               style={{ background: 'var(--accent)', color: '#fff' }}>
               {submitting ? <CircleNotch size={14} className="animate-spin" /> : <Plus size={14} />}
-              支店と owner を作成
+              チームと owner を作成
             </button>
           </form>
 
@@ -166,16 +166,16 @@ export function AdminPage() {
           )}
         </section>
 
-        {/* 支店一覧 */}
+        {/* チーム一覧 */}
         <section>
           <h2 className="text-[13px] font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-            支店一覧（{list?.branches.length ?? 0}）
+            チーム一覧（{list?.branches.length ?? 0}）
           </h2>
           <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
             <table className="w-full text-[12px]">
               <thead>
                 <tr style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
-                  <th className="text-left font-medium px-3 py-2">支店名</th>
+                  <th className="text-left font-medium px-3 py-2">チーム名</th>
                   <th className="text-left font-medium px-3 py-2">owner</th>
                   <th className="text-right font-medium px-3 py-2">人数</th>
                   <th className="text-right font-medium px-3 py-2">画像(今月/上限)</th>
@@ -193,7 +193,7 @@ export function AdminPage() {
                   </tr>
                 ))}
                 {(list?.branches.length ?? 0) === 0 && (
-                  <tr><td colSpan={5} className="px-3 py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>まだ支店がありません</td></tr>
+                  <tr><td colSpan={5} className="px-3 py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>まだチームがありません</td></tr>
                 )}
               </tbody>
             </table>

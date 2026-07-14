@@ -56,18 +56,18 @@ function errOf(data: Record<string, unknown>, fallback: string): string {
   return typeof data.error === 'string' ? data.error : fallback
 }
 
-/** 全支店の一覧（運営のみ）。非運営は 403 を投げる。 */
+/** 全チームの一覧（運営のみ）。非運営は 403 を投げる。 */
 export async function listAdminBranches(): Promise<AdminBranchList> {
   const r = await adminApi({ action: 'list' })
   if (!r.ok) {
-    const e = new Error(errOf(r.data, '支店一覧の取得に失敗しました')) as Error & { status?: number }
+    const e = new Error(errOf(r.data, 'チーム一覧の取得に失敗しました')) as Error & { status?: number }
     e.status = r.status
     throw e
   }
   return r.data as unknown as AdminBranchList
 }
 
-/** 支店チーム＋owner アカウントを作成（運営のみ）。 */
+/** チーム＋owner アカウントを作成（運営のみ）。 */
 export async function provisionBranch(input: {
   teamName: string
   ownerEmail: string
@@ -76,7 +76,7 @@ export async function provisionBranch(input: {
 }): Promise<ProvisionResult> {
   const r = await adminApi({ action: 'provision', ...input })
   if (!r.ok) {
-    const e = new Error(errOf(r.data, '支店の作成に失敗しました')) as Error & { status?: number; code?: string }
+    const e = new Error(errOf(r.data, 'チームの作成に失敗しました')) as Error & { status?: number; code?: string }
     e.status = r.status
     if (typeof r.data.code === 'string') e.code = r.data.code
     throw e
