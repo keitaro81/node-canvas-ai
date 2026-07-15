@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import {
   FolderOpen,
@@ -14,6 +15,7 @@ import {
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { PageLoading } from '../ui/PageLoading'
 
 const NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'My Projects' },
@@ -59,7 +61,9 @@ export function HomeLayout() {
       <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
         {/* Mobile: main content — bottom padding to clear floating nav */}
         <main className="flex-1 min-h-0 overflow-auto">
-          <Outlet />
+          <Suspense fallback={<PageLoading />}>
+            <Outlet />
+          </Suspense>
         </main>
 
         {/* Mobile: floating pill navigation */}
@@ -245,7 +249,9 @@ export function HomeLayout() {
 
       {/* Main content */}
       <main className="flex-1 min-w-0 overflow-auto">
-        <Outlet />
+        <Suspense fallback={<PageLoading />}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   )
