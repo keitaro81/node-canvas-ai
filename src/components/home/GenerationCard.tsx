@@ -107,7 +107,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
               </div>
             </>
           ) : (
-            <img src={url} alt="" className="w-full h-full object-cover" onError={onError} />
+            <img src={url} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" onError={onError} />
           )}
 
           {/* Hover overlay with action buttons */}

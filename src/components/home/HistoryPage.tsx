@@ -1,14 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CircleNotch } from '@phosphor-icons/react'
 import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
 import { GenerationCard } from './GenerationCard'
 import { useIsMobile } from '../../hooks/useIsMobile'
+
+const PAGE_SIZE = 30
 
 export function HistoryPage() {
   const isMobile = useIsMobile()
   const [generations, setGenerations] = useState<GenerationWithWorkflow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // 一括描画をやめ、初期 PAGE_SIZE 件＋スクロールで追加読み込み（DOM/描画コスト削減）
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     getMyGenerations()
@@ -16,6 +21,18 @@ export function HistoryPage() {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false))
   }, [])
+
+  // 末尾センチネルが見えたら次ページ分を表示（画像は loading="lazy" で近づいた時だけ取得）
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || visibleCount >= generations.length) return
+    const obs = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) setVisibleCount((c) => c + PAGE_SIZE) },
+      { rootMargin: '600px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [visibleCount, generations.length])
 
   return (
     <div className="flex flex-col h-full">
@@ -57,15 +74,30 @@ export function HistoryPage() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-            {generations.map((g) => (
-              <GenerationCard
-                key={g.id}
-                generation={g}
-                onDeleted={(id) => setGenerations((prev) => prev.filter((x) => x.id !== id))}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-3" style={{ gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+              {generations.slice(0, visibleCount).map((g) => (
+                <GenerationCard
+                  key={g.id}
+                  generation={g}
+                  onDeleted={(id) => setGenerations((prev) => prev.filter((x) => x.id !== id))}
+                />
+              ))}
+            </div>
+            {/* 追加読み込み: 近づくと自動（IntersectionObserver）／クリックでも読み込める */}
+            {visibleCount < generations.length && (
+              <div ref={sentinelRef} className="flex items-center justify-center py-6">
+                <button
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-[12px]"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                >
+                  <CircleNotch size={14} className="animate-spin" />
+                  さらに読み込む（残り {generations.length - visibleCount} 件）
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
