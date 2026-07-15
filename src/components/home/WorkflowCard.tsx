@@ -140,7 +140,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
         {thumbnailUrl && !isVideo && (
-          <img src={thumbnailUrl} alt={workflow.name} className="w-full h-full object-cover" onError={onThumbError} />
+          <img src={thumbnailUrl} alt={workflow.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={onThumbError} />
         )}
         {thumbnailUrl && isVideo && (
           <>
