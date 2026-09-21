@@ -170,7 +170,7 @@ export async function getMyGenerations(): Promise<GenerationWithWorkflow[]> {
 
 /**
  * 履歴削除エンドポイントを呼ぶ（DB行 + Storage ファイルをサーバー側 service role で削除）。
- * - ローカル開発（VITE_FAL_KEY あり）: Vite Dev Server ミドルウェア /dev-proxy/delete-generation
+ * - ローカル開発（import.meta.env.DEV）: Vite Dev Server ミドルウェア /dev-proxy/delete-generation
  * - 本番: Edge Function /api/storage/delete-generation
  */
 async function callDeleteEndpoint(body: { generationId?: string; workflowId?: string }): Promise<number> {
@@ -178,7 +178,7 @@ async function callDeleteEndpoint(body: { generationId?: string; workflowId?: st
   const token = session?.access_token
   if (!token) throw new Error('Not authenticated')
 
-  const url = import.meta.env.VITE_FAL_KEY
+  const url = import.meta.env.DEV
     ? '/dev-proxy/delete-generation'
     : '/api/storage/delete-generation'
 

@@ -89,8 +89,10 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 
 | 環境 | 接続 |
 |---|---|
-| ローカル | `VITE_FAL_KEY`（`.env.local`）で fal に直接 |
+| ローカル | `/dev-proxy/fal`（vite dev ミドルウェア）経由。`.env.local` の `FAL_KEY` をサーバー側で使用（`VITE_FAL_KEY` は廃止） |
 | 本番 | `/api/fal/proxy` 経由。Supabase JWT 検証 → サーバーの `FAL_KEY` で転送 |
+
+両者は同一コア [api/fal/_proxyLogic.ts](../api/fal/_proxyLogic.ts)（allowlist・クォータ・転送）。呼び出せるモデルは [api/fal/_allowlist.ts](../api/fal/_allowlist.ts) で制限＝**モデル追加時は必ず更新**（ユニットテストが既存全モデルの許可を固定）。
 
 設定は [src/lib/ai/fal-client.ts](../src/lib/ai/fal-client.ts) の `configureFal()` に一元化。
 
@@ -175,7 +177,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase（クライアント・Edge共用） |
 | `SUPABASE_SERVICE_ROLE_KEY` | サーバーのみ（署名・削除・クォータ・チーム管理） |
 | `FAL_KEY` | fal.ai（サーバーのみ） |
-| `VITE_FAL_KEY` | ローカル開発専用（本番に設定しない） |
+| `FAL_KEY`（`.env.local`） | ローカル開発の dev proxy 用（`VITE_FAL_KEY` は廃止。フロントに鍵は乗らない） |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | 保護環境の Basic 認証 |
 | `SENTRY_DSN` | エラー監視（任意） |
 | `CRON_SECRET` | cron エンドポイント保護 |

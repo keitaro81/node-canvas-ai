@@ -11,6 +11,7 @@ import { saveImageServer } from './api/storage/_saveImageLogic'
 import { deleteGenerationServer } from './api/storage/_deleteGenerationLogic'
 import { signMediaServer } from './api/storage/_signMediaLogic'
 import { adminManage, type AdminManageBody } from './api/admin/_adminLogic'
+import { falProxyCore, FAL_TARGET_URL_HEADER } from './api/fal/_proxyLogic'
 
 /**
  * ローカル開発専用: 本番(Vercel)の Edge 関数を代替する Vite Dev Server ミドルウェア群。
@@ -21,6 +22,7 @@ function devImageProxyPlugin(): Plugin {
   let supabaseUrl: string | undefined
   let serviceKey: string | undefined
   let adminIds: string | undefined // ADMIN_USER_IDS（運営 allowlist）
+  let falKey: string | undefined   // FAL_KEY（サーバー側の fal 鍵。旧 VITE_FAL_KEY も移行期間として読む）
 
   // JSON ボディを読む（空なら {}）
   const readJson = (req: IncomingMessage): Promise<unknown> =>
@@ -28,6 +30,15 @@ function devImageProxyPlugin(): Plugin {
       const chunks: Buffer[] = []
       req.on('data', (c: Buffer) => chunks.push(c))
       req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString() || '{}')) } catch (e) { reject(e) } })
+      req.on('error', reject)
+    })
+
+  // 生のボディを文字列で読む（fal proxy は JSON をそのまま転送するため parse しない）
+  const readRaw = (req: IncomingMessage): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      req.on('data', (c: Buffer) => chunks.push(c))
+      req.on('end', () => resolve(Buffer.concat(chunks).toString()))
       req.on('error', reject)
     })
 
@@ -40,6 +51,10 @@ function devImageProxyPlugin(): Plugin {
       supabaseUrl = env.VITE_SUPABASE_URL
       serviceKey = env.SUPABASE_SERVICE_ROLE_KEY
       adminIds = env.ADMIN_USER_IDS
+      falKey = env.FAL_KEY ?? env.VITE_FAL_KEY
+      if (!env.FAL_KEY && env.VITE_FAL_KEY) {
+        console.warn('[dev] VITE_FAL_KEY は非推奨です。.env.local で FAL_KEY に改名してください（ブラウザには露出しません）。')
+      }
     },
     configureServer(server) {
       // service role admin を作る（未設定なら分かりやすいエラー）
@@ -140,6 +155,38 @@ function devImageProxyPlugin(): Plugin {
           send(res, result.status, result.body)
         } catch (err) {
           console.error('[dev-admin-manage] error:', err)
+          send(res, 500, { error: String(err) })
+        }
+      })
+
+      // fal プロキシ: /dev-proxy/fal（GET/POST。fal SDK が x-fal-target-url と "Authorization: Key <JWT>" を送る）
+      // Edge の /api/fal/proxy と同一コア。フロントに fal 鍵を持たせない（dev も proxy 経由）。
+      server.middlewares.use('/dev-proxy/fal', async (req: IncomingMessage, res: ServerResponse) => {
+        try {
+          if (!falKey) throw new Error('FAL_KEY が .env.local に設定されていません（旧 VITE_FAL_KEY から改名してください）。')
+          const admin = await getAdmin()
+          const auth = req.headers.authorization ?? ''
+          const token = auth.startsWith('Key ') ? auth.slice(4) : auth.startsWith('Bearer ') ? auth.slice(7) : ''
+          if (!token) { send(res, 403, { error: 'Forbidden' }); return }
+          const { data: { user } } = await admin.auth.getUser(token)
+          if (!user) { send(res, 403, { error: 'Forbidden' }); return }
+          const method = req.method ?? 'GET'
+          const target = req.headers[FAL_TARGET_URL_HEADER]
+          const out = await falProxyCore({
+            admin,
+            userId: user.id,
+            falKey,
+            method,
+            targetUrl: typeof target === 'string' ? target : null,
+            contentType: typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : null,
+            accept: typeof req.headers.accept === 'string' ? req.headers.accept : null,
+            body: method !== 'GET' && method !== 'HEAD' ? await readRaw(req) : undefined,
+          })
+          const ct = out.headers.get('content-type')
+          res.writeHead(out.status, ct ? { 'Content-Type': ct } : {})
+          res.end(Buffer.from(await out.arrayBuffer()))
+        } catch (err) {
+          console.error('[dev-fal] error:', err)
           send(res, 500, { error: String(err) })
         }
       })

@@ -73,7 +73,7 @@ function check(desc, cond, detail = '') {
 }
 
 const TAG = `itest-${Math.random().toString(36).slice(2, 8)}`
-const created = { users: [], teams: [], projects: [], workflows: [] }
+const created = { users: [], teams: [], projects: [], workflows: [], batchJobs: [], batchObjects: [] }
 
 async function main() {
   console.log(`\n統合テスト対象: ${URL_BASE}  (Edge: ${APP_URL})`)
@@ -186,10 +186,76 @@ async function main() {
   check('非運営(A) の admin provision は 403（アカウント作成させない）',
     (await adminApi({ action: 'provision', teamName: `${TAG} 不正`, ownerEmail: `${TAG}-evil@example.com` }, jwtA)).status === 403)
   check('admin エンドポイントは未認証だと 403', (await adminApi({ action: 'list' }, '')).status === 403)
+
+  // ───────────────────────────────────────────────
+  // Group F: 撮影後工程 基盤（migration 0011）
+  //   batch_* の RLS（非所属は不可視）／batch バケットの RLS（他チームのフォルダはアップロード・署名不可）／
+  //   apply_batch_task_result の冪等（同内容2回で件数は1回分）／review_batch_item の所属チェック。
+  //   0011 未適用なら SKIP（ハーネスを緑に保つ）。
+  // ───────────────────────────────────────────────
+  console.log('Group F: バッチ基盤（RLS・batch バケット・集約RPCの冪等）')
+  const probe = await rest('batch_jobs?select=id&limit=1')
+  if (probe.status >= 400) {
+    console.log('  ⚠️ SKIP: migration 0011 未適用（batch_jobs が無い）')
+  } else {
+    const userRest = (path, jwt, init = {}) => fetch(`${URL_BASE}/rest/v1/${path}`, {
+      ...init, headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json', ...(init.headers || {}) },
+    })
+    // setup: teamA にジョブ / アイテム / 投入済みタスク（service role）
+    const job = await (await rest('batch_jobs', { method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ team_id: teamA, created_by: aId, name: `${TAG} job`, workflow_snapshot: {}, status: 'submitted', item_count: 1, task_count: 1 }) })).json()
+    const jobId = job[0].id; created.batchJobs.push(jobId)
+    const item = await (await rest('batch_items', { method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ job_id: jobId, team_id: teamA, sort_order: 0, original_filename: 'a.jpg', sku: `${TAG}-SKU`, status: 'processing' }) })).json()
+    const itemId = item[0].id
+    const task = await (await rest('batch_tasks', { method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ job_id: jobId, item_id: itemId, team_id: teamA, node_id: 'rb1', endpoint: 'fal-ai/bria/background/remove', status: 'submitted', fal_request_id: `${TAG}-req-1`, submitted_at: new Date().toISOString() }) })).json()
+    const taskId = task[0].id
+
+    // RLS: 非所属 B には見えない／所属 A には見える
+    const bRows = await (await userRest(`batch_jobs?select=id&id=eq.${jobId}`, jwtB)).json()
+    check('非所属ユーザーは他チームの batch_jobs を読めない（RLS）', Array.isArray(bRows) && bRows.length === 0, JSON.stringify(bRows).slice(0, 80))
+    const aRows = await (await userRest(`batch_jobs?select=id&id=eq.${jobId}`, jwtA)).json()
+    check('所属ユーザーは自チームの batch_jobs を読める', Array.isArray(aRows) && aRows.length === 1)
+
+    // batch バケット RLS: A はアップロード/署名可、B は不可
+    const objPath = `${teamA}/${jobId}/${itemId}/original.txt`
+    const put = (jwt) => fetch(`${URL_BASE}/storage/v1/object/batch/${objPath}`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'text/plain' }, body: 'x' })
+    const sign = (jwt) => fetch(`${URL_BASE}/storage/v1/object/sign/batch/${objPath}`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 60 }) })
+    const upB = await put(jwtB)
+    check('非所属ユーザーは他チームのフォルダへアップロードできない', upB.status !== 200, `status=${upB.status}`)
+    const upA = await put(jwtA)
+    check('所属ユーザーは自チームのフォルダへアップロードできる', upA.status === 200, `status=${upA.status}`)
+    if (upA.status === 200) created.batchObjects.push(objPath)
+    check('非所属ユーザーは他チームの batch オブジェクトを署名できない', (await sign(jwtB)).status !== 200)
+    check('所属ユーザーは自チームの batch オブジェクトを署名できる', (await sign(jwtA)).status === 200)
+
+    // 集約RPC: 1回目 true・2回目 false・件数は1回分・アイテム ready・ジョブ completed
+    const rpc = (body) => rest('rpc/apply_batch_task_result', { method: 'POST', body: JSON.stringify(body) })
+    const r1 = await (await rpc({ p_task_id: taskId, p_outcome: 'completed', p_result_path: objPath, p_cost_usd: 0.018 })).json()
+    check('apply_batch_task_result 1回目は true（状態が変わった）', r1 === true, JSON.stringify(r1))
+    const r2 = await (await rpc({ p_task_id: taskId, p_outcome: 'completed', p_result_path: objPath, p_cost_usd: 0.018 })).json()
+    check('同内容で2回目は false（何もしない＝冪等）', r2 === false, JSON.stringify(r2))
+    const j = await (await rest(`batch_jobs?select=completed_tasks,failed_tasks,status,actual_cost_usd&id=eq.${jobId}`)).json()
+    check('完了タスク数は1回分だけ増える', j[0]?.completed_tasks === 1, JSON.stringify(j[0]))
+    check('全タスク終了でジョブが completed', j[0]?.status === 'completed', JSON.stringify(j[0]))
+    const it = await (await rest(`batch_items?select=status&id=eq.${itemId}`)).json()
+    check('アイテムが ready になる', it[0]?.status === 'ready', JSON.stringify(it[0]))
+
+    // クライアント書込 RPC の所属チェック
+    const revB = await userRest('rpc/review_batch_item', jwtB, { method: 'POST', body: JSON.stringify({ p_item_id: itemId, p_review: 'ok' }) })
+    check('非所属ユーザーは review_batch_item できない', revB.status >= 400, `status=${revB.status}`)
+    const revA = await userRest('rpc/review_batch_item', jwtA, { method: 'POST', body: JSON.stringify({ p_item_id: itemId, p_review: 'ok' }) })
+    check('所属ユーザーは review_batch_item できる', revA.status < 300, `status=${revA.status}`)
+    const rv = await (await rest(`batch_items?select=review,reviewed_by&id=eq.${itemId}`)).json()
+    check('review=ok・reviewed_by=本人 が記録される', rv[0]?.review === 'ok' && rv[0]?.reviewed_by === aId, JSON.stringify(rv[0]))
+  }
 }
 
 async function cleanup() {
   console.log('\ncleanup...')
+  for (const p of created.batchObjects) await fetch(`${URL_BASE}/storage/v1/object/batch`, { method: 'DELETE', headers: adminHeaders, body: JSON.stringify({ prefixes: [p] }) })
+  for (const id of created.batchJobs) await rest(`batch_jobs?id=eq.${id}`, { method: 'DELETE' })  // items/tasks/outputs は cascade
   for (const id of created.workflows) await rest(`workflows?id=eq.${id}`, { method: 'DELETE' })
   for (const id of created.projects) await rest(`projects?id=eq.${id}`, { method: 'DELETE' })
   for (const id of created.users) await auth(`admin/users/${id}`, { method: 'DELETE' })
