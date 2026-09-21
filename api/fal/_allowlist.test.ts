@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isAllowedTarget, isBgRemovalPath, modelPathOf } from './_allowlist'
+import { appRootOf, isAllowedTarget, isBgRemovalPath, modelPathOf } from './_allowlist'
 import { classifyGeneration } from './_proxyLogic'
 
 // fal エンドポイント allowlist の回帰テスト。
@@ -35,6 +35,30 @@ describe('isAllowedTarget', () => {
     expect(isAllowedTarget(q('fal-ai/flux-2/requests/abc123'))).toBe(true)
     expect(isAllowedTarget(q('fal-ai/flux-2/requests/abc123/status'))).toBe(true)
     expect(isAllowedTarget(q('fal-ai/kling-video/v3/pro/text-to-video/requests/x/cancel'))).toBe(true)
+  })
+
+  // ⚠️ 回帰: fal クライアントは状態取得/結果/キャンセルを「サブパスを落としたアプリ root」で発行する
+  // （fal-ai/recraft/v4/text-to-image → fal-ai/recraft/requests/<id>/status）。ここが弾かれると投入は通るのに
+  // 完了を待てず、生成が失敗する（2026-09-21 に recraft/bria で実際に発生）。
+  it('既存全エンドポイントのアプリ root 配下の requests URL（status/stream/result/cancel）を許可する', () => {
+    for (const p of EXISTING_ENDPOINTS) {
+      const root = appRootOf(p)
+      expect(isAllowedTarget(q(`${root}/requests/req-1/status`)), `${p} → ${root} status`).toBe(true)
+      expect(isAllowedTarget(q(`${root}/requests/req-1/status/stream`)), `${p} → ${root} stream`).toBe(true)
+      expect(isAllowedTarget(q(`${root}/requests/req-1`)), `${p} → ${root} result`).toBe(true)
+      expect(isAllowedTarget(q(`${root}/requests/req-1/cancel`)), `${p} → ${root} cancel`).toBe(true)
+    }
+    // 具体例（サブパス付きモデル）
+    expect(appRootOf('fal-ai/recraft/v4/text-to-image')).toBe('fal-ai/recraft')
+    expect(isAllowedTarget(q('fal-ai/recraft/requests/abc/status'))).toBe(true)
+    expect(isAllowedTarget(q('fal-ai/bria/requests/abc'))).toBe(true)
+  })
+
+  it('アプリ root の緩和は requests エンドポイントに限る（root 配下の未登録モデルへの投入は拒否）', () => {
+    expect(isAllowedTarget(q('fal-ai/recraft/v3/text-to-image'))).toBe(false)
+    expect(isAllowedTarget(q('fal-ai/bria/text-to-image/base'))).toBe(false)
+    expect(isAllowedTarget(q('fal-ai/unknown/requests/abc/status'))).toBe(false)
+    expect(isAllowedTarget(q('fal-ai/requests/abc/status'))).toBe(false)
   })
 
   it('同期ホスト fal.run でも同じモデル allowlist が効く', () => {
