@@ -16,6 +16,10 @@ const CanvasPage = lazy(() => import('./components/canvas/CanvasPage').then((m) 
 const TermsPage = lazy(() => import('./components/legal/TermsPage').then((m) => ({ default: m.TermsPage })))
 const PrivacyPage = lazy(() => import('./components/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })))
 const AdminPage = lazy(() => import('./components/admin/AdminPage').then((m) => ({ default: m.AdminPage })))
+// dev 限定: 背景切り抜きエンジンの比較ページ。本番ビルドでは DEV=false の分岐ごと落ちる（チャンクも出ない）
+const CutoutBenchPage = import.meta.env.DEV
+  ? lazy(() => import('./components/dev/CutoutBenchPage').then((m) => ({ default: m.CutoutBenchPage })))
+  : null
 
 export const router = createBrowserRouter([
   {
@@ -44,4 +48,5 @@ export const router = createBrowserRouter([
   { path: '/admin', element: <AdminPage /> },
   // 招待リンクの着地（AuthGuard 配下＝未ログインはログイン後にここへ）
   { path: '/join/:token', element: <JoinPage /> },
+  ...(CutoutBenchPage ? [{ path: '/dev/cutout-bench', element: <CutoutBenchPage /> }] : []),
 ])

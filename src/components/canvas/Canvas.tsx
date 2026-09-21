@@ -38,6 +38,9 @@ import { PromptEnhancerNode } from '../nodes/PromptEnhancerNode'
 import { GroupNode } from '../nodes/GroupNode'
 import { ListNode } from '../nodes/ListNode'
 import { CameraListNode } from '../nodes/CameraListNode'
+import { RemoveBackgroundNode } from '../nodes/RemoveBackgroundNode'
+import { DEFAULT_CUTOUT_PARAMS } from '../../lib/cutout/engines'
+import { REMOVE_BACKGROUND_INPUT_HANDLE, REMOVE_BACKGROUND_OUTPUT_HANDLE } from '../../lib/cutout/upstream'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { uploadVideoFile, uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
@@ -62,6 +65,7 @@ const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   listNode: ListNode,
   cameraListNode: CameraListNode,
+  removeBackgroundNode: RemoveBackgroundNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -81,6 +85,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   group:           'groupNode',
   list:            'listNode',
   cameraList:      'cameraListNode',
+  removeBackground: 'removeBackgroundNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -120,6 +125,14 @@ const REFERENCE_VIDEO_DEFAULT_DATA: ReferenceVideoNodeData = {
   label: 'Reference Video',
   videoUrl: null,
   uploadedVideoPreview: null,
+}
+
+// 撮影後工程: 背景切り抜き（パラメータは全て params に保存 = 原則3）
+const REMOVE_BACKGROUND_DEFAULT_DATA = {
+  type: 'removeBackground' as const,
+  label: 'Remove Background',
+  params: { ...DEFAULT_CUTOUT_PARAMS },
+  status: 'idle' as const,
 }
 
 const IMAGE_GEN_DEFAULT_DATA = {
@@ -244,6 +257,7 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   utility:        { text: 'in-text-in' },
   list:           { image: 'in-image-0', text: 'in-text-0' },
   cameraList:     {},
+  removeBackground: { image: REMOVE_BACKGROUND_INPUT_HANDLE },
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
@@ -257,6 +271,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   utility:        'out-text-out',
   list:           'out-list',
   cameraList:     'out-list',
+  removeBackground: REMOVE_BACKGROUND_OUTPUT_HANDLE,
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -265,6 +280,7 @@ const PORT_COMPATIBLE: Record<string, string[]> = {
   video: ['video', 'image'],
   style: ['style', 'text'],
   list:  ['list'],
+  cutout: ['cutout'],
 }
 
 function parsePortType(handleId: string | null): string {
@@ -558,6 +574,8 @@ export function Canvas() {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'cameraList') {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
+      } else if (type === 'removeBackground') {
+        data = { ...REMOVE_BACKGROUND_DEFAULT_DATA, params: { ...DEFAULT_CUTOUT_PARAMS }, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1043,6 +1061,8 @@ export function Canvas() {
         data = { ...LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'cameraList') {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
+      } else if (type === 'removeBackground') {
+        data = { ...REMOVE_BACKGROUND_DEFAULT_DATA, params: { ...DEFAULT_CUTOUT_PARAMS }, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }

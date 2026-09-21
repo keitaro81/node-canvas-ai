@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera } from 'lucide-react'
+import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -17,6 +17,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   promptEnhancer: [],
   list:           ['image', 'text'],
   cameraList:     [],
+  removeBackground: ['image'],
   imageGen:       ['text', 'image', 'list'],
   videoGen:       ['text', 'image', 'video'],
   note:           [],
@@ -29,6 +30,7 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   promptEnhancer: ['text'],
   list:           ['list'],
   cameraList:     ['list'],
+  removeBackground: ['cutout'],
   imageGen:       ['image'],
   referenceImage: ['image'],
   videoGen:       ['video'],
@@ -65,6 +67,12 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
       { type: 'list',       label: 'List',         icon: <List size={14} />,   color: '#8B5CF6' },
       { type: 'cameraList', label: 'Camera List',  icon: <Camera size={14} />, color: '#8B5CF6' },
       { type: 'note',       label: 'Note',         icon: <StickyNote size={14} />, color: '#F59E0B' },
+    ],
+  },
+  {
+    category: '撮影後工程',
+    items: [
+      { type: 'removeBackground', label: 'Remove Background', icon: <Scissors size={14} />, color: '#14B8A6' },
     ],
   },
 ]

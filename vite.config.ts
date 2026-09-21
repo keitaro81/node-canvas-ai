@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import fs from 'node:fs'
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 // `_` プレフィックス = Vercel が /api 配下で関数化しない共有モジュール（_sentry.ts と同じ規約）。
@@ -23,6 +24,7 @@ function devImageProxyPlugin(): Plugin {
   let serviceKey: string | undefined
   let adminIds: string | undefined // ADMIN_USER_IDS（運営 allowlist）
   let falKey: string | undefined   // FAL_KEY（サーバー側の fal 鍵。旧 VITE_FAL_KEY も移行期間として読む）
+  let testsetDir = ''              // CUTOUT_TESTSET_DIR（撮影後工程のテストセット。比較ページ /dev/cutout-bench 用）
 
   // JSON ボディを読む（空なら {}）
   const readJson = (req: IncomingMessage): Promise<unknown> =>
@@ -52,6 +54,8 @@ function devImageProxyPlugin(): Plugin {
       serviceKey = env.SUPABASE_SERVICE_ROLE_KEY
       adminIds = env.ADMIN_USER_IDS
       falKey = env.FAL_KEY ?? env.VITE_FAL_KEY
+      // 既定はリポジトリ内 testset/cutout/（.gitignore 済み）。~/Desktop 等は macOS の TCC ダイアログで固まり得るので避ける
+      testsetDir = env.CUTOUT_TESTSET_DIR || path.resolve(process.cwd(), 'testset', 'cutout')
       if (!env.FAL_KEY && env.VITE_FAL_KEY) {
         console.warn('[dev] VITE_FAL_KEY は非推奨です。.env.local で FAL_KEY に改名してください（ブラウザには露出しません）。')
       }
@@ -155,6 +159,37 @@ function devImageProxyPlugin(): Plugin {
           send(res, result.status, result.body)
         } catch (err) {
           console.error('[dev-admin-manage] error:', err)
+          send(res, 500, { error: String(err) })
+        }
+      })
+
+      // 撮影後工程のテストセット配信（dev 限定・比較ページ /dev/cutout-bench 用）:
+      //   GET /dev-testset/        → { dir, files: [{ name, size }] }（jpg/png/webp のみ）
+      //   GET /dev-testset/<name>  → 画像本体（basename のみ受け付け、ディレクトリ外は読まない）
+      // 注: 同期 fs は使わない。macOS の TCC（Desktop 等へのアクセス許可ダイアログ）で syscall がブロックされると
+      //     dev サーバー全体が固まるため、threadpool で動く fs.promises を使う。
+      server.middlewares.use('/dev-testset', async (req: IncomingMessage, res: ServerResponse) => {
+        try {
+          const rel = decodeURIComponent((req.url ?? '/').split('?')[0])
+          const name = path.basename(rel)
+          const isImage = (f: string) => /\.(jpe?g|png|webp)$/i.test(f)
+          if (rel === '/' || rel === '' || name === '' || name === '.') {
+            let files: Array<{ name: string; size: number }> = []
+            try {
+              const names = (await fs.promises.readdir(testsetDir)).filter(isImage).sort()
+              files = await Promise.all(names.map(async (f) => ({ name: f, size: (await fs.promises.stat(path.join(testsetDir, f))).size })))
+            } catch { files = [] }
+            send(res, 200, { dir: testsetDir, files })
+            return
+          }
+          const file = path.join(testsetDir, name)
+          const st = await fs.promises.stat(file).catch(() => null)
+          if (!isImage(name) || !st?.isFile()) { send(res, 404, { error: 'not found' }); return }
+          const ext = path.extname(name).toLowerCase()
+          const ct = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+          res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store' })
+          fs.createReadStream(file).pipe(res)
+        } catch (err) {
           send(res, 500, { error: String(err) })
         }
       })
