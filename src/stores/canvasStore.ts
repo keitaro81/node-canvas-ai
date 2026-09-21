@@ -114,6 +114,7 @@ const COMPATIBLE: Record<PortType, PortType[]> = {
   video: ['video', 'image'],
   style: ['style', 'text'],
   list:  ['list'],
+  cutout: ['cutout'],
 }
 
 function isCompatible(sourceType: PortType, targetType: PortType): boolean {
@@ -323,6 +324,7 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       video: '#EC4899',
       style: '#6B7280',
       list:  '#8B5CF6',
+      cutout: '#14B8A6',
     }
 
     set((state) => {

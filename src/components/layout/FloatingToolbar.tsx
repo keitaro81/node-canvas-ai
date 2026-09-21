@@ -24,10 +24,12 @@ import {
   ArrowClockwise,
   Stack,
   Camera,
+  Scissors,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
+import { DEFAULT_CUTOUT_PARAMS } from '../../lib/cutout/engines'
 import type { NodeType } from '../../types/nodes'
 import type { WorkflowRow } from '../../lib/api/workflows'
 
@@ -64,6 +66,12 @@ const PALETTE = [
       { type: 'note' as NodeType, label: 'Note', description: 'メモ・注釈を追加', icon: <Note size={15} />, color: '#F59E0B' },
     ],
   },
+  {
+    category: '撮影後工程',
+    items: [
+      { type: 'removeBackground' as NodeType, label: 'Remove Background', description: '商品を背景から切り抜く', icon: <Scissors size={15} />, color: '#14B8A6' },
+    ],
+  },
 ]
 
 // ─────────────────────────────────────────
@@ -75,6 +83,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   videoGen: 'videoGenerationNode', videoDisplay: 'videoDisplayNode', referenceImage: 'referenceImageNode',
   referenceVideo: 'referenceVideoNode',
   note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode', list: 'listNode', cameraList: 'cameraListNode',
+  removeBackground: 'removeBackgroundNode',
 }
 
 let nodeIdCounter = 1000
@@ -100,6 +109,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'cameraList') {
     return { label, selectedPresets: [], customAngles: [] }
+  }
+  if (type === 'removeBackground') {
+    return { type: 'removeBackground', label, params: { ...DEFAULT_CUTOUT_PARAMS }, status: 'idle' }
   }
   return { type, label, params: {}, status: 'idle' }
 }

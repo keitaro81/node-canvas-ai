@@ -196,6 +196,7 @@ svg.react-flow__connectionline {
 .handle-text  { background: radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 .handle-image { background: radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 .handle-video { background: radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
+.handle-cutout { background: radial-gradient(circle, #14B8A6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 
 /* Styled scrollbar for node textareas */
 /* NOTE: scrollbar-width / scrollbar-color を外すことで Chrome on macOS が
