@@ -39,7 +39,7 @@ async function manage(body: ManageBody): Promise<{ ok: boolean; status: number; 
   if (!token && body.action !== 'preview' && body.action !== 'signup') {
     return { ok: false, status: 401, data: { error: 'Not authenticated' } }
   }
-  const endpoint = import.meta.env.VITE_FAL_KEY ? '/dev-proxy/team-manage' : '/api/team/manage'
+  const endpoint = import.meta.env.DEV ? '/dev-proxy/team-manage' : '/api/team/manage'
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(endpoint, {

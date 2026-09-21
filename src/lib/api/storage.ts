@@ -36,13 +36,13 @@ export async function deleteImage(path: string): Promise<void> {
 
 /**
  * fal.aiの一時URLからSupabase Storageに保存し、公開URLを返す。
- * - ローカル開発（VITE_FAL_KEY あり）: Vite Dev Server ミドルウェア経由（サーバーサイド fetch + service role key）
+ * - ローカル開発（import.meta.env.DEV）: Vite Dev Server ミドルウェア経由（サーバーサイド fetch + service role key）
  * - 本番: Edge Function 経由（service role key でアップロード）
  */
 export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Promise<{ url: string; signedUrl: string | null }> {
   // ローカル開発環境: Vite Dev Server ミドルウェア /dev-proxy/save-image 経由
   // （CORS 問題を回避し、service role key で RLS 制約も突破する）
-  if (import.meta.env.VITE_FAL_KEY) {
+  if (import.meta.env.DEV) {
     const res = await fetch('/dev-proxy/save-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -177,19 +177,21 @@ export async function signMediaRequest(body: {
   workflowId?: string | null
   urls?: Array<string | null | undefined>
   ownUrls?: Array<string | null | undefined>
+  batchPaths?: Array<string | null | undefined> // batch バケットのパス（<team_id>/<job>/<item>/...）。所属チームなら署名
 }): Promise<Record<string, string>> {
   const urls = (body.urls ?? []).filter((u): u is string => typeof u === 'string' && !!u)
   const ownUrls = (body.ownUrls ?? []).filter((u): u is string => typeof u === 'string' && !!u)
-  if (!body.workflowId && !urls.length && !ownUrls.length) return {}
+  const batchPaths = (body.batchPaths ?? []).filter((u): u is string => typeof u === 'string' && !!u)
+  if (!body.workflowId && !urls.length && !ownUrls.length && !batchPaths.length) return {}
   try {
     const { data: { session } } = await supabase.auth.getSession()
     const token = session?.access_token
     if (!token) return {}
-    const endpoint = import.meta.env.VITE_FAL_KEY ? '/dev-proxy/sign-media' : '/api/storage/sign-media'
+    const endpoint = import.meta.env.DEV ? '/dev-proxy/sign-media' : '/api/storage/sign-media'
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ workflowId: body.workflowId ?? undefined, urls, ownUrls }),
+      body: JSON.stringify({ workflowId: body.workflowId ?? undefined, urls, ownUrls, batchPaths }),
     })
     if (!res.ok) return {}
     const data = await res.json() as { map?: Record<string, string> }

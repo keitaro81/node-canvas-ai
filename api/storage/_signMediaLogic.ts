@@ -33,6 +33,19 @@ function parseStorageUrl(url: unknown): { bucket: string; path: string } | null 
   return null
 }
 
+const BATCH_BUCKET = 'batch'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * batch バケットのパス（<team_id>/<job_id>/<item_id>/...）から先頭の team_id を返す。
+ * uuid 形式でなければ null（＝拒否）。migration 0011 の batch_path_team() と同じ判定。
+ */
+export function batchPathTeam(path: unknown): string | null {
+  if (typeof path !== 'string') return null
+  const first = path.replace(/^\/+/, '').split('/')[0] ?? ''
+  return UUID_RE.test(first) ? first.toLowerCase() : null
+}
+
 /** canvas_data + thumbnail から自前バケットのメディアURL文字列（canonical）を集める。 */
 function collectCanvasMedia(canvasData: any, thumbnailUrl: string | null): string[] {
   const out: string[] = []
@@ -109,7 +122,7 @@ export interface SignMediaResult {
 export async function signMediaServer(
   admin: any,
   userId: string,
-  body: { workflowId?: string; urls?: unknown; ownUrls?: unknown },
+  body: { workflowId?: string; urls?: unknown; ownUrls?: unknown; batchPaths?: unknown },
 ): Promise<SignMediaResult> {
   // 呼び出し者の所属チーム（未所属＝null）
   const { data: member } = await admin.from('team_members').select('team_id').eq('user_id', userId).limit(1).maybeSingle()
@@ -167,5 +180,23 @@ export async function signMediaServer(
   }
 
   const map = await signUrls(admin, toSign)
+
+  // ---- batchPaths: batch バケット（撮影後工程）。パス先頭の team_id が呼び出し者のチームなら署名 ----
+  // 返り値のキーはパスそのもの（URL ではない）。他チームのパス・不正形式は省略（200 のまま）。
+  if (Array.isArray(body.batchPaths) && body.batchPaths.length) {
+    const paths = (body.batchPaths as unknown[]).filter((p): p is string => typeof p === 'string').slice(0, MAX_URLS)
+    const allowed = [...new Set(paths.filter((p) => !!callerTeamId && batchPathTeam(p) === callerTeamId))]
+    if (allowed.length) {
+      try {
+        const { data, error } = await admin.storage.from(BATCH_BUCKET).createSignedUrls(allowed, SIGNED_URL_TTL)
+        if (!error && data) {
+          for (const item of data as Array<{ error: string | null; path: string | null; signedUrl: string }>) {
+            if (!item.error && item.signedUrl && item.path) map[item.path] = item.signedUrl
+          }
+        }
+      } catch { /* 署名失敗は省略（呼び出し側が元値を維持） */ }
+    }
+  }
+
   return { status: 200, body: { map } }
 }

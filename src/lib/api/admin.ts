@@ -41,7 +41,7 @@ async function adminApi(body: AdminBody): Promise<{ ok: boolean; status: number;
   const { data: { session } } = await supabase.auth.getSession()
   const token = session?.access_token
   if (!token) return { ok: false, status: 401, data: { error: 'Not authenticated' } }
-  const endpoint = import.meta.env.VITE_FAL_KEY ? '/dev-proxy/admin-manage' : '/api/admin/manage'
+  const endpoint = import.meta.env.DEV ? '/dev-proxy/admin-manage' : '/api/admin/manage'
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

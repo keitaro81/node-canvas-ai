@@ -39,11 +39,12 @@ fal.subscribe('fal-ai/any-llm', { input: { model: 'anthropic/claude-haiku-4.5', 
 ### 認証・プロキシ構成
 | 環境 | 接続方式 |
 |------|---------|
-| ローカル開発 | `VITE_FAL_KEY`（`.env.local`）で fal に直接接続 |
+| ローカル開発 | `/dev-proxy/fal`（Vite dev ミドルウェア）経由。`.env.local` の `FAL_KEY` をサーバー側で使用 |
 | 本番（Vercel） | `/api/fal/proxy`（Vercel Edge Function）経由。Supabase JWT で認証後、サーバー側の `FAL_KEY` を使用 |
 
-- `VITE_FAL_KEY` はブラウザに露出するが開発専用。本番では設定しない。
-- `FAL_KEY`（非 VITE_）はサーバー側のみ。クライアントには漏れない。
+- **フロントは fal 鍵を一切持たない**（開発・本番とも proxy 経由。`VITE_FAL_KEY` は廃止・移行期間のみ dev ミドルウェアが読む）。
+- `FAL_KEY` はサーバー側のみ（Vercel の env と `.env.local`）。クライアントには漏れない。
+- Edge と dev は同一コア `api/fal/_proxyLogic.ts`。呼び出せるモデルは `api/fal/_allowlist.ts` の allowlist で制限（**モデル追加時は必ず更新**。漏れると 400 "Target URL not allowed"）。
 - fal クライアントの設定は `src/lib/ai/fal-client.ts` の `configureFal()` で一元管理。
 
 ### fal-ai/any-llm の有効なモデルID（2026年4月時点）
