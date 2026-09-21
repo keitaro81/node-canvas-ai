@@ -41,11 +41,26 @@ function matchesPrefix(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((pre) => path === pre || path.startsWith(pre + '/'))
 }
 
+/** モデルパスの「アプリ root」（<owner>/<alias> ＝ 先頭 2 セグメント）。例: fal-ai/recraft/v4/text-to-image → fal-ai/recraft */
+export function appRootOf(path: string): string {
+  return path.split('/').slice(0, 2).join('/')
+}
+
+// キューの状態取得/結果/キャンセル URL は、fal クライアントがモデルのサブパスを落とした
+// `<owner>/<alias>/requests/<id>[/status|/status/stream|/cancel]` で発行する（@fal-ai/client queue.ts）。
+// 例: fal-ai/recraft/v4/text-to-image の投入後は fal-ai/recraft/requests/<id>/status を叩く。
+const ALLOWED_APP_ROOTS = new Set(ALLOWED_MODEL_PREFIXES.map(appRootOf))
+const QUEUE_REQUEST_PATH = /^([^/]+\/[^/]+)\/requests\/[^/]+(\/.*)?$/
+
 /** 転送を許可する対象か（ホスト allowlist ＋ 生成ホストではモデルパス allowlist）。 */
 export function isAllowedTarget(url: URL): boolean {
   if (!ALLOWED_FAL_HOSTS.includes(url.hostname)) return false
   if (UTILITY_HOSTS.has(url.hostname)) return true
-  return matchesPrefix(modelPathOf(url), ALLOWED_MODEL_PREFIXES)
+  const path = modelPathOf(url)
+  if (matchesPrefix(path, ALLOWED_MODEL_PREFIXES)) return true
+  // 許可済みモデルのアプリ root 配下の requests エンドポイント（poll/result/cancel）は許可する
+  const m = QUEUE_REQUEST_PATH.exec(path)
+  return !!m && ALLOWED_APP_ROOTS.has(m[1])
 }
 
 /** 背景切り抜きエンジンへの呼び出しか（月次画像クォータの課金対象から除外する判定に使う）。 */
