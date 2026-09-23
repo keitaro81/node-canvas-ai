@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { isOperator } from '../admin/_adminLogic'
 import type { BatchOpts } from './_batchLogic'
+import { cleanEnv } from '../../src/lib/env'
 
 export function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
@@ -10,13 +11,15 @@ export function jsonResponse(data: object, status: number): Response {
 export interface BatchEnv { supabaseUrl: string; anonKey: string; serviceRoleKey: string; falKey: string; webhookBaseUrl: string | null; adminIds?: string }
 
 export function readEnv(): BatchEnv | null {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const falKey = process.env.FAL_KEY
+  // 値は trim する（URL に埋め込む webhookBaseUrl などに改行が混ざると壊れる）
+  const supabaseUrl = cleanEnv(process.env.VITE_SUPABASE_URL)
+  const anonKey = cleanEnv(process.env.VITE_SUPABASE_ANON_KEY)
+  const serviceRoleKey = cleanEnv(process.env.SUPABASE_SERVICE_ROLE_KEY)
+  const falKey = cleanEnv(process.env.FAL_KEY)
   if (!supabaseUrl || !anonKey || !serviceRoleKey || !falKey) return null
-  const prodHost = process.env.VERCEL_PROJECT_PRODUCTION_URL
-  const webhookBaseUrl = process.env.BATCH_WEBHOOK_BASE_URL ?? (prodHost ? `https://${prodHost}` : null)
+  const prodHost = cleanEnv(process.env.VERCEL_PROJECT_PRODUCTION_URL)
+  const explicitBase = cleanEnv(process.env.BATCH_WEBHOOK_BASE_URL)
+  const webhookBaseUrl = explicitBase || (prodHost ? `https://${prodHost}` : null)
   return { supabaseUrl, anonKey, serviceRoleKey, falKey, webhookBaseUrl, adminIds: process.env.ADMIN_USER_IDS }
 }
 

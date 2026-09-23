@@ -36,6 +36,7 @@ export function JobDetailPage() {
   const navigate = useNavigate()
   const userId = useAuthStore((s) => s.user?.id ?? null)
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
+  const realtimeOk = useBatchStore((s) => s.realtimeOk)
   const showCost = useBatchStore((s) => s.showCost)
   const memberNames = useBatchStore((s) => s.memberNames)
   const [job, setJob] = useState<BatchJobRow | null>(null)
@@ -46,12 +47,14 @@ export function JobDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [reviewing, setReviewing] = useState<string | null>(null)
 
+  // ジョブ行と（軽いので）アイテムも再取得する。Realtime が無い環境でも定期的な bump で進む
   const loadJob = useCallback(async () => {
     if (!jobId) return
     try {
-      const j = await fetchJob(jobId)
+      const [j, its] = await Promise.all([fetchJob(jobId), fetchJobItems(jobId)])
       if (!j) { setNotFound(true); return }
       setJob(j)
+      setItems(its)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -67,6 +70,7 @@ export function JobDetailPage() {
       .then(([j, its]) => { if (!alive) return; if (!j) { setNotFound(true); return } setJob(j); setItems(its) })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { if (alive) setLoading(false) })
+    if (realtimeOk === false) return () => { alive = false }
     const unsub = subscribeJobItems(jobId, (payload) => {
       if (payload.eventType === 'DELETE') { const old = payload.old as { id?: string }; if (old?.id) setItems((prev) => prev.filter((i) => i.id !== old.id)); return }
       const row = payload.new as unknown as BatchItemRow
@@ -79,7 +83,7 @@ export function JobDetailPage() {
       })
     })
     return () => { alive = false; unsub() }
-  }, [jobId])
+  }, [jobId, realtimeOk])
   useEffect(() => { void loadJob() }, [loadJob, jobsVersion])
 
   // サムネイル: 元画像（ジョブ階層。未コピーなら対話用アップロード）を 1 回の署名で取る
