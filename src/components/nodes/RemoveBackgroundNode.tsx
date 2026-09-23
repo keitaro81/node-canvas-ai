@@ -12,7 +12,7 @@ import type { NodeData, CutoutEngine, CutoutParams, CutoutPreviewBg, CutoutRef }
 import {
   BIREFNET_MODELS, BIREFNET_RESOLUTIONS, CUTOUT_ENGINES, CUTOUT_ENGINE_IDS, normalizeCutoutParams,
 } from '../../lib/cutout/engines'
-import { interactiveCutoutDir, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
+import { interactiveCutoutDir, resolveFetchableUrl, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
 import {
   loadOriginal, loadRawAlpha, reapplyCutoutParams, renderCutoutFullPng, runCutoutInteractive,
 } from '../../lib/cutout/runCutout'
@@ -130,11 +130,11 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
     updateNode(id, { status: 'generating', progress: '準備中…', error: null })
     try {
       const teamId = await resolveTeamId()
-      const url = (await freshUrl()) ?? rawUpstreamUrl
-      if (url.startsWith('blob:') || url.startsWith('data:')) {
+      if (rawUpstreamUrl.startsWith('blob:') || rawUpstreamUrl.startsWith('data:')) {
         throw new Error('画像のアップロード完了を待ってから実行してください')
       }
-      const sourceRef = toCanonicalRef(url) ?? url
+      const sourceRef = toCanonicalRef(rawUpstreamUrl) ?? rawUpstreamUrl
+      const url = await resolveFetchableUrl({ canonical: sourceRef, fresh: freshUrl, liveUrl: rawUpstreamUrl })
       const res = await runCutoutInteractive({
         dir: interactiveCutoutDir(teamId, id),
         imageUrl: url,
@@ -154,10 +154,10 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
     if (!output) throw new Error('先に実行してください')
     const c = cacheRef.current
     if (c && c.maskPath === output.maskPath) return c
-    const url = (await freshUrl()) ?? rawUpstreamUrl
-    if (!url || url.startsWith('blob:') || url.startsWith('data:')) {
+    if (!rawUpstreamUrl || rawUpstreamUrl.startsWith('blob:') || rawUpstreamUrl.startsWith('data:')) {
       throw new Error('元画像を取得できません。入力画像を接続し直してください')
     }
+    const url = await resolveFetchableUrl({ canonical: toCanonicalRef(rawUpstreamUrl) ?? rawUpstreamUrl, fresh: freshUrl, liveUrl: rawUpstreamUrl })
     const maskUrl = await signBatchPath(output.maskPath)
     if (!maskUrl) throw new Error('マスクを取得できません（チームの権限を確認してください）')
     const [original, rawAlpha] = await Promise.all([loadOriginal(url), loadRawAlpha(maskUrl, output.width, output.height)])

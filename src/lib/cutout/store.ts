@@ -1,7 +1,7 @@
 // 撮影後工程のファイル置き場（私有バケット `batch`）へのアップロードと署名。
 // パスは <team_id>/... で始まり、RLS（migration 0011: batch_path_team + is_team_member）が所属チームのみ許可する。
 import { supabase } from '../supabase'
-import { signMediaRequest } from '../api/storage'
+import { signMediaRequest, toStoragePath } from '../api/storage'
 import { useTeamStore } from '../../stores/teamStore'
 import { getMyTeamContext } from '../api/teams'
 
@@ -55,4 +55,30 @@ export async function signBatchPaths(paths: string[]): Promise<Record<string, st
 export async function signBatchPath(path: string): Promise<string | null> {
   const map = await signBatchPaths([path])
   return map[path] ?? null
+}
+
+/**
+ * ノードが画像を fetch するための URL を決める。順に試す:
+ * 1) ワークフロー認可の再署名（保存済み canvas_data にその URL が含まれる場合だけ成功する）
+ * 2) batch バケットのパスならチーム所属で署名（保存状態に依存しない。読み取り専用/保存前でも動く）
+ * 3) 上流ノードが今持っている URL（読込時に署名済み）
+ * 4) canonical そのもの（私有バケットなので通常は失敗するが、呼び出し側が明確なエラーを出せる）
+ */
+export async function resolveFetchableUrl(opts: {
+  canonical: string
+  fresh?: () => Promise<string | null | undefined>
+  liveUrl?: string | null
+}): Promise<string> {
+  const usable = (u: string | null | undefined): u is string => !!u && u !== opts.canonical && !u.startsWith('blob:') && !u.startsWith('data:')
+  try {
+    const f = opts.fresh ? await opts.fresh() : null
+    if (usable(f)) return f
+  } catch { /* 次の手段へ */ }
+  const parsed = toStoragePath(opts.canonical)
+  if (parsed?.bucket === BATCH_BUCKET) {
+    const signed = await signBatchPath(parsed.path).catch(() => null)
+    if (signed) return signed
+  }
+  if (usable(opts.liveUrl)) return opts.liveUrl
+  return opts.canonical
 }
