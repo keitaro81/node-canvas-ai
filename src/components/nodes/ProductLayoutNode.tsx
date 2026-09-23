@@ -14,8 +14,8 @@ import { LAYOUT_SIZE_PRESETS, computeLayout, effectiveMargins, normalizeLayoutPa
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
 import { loadLayoutAssets, runLayout, storeLayoutOutput, type LayoutAssets } from '../../lib/layout/runLayout'
 import { layoutHash } from '../../lib/layout/identity'
-import { interactiveCutoutDir, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
-import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
+import { interactiveCutoutDir, resolveFetchableUrl, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
+import { REMOVE_BACKGROUND_INPUT_HANDLE, imageUrlFromNodeData } from '../../lib/cutout/upstream'
 import { Field, Num, Sel } from './pp/controls'
 import { CHECKER, CTRL, INPUT_STYLE, stopKeys } from './pp/styles'
 
@@ -43,8 +43,11 @@ function ProductLayoutNodeInner(props: NodeProps) {
   const bgUrl = params.backgroundKind === 'image' ? imageUrlFromNodeData(bgNode?.data as Record<string, unknown> | undefined) : null
   const bgCanonical = bgUrl ? (toCanonicalRef(bgUrl) ?? bgUrl) : null
 
-  // 元画像は切り抜きの sourceRef（canonical）をワークフロー認可で署名して取る
+  // 元画像は切り抜きの sourceRef（canonical）を署名して取る（ワークフロー認可 → batch チーム署名 → 上流ノードの現在 URL の順）
   const { freshUrl: freshOriginalUrl } = useSignedMedia(cutout?.sourceRef ?? null, currentWorkflowId)
+  const imageSourceEdge = cutoutNode ? edges.find((e) => e.target === cutoutNode.id && e.targetHandle === REMOVE_BACKGROUND_INPUT_HANDLE) : undefined
+  const imageSourceNode = imageSourceEdge ? nodes.find((n) => n.id === imageSourceEdge.source) : undefined
+  const liveOriginalUrl = imageUrlFromNodeData(imageSourceNode?.data as Record<string, unknown> | undefined)
   const outputUrl = typeof nodeData.output === 'string' ? nodeData.output : null
   const { url: signedOutput, onError: onOutputError } = useSignedMedia(outputUrl, currentWorkflowId)
 
@@ -91,7 +94,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
     setBusy('render')
     updateNode(id, { status: 'generating', error: null })
     try {
-      const originalUrl = (await freshOriginalUrl()) ?? cutout.sourceRef
+      const originalUrl = await resolveFetchableUrl({ canonical: cutout.sourceRef, fresh: freshOriginalUrl, liveUrl: liveOriginalUrl })
       const key = `${cutout.sourceRef}|${cutout.maskPath}|${bgUrl ?? ''}`
       let assets = assetsRef.current?.key === key ? assetsRef.current.assets : null
       if (!assets) {
@@ -119,7 +122,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
     } finally {
       if (runId === runIdRef.current) setBusy(null)
     }
-  }, [id, cutout, params, bgUrl, bgCanonical, freshOriginalUrl, setPreview, updateNode])
+  }, [id, cutout, params, bgUrl, bgCanonical, freshOriginalUrl, liveOriginalUrl, setPreview, updateNode])
 
   // パラメータ/入力が変わったら自動で描き直す（ローカル計算のみ・fal は使わない）
   const renderRef = useRef(render)

@@ -10,6 +10,7 @@ import { EXT_OF, normalizeExportParams, planExportEntries, zipFileName } from '.
 import { bitmapHasTransparency, encodeWithCap, loadBitmap } from '../../lib/export/encode'
 import { buildZip, downloadBlob } from '../../lib/export/zip'
 import { normalizeLayoutParams } from '../../lib/layout/computeLayout'
+import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
 import { Field, Num, Sel } from './pp/controls'
 import { CTRL, INPUT_STYLE, PP_ACCENT, stopKeys } from './pp/styles'
@@ -55,11 +56,13 @@ const DEFAULT_ITEM: BatchItemInfo = { sku: 'item', original: 'image', index: 1 }
 async function fetchImage(url: string, workflowId: string | null): Promise<Blob> {
   const res = await fetch(url, { mode: 'cors', credentials: 'omit' }).catch(() => null)
   if (res?.ok) return res.blob()
-  // 署名切れ等: ワークフロー認可で署名し直す
+  // 署名切れ等: ワークフロー認可 → batch チーム署名 の順で取り直す
   const canonical = toCanonicalRef(url) ?? url
-  const map = workflowId ? await signMediaRequest({ workflowId }) : {}
-  const fresh = map[canonical]
-  if (!fresh) throw new Error(`画像を取得できません（${res?.status ?? 'network'}）`)
+  const fresh = await resolveFetchableUrl({
+    canonical,
+    fresh: async () => (workflowId ? (await signMediaRequest({ workflowId }))[canonical] : null),
+  })
+  if (fresh === canonical) throw new Error(`画像を取得できません（${res?.status ?? 'network'}）`)
   const r2 = await fetch(fresh, { mode: 'cors', credentials: 'omit' })
   if (!r2.ok) throw new Error(`画像を取得できません（${r2.status}）`)
   return r2.blob()
