@@ -14,12 +14,32 @@ export const CUTOUT_VARIANT_KEY = '__cutout'
 export const THUMB_MAX_EDGE = 400
 
 export interface ReviewVariant {
-  key: string                      // Product Layout ノード ID（記録・サムネイル名にも使う）
+  key: string                      // Product Layout ノード ID、または追加バリアントの 'added-N'（記録・サムネイル名にも使う）
   name: string                     // variantName（表示・書き出しファイル名）
   params: LayoutParams             // 上書き ?? 写し
   baseParams: LayoutParams         // 写し（投入時）の設定
   overridden: boolean
+  added: boolean                   // ジョブ画面で後から追加したバリアント（写しには無い。再実行不要）
   backgroundNodeId: string | null  // 背景画像入力につながるノード（ジョブごとタスクの結果を使う。Step 8）
+}
+
+/** layout_overrides の中で、追加バリアントを持つキー */
+export const ADDED_VARIANTS_KEY = '__added'
+export interface AddedVariant { key: string; params: LayoutParams }
+
+/** 上書き設定から追加バリアントを取り出す（形が崩れていれば無視） */
+export function addedVariantsOf(overrides: Record<string, unknown> | null | undefined): AddedVariant[] {
+  const raw = overrides && typeof overrides === 'object' ? (overrides as Record<string, unknown>)[ADDED_VARIANTS_KEY] : undefined
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((a): a is { key: string; params: unknown } => !!a && typeof a === 'object' && typeof (a as { key?: unknown }).key === 'string' && /^added-\d+$/.test((a as { key: string }).key))
+    .map((a) => ({ key: a.key, params: normalizeLayoutParams(a.params) }))
+}
+
+export function newVariantKey(existingKeys: string[]): string {
+  let n = 1
+  while (existingKeys.includes(`added-${n}`)) n++
+  return `added-${n}`
 }
 
 const nodesOf = (s: Snapshot | null | undefined) => (Array.isArray(s?.nodes) ? s!.nodes! : [])
@@ -28,15 +48,18 @@ const edgesOf = (s: Snapshot | null | undefined) => (Array.isArray(s?.edges) ? s
 /** 写しの Product Layout ノード＝バリアント。ジョブの上書き設定があればそれを使う */
 export function variantsFromSnapshot(snapshot: Snapshot | null | undefined, overrides: Record<string, unknown> | null | undefined): ReviewVariant[] {
   const edges = edgesOf(snapshot)
-  return nodesOf(snapshot)
+  const fromSnapshot = nodesOf(snapshot)
     .filter((n) => n?.data?.type === 'productLayout')
-    .map((n) => {
+    .map((n): ReviewVariant => {
       const baseParams = normalizeLayoutParams(n.data?.params)
       const ov = overrides && typeof overrides === 'object' ? (overrides as Record<string, unknown>)[n.id] : undefined
       const params = ov && typeof ov === 'object' ? normalizeLayoutParams({ ...baseParams, ...(ov as Record<string, unknown>) }) : baseParams
       const bgEdge = edges.find((e) => e.target === n.id && e.targetHandle === 'in-image-background')
-      return { key: n.id, name: params.variantName, params, baseParams, overridden: !!ov, backgroundNodeId: bgEdge?.source ?? null }
+      return { key: n.id, name: params.variantName, params, baseParams, overridden: !!ov, added: false, backgroundNodeId: bgEdge?.source ?? null }
     })
+  // ジョブ画面で後から追加したバリアント（写しは変えない。切り抜きの再実行は不要）
+  const added = addedVariantsOf(overrides).map((a): ReviewVariant => ({ key: a.key, name: a.params.variantName, params: a.params, baseParams: a.params, overridden: false, added: true, backgroundNodeId: null }))
+  return [...fromSnapshot, ...added]
 }
 
 /** 写しの切り抜きノード（Batch Input に直結しているもの＝一括実行の対象。サーバーの planTasks と同じ規則） */
@@ -109,6 +132,13 @@ export function identityFor(input: {
 
 /** 切り抜き列用のダミー設定（透過・余白なし・正方形は使わない。識別値の区別のためだけに固定値を入れる） */
 export const CUTOUT_PREVIEW_PARAMS: LayoutParams = normalizeLayoutParams({ variantName: '__cutout', backgroundKind: 'transparent', width: 16, height: 16, marginTop: 0, marginRight: 0, marginBottom: 0, marginLeft: 0 })
+
+/** 書き出しの対象バリアント。レイアウトノードが無いジョブでは切り抜き（透過 PNG）を 'cutout' として書き出す */
+export function exportVariantsOf(variants: ReviewVariant[]): ReviewVariant[] {
+  if (variants.length) return variants
+  const params = normalizeLayoutParams({ ...CUTOUT_PREVIEW_PARAMS, variantName: 'cutout' })
+  return [{ key: CUTOUT_VARIANT_KEY, name: 'cutout', params, baseParams: params, overridden: false, added: false, backgroundNodeId: null }]
+}
 
 export type ReviewFilter = 'all' | 'ok' | 'ng' | 'unreviewed' | 'failed'
 

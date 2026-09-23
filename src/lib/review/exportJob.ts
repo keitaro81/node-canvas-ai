@@ -3,7 +3,7 @@ import type { ExportParams } from '../../types/nodes'
 import { EXT_OF } from '../export/naming'
 import type { LayoutExecutor } from './executor'
 import { CancelledError } from './executor'
-import { estimateZipBytes, jobZipName, planJobExport, resultKindOf } from './model'
+import { CUTOUT_VARIANT_KEY, estimateZipBytes, exportVariantsOf, jobZipName, planJobExport, resultKindOf } from './model'
 import { renderableOf, type ReviewContext } from './reviewStore'
 import { signBatchPaths } from '../cutout/store'
 import { ZipWriter } from './zipStream'
@@ -32,8 +32,9 @@ export async function exportJobZip(opts: {
   const { ctx, params, executor } = opts
   const now = new Date()
   const targets = exportTargets(ctx, opts.scope)
-  const plan = planJobExport(targets.map((t) => t.item), ctx.variants, params, now)
-  const total = targets.length * ctx.variants.length
+  const variantsToExport = exportVariantsOf(ctx.variants)
+  const plan = planJobExport(targets.map((t) => t.item), variantsToExport, params, now)
+  const total = targets.length * variantsToExport.length
   const warnings: string[] = []
   const zip = new ZipWriter()
   const writes: Promise<void>[] = []
@@ -52,14 +53,14 @@ export async function exportJobZip(opts: {
       const bgPaths: string[] = []
       const signed = await signBatchPaths([...paths, ...bgPaths])
       const assets = { originalUrl: signed[originalPath], resultUrl: signed[r.task.result_path ?? ''], resultKind: resultKindOf(r.task) }
-      if (!assets.originalUrl || !assets.resultUrl) { warnings.push(`${r.item.sku}: 画像を取得できないため飛ばしました`); done += ctx.variants.length; continue }
-      const variants = ctx.variants.map((v, vi) => ({
+      if (!assets.originalUrl || !assets.resultUrl) { warnings.push(`${r.item.sku}: 画像を取得できないため飛ばしました`); done += variantsToExport.length; continue }
+      const variants = variantsToExport.map((v, vi) => ({
         key: v.key, params: v.params,
         backgroundUrl: v.backgroundNodeId ? ctx.backgroundUrls[v.backgroundNodeId] ?? null : null,
         encode: { format: entries[vi].format, quality: params.jpegQuality, maxBytes: params.maxFileKb ? params.maxFileKb * 1024 : null },
       }))
       await executor.renderFull({ assets, cutout: r.cutout, variants }, (res) => {
-        const vi = ctx.variants.findIndex((v) => v.key === res.key)
+        const vi = variantsToExport.findIndex((v) => v.key === res.key)
         const entry = entries[vi]
         if (!entry) return
         const path = `${entry.folder}${entry.base}.${EXT_OF[res.format]}`
@@ -80,5 +81,10 @@ export async function exportJobZip(opts: {
 
 export function estimateExportBytes(ctx: ReviewContext, scope: 'ok' | 'all', params: ExportParams): number {
   const n = exportTargets(ctx, scope).length
-  return ctx.variants.reduce((s, v) => s + estimateZipBytes(n, v.params.width, v.params.height, v.params.backgroundKind === 'transparent' ? 'png' : params.format), 0)
+  const first = ctx.items.find((i) => i.width && i.height)
+  return exportVariantsOf(ctx.variants).reduce((s, v) => {
+    // 切り抜き列は元画像サイズの透過 PNG
+    if (v.key === CUTOUT_VARIANT_KEY) return s + estimateZipBytes(n, first?.width ?? 1200, first?.height ?? 1200, 'png')
+    return s + estimateZipBytes(n, v.params.width, v.params.height, v.params.backgroundKind === 'transparent' ? 'png' : params.format)
+  }, 0)
 }

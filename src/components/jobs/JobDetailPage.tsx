@@ -10,10 +10,10 @@ import { jobProgress } from '../../lib/batch/jobsQuery'
 import { formatJst } from '../../lib/batch/dates'
 import { formatCost } from '../../lib/batch/cost'
 import { downloadBlob } from '../../lib/export/zip'
-import type { CutoutParams, ExportParams, LayoutParams } from '../../types/nodes'
+import type { CutoutParams, ExportParams } from '../../types/nodes'
 import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchReview, BatchTaskRow } from '../../types/batch'
 import { useReviewStore, type ReviewContext } from '../../lib/review/reviewStore'
-import { CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, exportParamsFromSnapshot, filterItems, moveSelection, thumbKey, variantsFromSnapshot } from '../../lib/review/model'
+import { CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveSelection, thumbKey, variantsFromSnapshot } from '../../lib/review/model'
 import { estimateExportBytes, exportJobZip, exportTargets } from '../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
@@ -181,7 +181,7 @@ export function JobDetailPage() {
   const renderFull = useCallback((itemId: string, variantKey: string) => useReviewStore.getState().renderFull(itemId, variantKey), [])
 
   // ── レイアウト設定（ジョブ単位・fal は呼ばない） ──
-  const applyOverrides = useCallback(async (overrides: Record<string, LayoutParams>) => {
+  const applyOverrides = useCallback(async (overrides: Record<string, unknown>) => {
     if (!job) return
     setSavingLayout(true)
     try { await setJobLayoutOverrides(job.id, overrides); await loadAll(); showToast('レイアウト設定を全アイテムに再適用しました', 'success'); setSettingsOpen(false) }
@@ -268,7 +268,7 @@ export function JobDetailPage() {
       <div className="flex-1 overflow-auto px-8 py-4">
         {variants.length === 0 && (
           <div className="mb-3 rounded-lg px-3 py-2 text-[12px]" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
-            投入時のワークフローに Product Layout ノードが無いため、切り抜き列だけを表示しています。
+            投入時のワークフローに Product Layout ノードが無いため、切り抜き列だけを表示しています。「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合の書き出しは切り抜きの透過 PNG）。
           </div>
         )}
         <ReviewGrid
@@ -298,7 +298,7 @@ export function JobDetailPage() {
       <RerunDialog open={rerunOpen} count={counts.ng} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
       <ExportDialog
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
-        targetCount={ctx && exportScope ? exportTargets(ctx, exportScope).length : 0} variantNames={variants.map((v) => v.name)}
+        targetCount={ctx && exportScope ? exportTargets(ctx, exportScope).length : 0} variantNames={exportVariantsOf(variants).map((v) => v.name)}
         sampleSku={items[0]?.sku ?? null} estimateBytes={ctx && exportScope ? estimateExportBytes(ctx, exportScope, exportParams) : 0}
         state={exportState} onStart={(params) => void startExport(params)} onCancel={() => { exportCancel.current = true }}
         onClose={() => { if (exportState.phase !== 'running') { setExportScope(null); setExportState({ phase: 'idle' }) } }}
