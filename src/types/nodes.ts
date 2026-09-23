@@ -195,6 +195,7 @@ export interface LayoutParams {
   variantName: string              // 書き出し時のファイル名/フォルダに使う（既定 ec_white）
   width: number                    // 出力サイズ px
   height: number
+  maxScalePercent: number          // 拡大の上限（%）。既定 100 = 拡大しない（仕様 3-3）。顧客都合で 150〜200 まで緩められる
   marginUnit: LayoutMarginUnit     // 余白の単位
   marginTop: number
   marginRight: number
