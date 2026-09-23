@@ -36,7 +36,7 @@ async function handler(req: Request): Promise<Response> {
 
   let body: { sourceUrl?: string; nodeId?: string }
   try {
-    body = await req.json()
+    body = await req.json() as typeof body
   } catch {
     return jsonResponse({ error: 'Invalid request body' }, 400)
   }

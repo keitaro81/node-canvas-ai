@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { base64urlToBytes, buildFalMessage, decodeSignature, importEd25519, verifyFalWebhook } from './_falWebhook'
+import { base64urlToBytes, buildFalMessage, decodeSignature, importEd25519, verifyFalWebhook, type WebCryptoKey } from './_falWebhook'
 
 // 開発用の鍵ペアで fal と同じ方式の署名を作り、検証器が正しく受理/拒否することを固定する
 async function makeSigner() {
-  const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair
+  const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as unknown as { publicKey: WebCryptoKey; privateKey: WebCryptoKey }
   const jwk = await crypto.subtle.exportKey('jwk', kp.publicKey) as { x: string }
   const pub = await importEd25519(base64urlToBytes(jwk.x))
   const sign = async (requestId: string, userId: string, ts: string, body: string, encoding: 'hex' | 'b64url' = 'hex') => {
