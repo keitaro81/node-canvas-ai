@@ -41,6 +41,9 @@ import { CameraListNode } from '../nodes/CameraListNode'
 import { RemoveBackgroundNode } from '../nodes/RemoveBackgroundNode'
 import { DEFAULT_CUTOUT_PARAMS } from '../../lib/cutout/engines'
 import { REMOVE_BACKGROUND_INPUT_HANDLE, REMOVE_BACKGROUND_OUTPUT_HANDLE } from '../../lib/cutout/upstream'
+import { ProductLayoutNode } from '../nodes/ProductLayoutNode'
+import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
+import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../../lib/layout/nodeIo'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { uploadVideoFile, uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
@@ -66,6 +69,7 @@ const nodeTypes: NodeTypes = {
   listNode: ListNode,
   cameraListNode: CameraListNode,
   removeBackgroundNode: RemoveBackgroundNode,
+  productLayoutNode: ProductLayoutNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -86,6 +90,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   list:            'listNode',
   cameraList:      'cameraListNode',
   removeBackground: 'removeBackgroundNode',
+  productLayout:   'productLayoutNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -132,6 +137,14 @@ const REMOVE_BACKGROUND_DEFAULT_DATA = {
   type: 'removeBackground' as const,
   label: 'Remove Background',
   params: { ...DEFAULT_CUTOUT_PARAMS },
+  status: 'idle' as const,
+}
+
+// 撮影後工程: 商品レイアウト
+const PRODUCT_LAYOUT_DEFAULT_DATA = {
+  type: 'productLayout' as const,
+  label: 'Product Layout',
+  params: { ...DEFAULT_LAYOUT_PARAMS },
   status: 'idle' as const,
 }
 
@@ -258,6 +271,7 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   list:           { image: 'in-image-0', text: 'in-text-0' },
   cameraList:     {},
   removeBackground: { image: REMOVE_BACKGROUND_INPUT_HANDLE },
+  productLayout:  { cutout: PRODUCT_LAYOUT_INPUT_CUTOUT, image: PRODUCT_LAYOUT_INPUT_BACKGROUND },
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
@@ -272,6 +286,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   list:           'out-list',
   cameraList:     'out-list',
   removeBackground: REMOVE_BACKGROUND_OUTPUT_HANDLE,
+  productLayout:  PRODUCT_LAYOUT_OUTPUT,
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -576,6 +591,8 @@ export function Canvas() {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'removeBackground') {
         data = { ...REMOVE_BACKGROUND_DEFAULT_DATA, params: { ...DEFAULT_CUTOUT_PARAMS }, label }
+      } else if (type === 'productLayout') {
+        data = { ...PRODUCT_LAYOUT_DEFAULT_DATA, params: { ...DEFAULT_LAYOUT_PARAMS }, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1063,6 +1080,8 @@ export function Canvas() {
         data = { ...CAMERA_LIST_NODE_DEFAULT_DATA, label }
       } else if (type === 'removeBackground') {
         data = { ...REMOVE_BACKGROUND_DEFAULT_DATA, params: { ...DEFAULT_CUTOUT_PARAMS }, label }
+      } else if (type === 'productLayout') {
+        data = { ...PRODUCT_LAYOUT_DEFAULT_DATA, params: { ...DEFAULT_LAYOUT_PARAMS }, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }

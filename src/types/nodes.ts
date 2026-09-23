@@ -18,6 +18,7 @@ export type NodeType =
   | 'list'
   | 'cameraList'
   | 'removeBackground'
+  | 'productLayout'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -79,6 +80,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   list:            '#8B5CF6',
   cameraList:      '#8B5CF6',
   removeBackground: '#14B8A6',
+  productLayout:   '#14B8A6',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -176,5 +178,50 @@ export interface CutoutRef {
   bbox: CutoutBBox | null      // しきい値適用後の外接矩形（全透明なら null）
   engine: CutoutEngine
   params: CutoutParams         // 実行/再適用時のパラメータのスナップショット
+  createdAt: string
+}
+
+// ===== 撮影後工程: 商品レイアウト（ProductLayoutNode） =====
+
+export type LayoutMarginUnit = 'percent' | 'px'
+export type LayoutAlignH = 'left' | 'center' | 'right'
+export type LayoutAlignV = 'top' | 'center' | 'bottom'
+export type LayoutBackgroundKind = 'color' | 'image' | 'transparent'
+export type LayoutBackgroundFit = 'cover' | 'contain'
+export type LayoutShadowKind = 'none' | 'drop' | 'contact'
+
+/** ProductLayoutNode のパラメータ（仕様 3-3 の表。全て保存可能な設定値＝原則3）。 */
+export interface LayoutParams {
+  variantName: string              // 書き出し時のファイル名/フォルダに使う（既定 ec_white）
+  width: number                    // 出力サイズ px
+  height: number
+  marginUnit: LayoutMarginUnit     // 余白の単位
+  marginTop: number
+  marginRight: number
+  marginBottom: number
+  marginLeft: number
+  alignH: LayoutAlignH
+  alignV: LayoutAlignV
+  backgroundKind: LayoutBackgroundKind
+  backgroundColor: string          // 単色のとき（#RRGGBB）
+  backgroundFit: LayoutBackgroundFit // 背景画像のとき
+  shadowKind: LayoutShadowKind
+  shadowOpacity: number            // 0〜1
+  shadowBlur: number               // px（出力座標）
+  shadowOffsetX: number            // px（ドロップシャドウ）
+  shadowOffsetY: number
+  contactWidthRatio: number        // 接地影の幅 = 商品幅 × 比
+  contactHeightRatio: number       // 接地影の高さ = 商品高さ × 比
+}
+
+/** レイアウト出力の記録（data.layout）。表示用 URL は data.output（canonical URL 文字列）に持つ。 */
+export interface LayoutOutputRef {
+  path: string                     // batch バケット内 <team_id>/interactive/<nodeId>/<layoutHash>.png
+  width: number
+  height: number
+  layoutHash: string               // レイアウトの識別値（同じ内容の出力は作り直さない。仕様 4-10）
+  warnings: string[]
+  sourceRef: string                // 使った元画像の canonical 参照
+  maskPath: string                 // 使ったマスク
   createdAt: string
 }

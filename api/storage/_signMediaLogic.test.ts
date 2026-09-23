@@ -24,3 +24,23 @@ describe('batchPathTeam', () => {
     expect(batchPathTeam(`${T}/${other}/item/a.jpg`)).toBe(T)
   })
 })
+
+import { allowBatchUrl, parseStorageUrl } from './_signMediaLogic'
+
+describe('batch バケットの署名判定（撮影後工程の成果物）', () => {
+  const T = '11111111-2222-4333-8444-555555555555'
+  const O = '99999999-8888-4777-8666-555555555555'
+  const url = (path: string) => `https://x.supabase.co/storage/v1/object/public/batch/${path}`
+
+  it('parseStorageUrl は batch バケットも解釈する（他の未知バケットは null）', () => {
+    expect(parseStorageUrl(url(`${T}/interactive/n1/abc.png`))).toEqual({ bucket: 'batch', path: `${T}/interactive/n1/abc.png` })
+    expect(parseStorageUrl('https://x.supabase.co/storage/v1/object/public/other/a.png')).toBeNull()
+  })
+
+  it('canvas からの署名: 自チームのパスだけ許可、他チーム・未所属は拒否。他バケットは素通し', () => {
+    expect(allowBatchUrl(url(`${T}/interactive/n1/abc.png`), T)).toBe(true)
+    expect(allowBatchUrl(url(`${O}/interactive/n1/abc.png`), T)).toBe(false)
+    expect(allowBatchUrl(url(`${T}/interactive/n1/abc.png`), null)).toBe(false)
+    expect(allowBatchUrl('https://x.supabase.co/storage/v1/object/public/generated-images/u/a.png', null)).toBe(true)
+  })
+})
