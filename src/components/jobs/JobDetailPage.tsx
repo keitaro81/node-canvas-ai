@@ -1,76 +1,109 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { ArrowLeft, CircleNotch, Warning } from '@phosphor-icons/react'
+import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
 import { useAuthStore } from '../../stores/authStore'
-import { fetchJob, fetchJobItems, reviewItem, subscribeJobItems } from '../../lib/api/batchJobs'
-import { signBatchPaths } from '../../lib/cutout/store'
+import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, reviewItem, setJobLayoutOverrides, subscribeJobItems } from '../../lib/api/batchJobs'
+import { batchRerun, submitJobFully } from '../../lib/api/batch'
+import { signBatchPath } from '../../lib/cutout/store'
 import { jobProgress } from '../../lib/batch/jobsQuery'
 import { formatJst } from '../../lib/batch/dates'
 import { formatCost } from '../../lib/batch/cost'
-import { REVIEW_META, type BatchItemRow, type BatchJobRow, type BatchReview } from '../../types/batch'
-import { ItemStatusBadge, JobStatusBadge, ProgressBar, ReviewBadge } from './badges'
+import { downloadBlob } from '../../lib/export/zip'
+import type { CutoutParams, ExportParams, LayoutParams } from '../../types/nodes'
+import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchReview, BatchTaskRow } from '../../types/batch'
+import { useReviewStore, type ReviewContext } from '../../lib/review/reviewStore'
+import { CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, exportParamsFromSnapshot, filterItems, moveSelection, thumbKey, variantsFromSnapshot } from '../../lib/review/model'
+import { estimateExportBytes, exportJobZip, exportTargets } from '../../lib/review/exportJob'
+import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
+import { ReviewGrid } from './review/ReviewGrid'
+import { ReviewToolbar } from './review/ReviewToolbar'
+import { ReviewLightbox } from './review/ReviewLightbox'
+import { LayoutSettingsDrawer } from './review/LayoutSettingsDrawer'
+import { RerunDialog } from './review/RerunDialog'
+import { ExportDialog, type ExportDialogState } from './review/ExportDialog'
+import { BG_ORDER } from './review/reviewStyles'
 import { showToast } from '../../hooks/useToast'
 
-/** 見えている行だけ画像を要求する小さなサムネイル（仕様 4-9: 一覧でフル解像度を同時に持たない） */
-function LazyThumb({ url, alt }: { url: string | null; alt: string }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    if (!el || visible) return
-    const obs = new IntersectionObserver((es) => { if (es[0].isIntersecting) setVisible(true) }, { rootMargin: '200px' })
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [visible])
-  return (
-    <div ref={ref} className="w-10 h-10 rounded overflow-hidden flex items-center justify-center shrink-0" style={{ background: 'var(--bg-elevated)' }}>
-      {visible && url ? <img src={url} alt={alt} loading="lazy" decoding="async" className="w-full h-full object-cover" draggable={false} /> : null}
-    </div>
-  )
-}
+const isTypingTarget = (t: EventTarget | null) => { const tag = (t as HTMLElement | null)?.tagName; return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' }
 
 export function JobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>()
   const navigate = useNavigate()
   const userId = useAuthStore((s) => s.user?.id ?? null)
+  const teamId = useBatchStore((s) => s.teamId)
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
   const realtimeOk = useBatchStore((s) => s.realtimeOk)
   const showCost = useBatchStore((s) => s.showCost)
   const memberNames = useBatchStore((s) => s.memberNames)
-  const [job, setJob] = useState<BatchJobRow | null>(null)
+  const bump = useBatchStore((s) => s.bump)
+
+  const [job, setJob] = useState<BatchJobDetail | null>(null)
   const [items, setItems] = useState<BatchItemRow[]>([])
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [tasks, setTasks] = useState<BatchTaskRow[]>([])
+  const [knownThumbs, setKnownThumbs] = useState<BatchOutputRow[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reviewing, setReviewing] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [savingLayout, setSavingLayout] = useState(false)
+  const [rerunOpen, setRerunOpen] = useState(false)
+  const [rerunBusy, setRerunBusy] = useState(false)
+  const [exportScope, setExportScope] = useState<'ok' | 'all' | null>(null)
+  const [exportState, setExportState] = useState<ExportDialogState>({ phase: 'idle' })
+  const exportCancel = useRef(false)
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null)
 
-  // ジョブ行と（軽いので）アイテムも再取得する。Realtime が無い環境でも定期的な bump で進む
-  const loadJob = useCallback(async () => {
+  // ReviewGrid の状態
+  const bg = useReviewStore((s) => s.bg)
+  const filter = useReviewStore((s) => s.filter)
+  const selection = useReviewStore((s) => s.selection)
+  const lightbox = useReviewStore((s) => s.lightbox)
+  const thumbs = useReviewStore((s) => s.thumbs)
+  const progress = useReviewStore((s) => s.progress)
+  const executorKind = useReviewStore((s) => s.executorKind)
+  const setBg = useReviewStore((s) => s.setBg)
+  const setFilter = useReviewStore((s) => s.setFilter)
+  const setSelection = useReviewStore((s) => s.setSelection)
+  const setLightbox = useReviewStore((s) => s.setLightbox)
+
+  // ── 読み込み ──
+  const loadAll = useCallback(async () => {
     if (!jobId) return
     try {
-      const [j, its] = await Promise.all([fetchJob(jobId), fetchJobItems(jobId)])
+      const [j, its, ts] = await Promise.all([fetchJobDetail(jobId), fetchJobItems(jobId), fetchJobTasks(jobId)])
       if (!j) { setNotFound(true); return }
-      setJob(j)
-      setItems(its)
-      setError(null)
+      const th = await fetchJobThumbs(its.map((i) => i.id)).catch(() => [] as BatchOutputRow[])
+      setJob(j); setItems(its); setTasks(ts); setKnownThumbs(th); setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }, [jobId])
+  const reloadTasks = useCallback(async () => {
+    if (!jobId) return
+    try { setTasks(await fetchJobTasks(jobId)) } catch { /* 次回 */ }
+  }, [jobId])
 
-  // 初回: ジョブ＋アイテム。以後ジョブ行は Realtime（jobsVersion）で再取得、アイテムは専用の購読で行を更新
   useEffect(() => {
     if (!jobId) return
-    let alive = true
+    useReviewStore.getState().open(jobId)
     setLoading(true)
-    Promise.all([fetchJob(jobId), fetchJobItems(jobId)])
-      .then(([j, its]) => { if (!alive) return; if (!j) { setNotFound(true); return } setJob(j); setItems(its) })
-      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
-      .finally(() => { if (alive) setLoading(false) })
-    if (realtimeOk === false) return () => { alive = false }
+    void loadAll().finally(() => setLoading(false))
+    return () => { useReviewStore.getState().close() }
+  }, [jobId, loadAll])
+  // ジョブ行（上書き設定を含む）は Realtime → jobsVersion で再取得。タスクの結果も一緒に
+  const firstVersion = useRef(true)
+  useEffect(() => {
+    if (firstVersion.current) { firstVersion.current = false; return }
+    void loadAll()
+  }, [jobsVersion, loadAll])
+
+  // アイテムの購読（状態・確認結果）。状態が変わったら結果ファイルも取り直す
+  const tasksTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!jobId || realtimeOk === false) return
     const unsub = subscribeJobItems(jobId, (payload) => {
       if (payload.eventType === 'DELETE') { const old = payload.old as { id?: string }; if (old?.id) setItems((prev) => prev.filter((i) => i.id !== old.id)); return }
       const row = payload.new as unknown as BatchItemRow
@@ -81,51 +114,114 @@ export function JobDetailPage() {
         if (idx < 0) return [...prev, next].sort((a, b) => a.sort_order - b.sort_order)
         const copy = prev.slice(); copy[idx] = { ...prev[idx], ...next }; return copy
       })
+      if (payload.eventType === 'UPDATE' && (payload.old as { status?: string })?.status !== row.status) {
+        if (tasksTimer.current) clearTimeout(tasksTimer.current)
+        tasksTimer.current = setTimeout(() => { void reloadTasks() }, 400)
+      }
     })
-    return () => { alive = false; unsub() }
-  }, [jobId, realtimeOk])
-  useEffect(() => { void loadJob() }, [loadJob, jobsVersion])
+    return () => { unsub(); if (tasksTimer.current) clearTimeout(tasksTimer.current) }
+  }, [jobId, realtimeOk, reloadTasks])
 
-  // サムネイル: 元画像（ジョブ階層。未コピーなら対話用アップロード）を 1 回の署名で取る
-  const pathsKey = items.map((i) => i.source_path ?? i.interactive_path ?? '').filter(Boolean).join('|')
-  useEffect(() => {
-    const paths = pathsKey ? pathsKey.split('|') : []
-    if (!paths.length) return
-    let alive = true
-    signBatchPaths(paths).then((m) => { if (alive) setThumbs((t) => ({ ...t, ...m })) }).catch(() => {})
-    return () => { alive = false }
-  }, [pathsKey])
+  // ── 派生 ──
+  const variants = useMemo(() => (job ? variantsFromSnapshot(job.workflow_snapshot, job.layout_overrides) : []), [job])
+  const cutoutNode = useMemo(() => (job ? cutoutNodesFromSnapshot(job.workflow_snapshot)[0] ?? null : null), [job])
+  const exportParams = useMemo<ExportParams>(() => exportParamsFromSnapshot(job?.workflow_snapshot), [job])
+  const ctx = useMemo<ReviewContext | null>(() => (job && teamId ? {
+    teamId, jobId: job.id, items, tasks, variants, cutoutNodeId: cutoutNode?.nodeId ?? null,
+    cutoutParams: cutoutNode?.params ?? ({ engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, previewBg: 'checker' } as CutoutParams),
+    knownThumbs, backgroundUrls: {},
+  } : null), [job, teamId, items, tasks, variants, cutoutNode, knownThumbs])
+  useEffect(() => { if (ctx) void useReviewStore.getState().sync(ctx) }, [ctx])
 
-  const summary = useMemo(() => {
-    const s = { ready: 0, processing: 0, pending: 0, failed: 0, ok: 0, ng: 0, unreviewed: 0 }
-    for (const it of items) {
-      if (it.status === 'ready') s.ready++; else if (it.status === 'processing') s.processing++; else if (it.status === 'failed') s.failed++; else s.pending++
-      if (it.review === 'ok') s.ok++; else if (it.review === 'ng') s.ng++; else s.unreviewed++
-    }
-    return s
-  }, [items])
+  const visibleItems = useMemo(() => filterItems(items, filter), [items, filter])
+  const counts = useMemo(() => ({
+    all: items.length, ok: items.filter((i) => i.review === 'ok').length, ng: items.filter((i) => i.review === 'ng').length,
+    unreviewed: items.filter((i) => i.review === 'unreviewed').length, failed: items.filter((i) => i.status === 'failed').length,
+  }), [items])
+  const readyCount = useMemo(() => (ctx ? exportTargets(ctx, 'all').length : 0), [ctx])
+  const colKeys = useMemo(() => [CUTOUT_VARIANT_KEY, ...variants.map((v) => v.key)], [variants])
+  const nameOf = useCallback((id: string | null) => (id && memberNames[id]) || (id ? `${id.slice(0, 8)}…` : '不明'), [memberNames])
 
-  async function setReview(item: BatchItemRow, review: BatchReview) {
+  // ── 判定 ──
+  const setReview = useCallback(async (item: BatchItemRow, review: BatchReview) => {
     if (reviewing) return
     const next = item.review === review ? 'unreviewed' : review
     setReviewing(item.id)
     const prev = items
     setItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, review: next, reviewed_by: userId } : i)))
-    try {
-      await reviewItem(item.id, next)
-    } catch (e) {
-      setItems(prev)
-      showToast(e instanceof Error ? e.message : String(e), 'error')
-    } finally {
-      setReviewing(null)
+    try { await reviewItem(item.id, next) } catch (e) { setItems(prev); showToast(e instanceof Error ? e.message : String(e), 'error') } finally { setReviewing(null) }
+  }, [reviewing, items, userId])
+
+  // ── キーボード（グリッド） ──
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (lightbox || isTypingTarget(e.target) || settingsOpen || rerunOpen || exportScope) return
+      const rows = visibleItems.length, cols = colKeys.length
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); setSelection(moveSelection(selection, e.key, rows, cols)); return }
+      const item = selection ? visibleItems[selection.row] : undefined
+      if ((e.key === 'o' || e.key === 'O') && item) { e.preventDefault(); void setReview(item, 'ok') }
+      else if ((e.key === 'n' || e.key === 'N') && item) { e.preventDefault(); void setReview(item, 'ng') }
+      else if ((e.key === 'Enter' || e.key === ' ') && item && selection) { e.preventDefault(); setLightbox({ itemId: item.id, variantKey: colKeys[selection.col] ?? CUTOUT_VARIANT_KEY }) }
+      else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); setBg(BG_ORDER[(BG_ORDER.indexOf(bg) + 1) % BG_ORDER.length]) }
     }
-  }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [lightbox, settingsOpen, rerunOpen, exportScope, visibleItems, colKeys, selection, setSelection, setReview, setLightbox, bg, setBg])
 
-  const nameOf = (id: string | null) => (id && memberNames[id]) || (id ? `${id.slice(0, 8)}…` : '不明')
+  // ── 拡大表示 ──
+  const lbItem = lightbox ? items.find((i) => i.id === lightbox.itemId) ?? null : null
+  const lbIdx = lbItem ? visibleItems.findIndex((i) => i.id === lbItem.id) : -1
+  useEffect(() => {
+    const path = lbItem?.source_path ?? lbItem?.interactive_path ?? null
+    if (!path) { setOriginalUrl(null); return }
+    let alive = true
+    signBatchPath(path).then((u) => { if (alive) setOriginalUrl(u) }).catch(() => { if (alive) setOriginalUrl(null) })
+    return () => { alive = false }
+  }, [lbItem])
+  const renderFull = useCallback((itemId: string, variantKey: string) => useReviewStore.getState().renderFull(itemId, variantKey), [])
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-48"><CircleNotch size={24} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} /></div>
-  }
+  // ── レイアウト設定（ジョブ単位・fal は呼ばない） ──
+  const applyOverrides = useCallback(async (overrides: Record<string, LayoutParams>) => {
+    if (!job) return
+    setSavingLayout(true)
+    try { await setJobLayoutOverrides(job.id, overrides); await loadAll(); showToast('レイアウト設定を全アイテムに再適用しました', 'success'); setSettingsOpen(false) }
+    catch (e) { showToast(e instanceof Error ? e.message : String(e), 'error') }
+    finally { setSavingLayout(false) }
+  }, [job, loadAll])
+
+  // ── NG のみ再実行 ──
+  const runRerun = useCallback(async (params: CutoutParams) => {
+    if (!job || !cutoutNode) return
+    const ngIds = items.filter((i) => i.review === 'ng').map((i) => i.id)
+    setRerunBusy(true)
+    try {
+      const r = await batchRerun({ jobId: job.id, nodeId: cutoutNode.nodeId, itemIds: ngIds, params })
+      if (!r.rerunTasks) { showToast(`再実行できるアイテムがありません（${r.skipped.map((s) => s.reason).join(', ')}）`, 'warning'); return }
+      await submitJobFully(job.id)
+      showToast(`NG の ${r.rerunTasks} 枚を再投入しました。完了すると結果が差し替わります`, 'success')
+      setRerunOpen(false)
+      bump(); await loadAll()
+    } catch (e) { showToast(e instanceof Error ? e.message : String(e), 'error') }
+    finally { setRerunBusy(false) }
+  }, [job, cutoutNode, items, bump, loadAll])
+
+  // ── 書き出し ──
+  const startExport = useCallback(async (params: ExportParams) => {
+    if (!ctx || !job || !exportScope) return
+    exportCancel.current = false
+    setExportState({ phase: 'running', progress: { done: 0, total: 0, message: '準備中…' } })
+    try {
+      const out = await exportJobZip({ ctx, jobName: job.name, scope: exportScope, params, executor: useReviewStore.getState().getExecutor(), isCancelled: () => exportCancel.current, onProgress: (p) => setExportState({ phase: 'running', progress: p }) })
+      if (out.cancelled || !out.blob) { setExportState({ phase: 'cancelled', result: out }); return }
+      downloadBlob(out.blob, out.name)
+      setExportState({ phase: 'done', result: out })
+    } catch (e) {
+      setExportState({ phase: 'error', error: e instanceof Error ? e.message : String(e) })
+    }
+  }, [ctx, job, exportScope])
+
+  const nameOfReviewer = nameOf
+  if (loading) return <div className="flex items-center justify-center h-48"><CircleNotch size={24} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} /></div>
   if (notFound || !job) {
     return (
       <div className="flex flex-col items-center justify-center h-48 gap-3">
@@ -135,14 +231,13 @@ export function JobDetailPage() {
     )
   }
   const p = jobProgress(job)
+  const summary = { ready: items.filter((i) => i.status === 'ready').length, processing: items.filter((i) => i.status === 'processing').length, pending: items.filter((i) => i.status === 'pending').length, failed: counts.failed }
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-8 py-4 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-        <button onClick={() => navigate('/jobs')} className="flex items-center gap-1 text-[11px] mb-2 transition-colors hover:text-[var(--text-primary)]" style={{ color: 'var(--text-tertiary)' }}>
-          <ArrowLeft size={12} />ジョブ一覧
-        </button>
+        <button onClick={() => navigate('/jobs')} className="flex items-center gap-1 text-[11px] mb-2 transition-colors hover:text-[var(--text-primary)]" style={{ color: 'var(--text-tertiary)' }}><ArrowLeft size={12} />ジョブ一覧</button>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
@@ -150,93 +245,64 @@ export function JobDetailPage() {
               <JobStatusBadge status={job.status} />
             </div>
             <div className="flex items-center gap-3 mt-2 text-[12px] flex-wrap" style={{ color: 'var(--text-secondary)' }}>
-              <span className="flex items-center gap-2">
-                <ProgressBar done={p.done} failed={p.failed} total={p.total} width={140} />
-                <span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total} タスク` : '投入中'}</span>
-              </span>
+              <span className="flex items-center gap-2"><ProgressBar done={p.done} failed={p.failed} total={p.total} width={140} /><span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total} タスク` : '投入中'}</span></span>
               {p.failed > 0 && <span className="font-semibold" style={{ color: '#EF4444' }}>失敗 {p.failed}</span>}
               <span>投入者: {nameOf(job.created_by)}</span>
               <span className="tabular-nums">投入 {formatJst(job.created_at)}</span>
-              <span className="tabular-nums">更新 {formatJst(job.updated_at)}</span>
               <span className="tabular-nums">{job.item_count} 枚{showCost && <> · 実績 {formatCost(job.actual_cost_usd)}（見積 {formatCost(job.estimated_cost_usd)}）</>}</span>
-            </div>
-            <div className="flex items-center gap-3 mt-1.5 text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
-              <span>準備完了 {summary.ready}</span><span>処理中 {summary.processing}</span><span>待機 {summary.pending}</span>
-              <span style={{ color: summary.failed ? '#EF4444' : undefined }}>失敗 {summary.failed}</span>
-              <span>·</span>
-              <span style={{ color: '#22C55E' }}>OK {summary.ok}</span><span style={{ color: summary.ng ? '#EF4444' : undefined }}>NG {summary.ng}</span><span>未確認 {summary.unreviewed}</span>
+              <span className="tabular-nums" style={{ color: 'var(--text-tertiary)' }}>準備完了 {summary.ready} · 処理中 {summary.processing} · 待機 {summary.pending} · <span style={{ color: summary.failed ? '#EF4444' : undefined }}>失敗 {summary.failed}</span></span>
             </div>
           </div>
           <div className="shrink-0"><JobActions job={job} onDeleted={() => navigate('/jobs')} /></div>
         </div>
       </div>
 
-      {/* Items */}
-      <div className="flex-1 overflow-auto px-8 py-5">
-        <div className="rounded-xl overflow-x-auto" style={{ border: '1px solid var(--border)' }}>
-          <table className="w-full text-[12px]" style={{ tableLayout: 'fixed', minWidth: 720 }}>
-            <colgroup><col style={{ width: 36 }} /><col style={{ width: 52 }} /><col style={{ width: 120 }} /><col style={{ minWidth: 120 }} /><col style={{ width: 84 }} /><col style={{ width: 84 }} /><col style={{ width: 44 }} /><col style={{ width: 176 }} /></colgroup>
-            <thead>
-              <tr style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
-                {['#', '', 'SKU', 'ファイル名', 'サイズ', '状態', '警告', '確認'].map((h, i) => <th key={i} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => {
-                const path = it.source_path ?? it.interactive_path
-                return (
-                  <tr key={it.id} style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
-                    <td className="px-3 py-1.5 tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{it.sort_order}</td>
-                    <td className="px-2 py-1.5"><LazyThumb url={path ? thumbs[path] ?? null : null} alt="" /></td>
-                    <td className="px-3 py-1.5 font-medium truncate" style={{ color: 'var(--text-primary)' }} title={it.sku}>{it.sku}</td>
-                    <td className="px-3 py-1.5 truncate" style={{ color: 'var(--text-secondary)' }} title={it.original_filename}>{it.original_filename}</td>
-                    <td className="px-3 py-1.5 tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{it.width && it.height ? `${it.width}×${it.height}` : '—'}</td>
-                    <td className="px-3 py-1.5"><ItemStatusBadge status={it.status} /></td>
-                    <td className="px-3 py-1.5">
-                      {it.warnings.length > 0 && (
-                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.14)' }} title={it.warnings.join('\n')}>
-                          <Warning size={11} weight="fill" />{it.warnings.length}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-1">
-                        {(['ok', 'ng'] as BatchReview[]).map((r) => {
-                          const on = it.review === r
-                          const m = REVIEW_META[r]
-                          return (
-                            <button
-                              key={r}
-                              disabled={reviewing === it.id}
-                              onClick={() => void setReview(it, r)}
-                              className="h-6 px-2 rounded-md text-[11px] font-semibold transition-colors disabled:opacity-60"
-                              style={{ color: on ? '#fff' : m.color, background: on ? m.color : m.bg, border: `1px solid ${on ? m.color : 'transparent'}` }}
-                              title={on ? `${m.label} を取り消す` : `${m.label} にする`}
-                            >
-                              {m.label}
-                            </button>
-                          )
-                        })}
-                        {it.review === 'unreviewed' ? <ReviewBadge review="unreviewed" /> : (
-                          <span className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }} title={it.reviewed_by ? nameOf(it.reviewed_by) : ''}>
-                            {it.reviewed_by ? nameOf(it.reviewed_by) : ''}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-              {items.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>アイテムがありません</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <ReviewToolbar
+        bg={bg} onBg={setBg} filter={filter} onFilter={setFilter} counts={counts} progress={progress} executorKind={executorKind} readyCount={readyCount}
+        busy={rerunBusy || savingLayout || exportState.phase === 'running'}
+        onExport={(scope) => { setExportScope(scope); setExportState({ phase: 'idle' }) }}
+        onRerun={() => setRerunOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+      />
+
+      <div className="flex-1 overflow-auto px-8 py-4">
+        {variants.length === 0 && (
+          <div className="mb-3 rounded-lg px-3 py-2 text-[12px]" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
+            投入時のワークフローに Product Layout ノードが無いため、切り抜き列だけを表示しています。
+          </div>
+        )}
+        <ReviewGrid
+          items={visibleItems} variants={variants} thumbs={thumbs} bg={bg} selection={selection}
+          onSelect={setSelection}
+          onOpen={(itemId, variantKey) => setLightbox({ itemId, variantKey })}
+          onReview={setReview} reviewing={reviewing} nameOf={nameOfReviewer}
+        />
         <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-          OK / NG は同じボタンをもう一度押すと取り消せます。他のメンバーの判定と処理の進み具合は自動で反映されます。レイアウトの確認グリッド（拡大・書き出し）は次のステップで追加します。
+          クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、O / N で判定（もう一度押すと取り消し）、B で背景切替。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
         </p>
       </div>
+
+      {lightbox && lbItem && (
+        <ReviewLightbox
+          item={lbItem} variantKey={lightbox.variantKey} variants={variants} thumb={thumbs[thumbKey(lbItem.id, lightbox.variantKey)]}
+          bg={bg} onBg={setBg} originalUrl={originalUrl} renderFull={renderFull}
+          onClose={() => setLightbox(null)}
+          onPrev={() => { const n = visibleItems[lbIdx - 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
+          onNext={() => { const n = visibleItems[lbIdx + 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
+          onVariant={(key) => setLightbox({ itemId: lbItem.id, variantKey: key })}
+          onReview={(r) => void setReview(lbItem, r)}
+          hasPrev={lbIdx > 0} hasNext={lbIdx >= 0 && lbIdx < visibleItems.length - 1}
+        />
+      )}
+      <LayoutSettingsDrawer open={settingsOpen} variants={variants} saving={savingLayout} onClose={() => setSettingsOpen(false)} onApply={applyOverrides} onReset={() => applyOverrides({})} />
+      <RerunDialog open={rerunOpen} count={counts.ng} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
+      <ExportDialog
+        open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
+        targetCount={ctx && exportScope ? exportTargets(ctx, exportScope).length : 0} variantNames={variants.map((v) => v.name)}
+        sampleSku={items[0]?.sku ?? null} estimateBytes={ctx && exportScope ? estimateExportBytes(ctx, exportScope, exportParams) : 0}
+        state={exportState} onStart={(params) => void startExport(params)} onCancel={() => { exportCancel.current = true }}
+        onClose={() => { if (exportState.phase !== 'running') { setExportScope(null); setExportState({ phase: 'idle' }) } }}
+      />
     </div>
   )
 }

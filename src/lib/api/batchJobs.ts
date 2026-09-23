@@ -4,7 +4,10 @@ import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/
 import { supabase } from '../supabase'
 import { jstDayBounds, jstDayRangeUtc } from '../batch/dates'
 import { JOBS_PAGE_SIZE, normalizeSearch, quoteOrValue, sumUsedToday, type JobFilters } from '../batch/jobsQuery'
-import { ACTIVE_JOB_STATUSES, ITEM_COLUMNS, JOB_COLUMNS, type BatchItemRow, type BatchJobRow, type BatchReview, type ReviewCounts } from '../../types/batch'
+import {
+  ACTIVE_JOB_STATUSES, ITEM_COLUMNS, JOB_COLUMNS, JOB_DETAIL_COLUMNS, OUTPUT_COLUMNS, TASK_COLUMNS,
+  type BatchItemRow, type BatchJobDetail, type BatchJobRow, type BatchOutputRow, type BatchReview, type BatchTaskRow, type ReviewCounts,
+} from '../../types/batch'
 import { aggregateReviewCounts } from '../batch/jobsQuery'
 
 // 手書きの Database 型は batch_* を持たない（列指定 select が never に潰れる）ため、既存の teams.ts と同じく untyped で引き、結果側で型を付ける
@@ -79,6 +82,42 @@ export async function fetchJob(jobId: string): Promise<BatchJobRow | null> {
   const { data, error } = await sb.from('batch_jobs').select(JOB_COLUMNS).eq('id', jobId).maybeSingle()
   if (error) throw new Error(error.message)
   return (data as BatchJobRow | null) ?? null
+}
+
+/** ジョブ詳細（写し・上書き設定つき）。ReviewGrid 用 */
+export async function fetchJobDetail(jobId: string): Promise<BatchJobDetail | null> {
+  const { data, error } = await sb.from('batch_jobs').select(JOB_DETAIL_COLUMNS).eq('id', jobId).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return null
+  const row = data as BatchJobDetail
+  return { ...row, workflow_snapshot: row.workflow_snapshot ?? {}, layout_overrides: row.layout_overrides && typeof row.layout_overrides === 'object' ? row.layout_overrides : {} }
+}
+
+/** ジョブのタスク（結果ファイルのパスと付帯情報） */
+export async function fetchJobTasks(jobId: string): Promise<BatchTaskRow[]> {
+  const { data, error } = await sb.from('batch_tasks').select(TASK_COLUMNS).eq('job_id', jobId)
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as BatchTaskRow[]).map((t) => ({ ...t, input: t.input && typeof t.input === 'object' ? t.input : {} }))
+}
+
+/** 記録済みのサムネイル（kind='thumb'）。識別値が同じなら描き直さない */
+export async function fetchJobThumbs(itemIds: string[]): Promise<BatchOutputRow[]> {
+  if (!itemIds.length) return []
+  const { data, error } = await sb.from('batch_outputs').select(OUTPUT_COLUMNS).eq('kind', 'thumb').in('item_id', itemIds)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as BatchOutputRow[]
+}
+
+/** サムネイルの記録（RPC record_batch_output・所属チェックとパス検査つき） */
+export async function recordThumb(itemId: string, variant: string, layoutHash: string, outputPath: string): Promise<void> {
+  const { error } = await sb.rpc('record_batch_output', { p_item_id: itemId, p_variant: variant, p_layout_hash: layoutHash, p_output_path: outputPath, p_kind: 'thumb' })
+  if (error) throw new Error(error.message)
+}
+
+/** ジョブ画面で変更したバリアント設定の保存（RPC set_batch_job_layout・メンバーなら誰でも） */
+export async function setJobLayoutOverrides(jobId: string, overrides: Record<string, unknown>): Promise<void> {
+  const { error } = await sb.rpc('set_batch_job_layout', { p_job_id: jobId, p_overrides: overrides })
+  if (error) throw new Error(error.message)
 }
 
 export async function fetchJobItems(jobId: string): Promise<BatchItemRow[]> {

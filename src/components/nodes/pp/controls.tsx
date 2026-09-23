@@ -76,3 +76,23 @@ export function TextField({ value, onChange, placeholder, mono, title }: {
     />
   )
 }
+
+/** スライダー（値の表示つき） */
+export function Range({ label, value, min, max, unit, disabled, accent, onChange }: {
+  label: string; value: number; min: number; max: number; unit?: string; disabled?: boolean; accent?: string; onChange: (v: number) => void
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[11px] font-medium text-[var(--text-secondary)]">{label}</span>
+        <span className="text-[11px] text-[var(--text-primary)] tabular-nums">{value}{unit ?? ''}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={1} value={value} disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full nodrag nopan"
+        style={{ accentColor: accent ?? '#14B8A6' }}
+      />
+    </div>
+  )
+}

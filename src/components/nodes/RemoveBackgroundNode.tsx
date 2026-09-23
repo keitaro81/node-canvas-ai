@@ -8,10 +8,9 @@ import { useSignedMedia } from '../../hooks/useSignedMedia'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
 import { showToast } from '../../hooks/useToast'
 import { toCanonicalRef } from '../../lib/api/storage'
-import type { NodeData, CutoutEngine, CutoutParams, CutoutPreviewBg, CutoutRef } from '../../types/nodes'
-import {
-  BIREFNET_MODELS, BIREFNET_RESOLUTIONS, CUTOUT_ENGINES, CUTOUT_ENGINE_IDS, normalizeCutoutParams,
-} from '../../lib/cutout/engines'
+import type { NodeData, CutoutParams, CutoutPreviewBg, CutoutRef } from '../../types/nodes'
+import { CUTOUT_ENGINES, normalizeCutoutParams } from '../../lib/cutout/engines'
+import { CutoutParamsForm } from './pp/CutoutParamsForm'
 import { interactiveCutoutDir, resolveFetchableUrl, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
 import {
   loadOriginal, loadRawAlpha, reapplyCutoutParams, renderCutoutFullPng, runCutoutInteractive,
@@ -22,8 +21,6 @@ import type { DecodedImage } from '../../lib/cutout/decode'
 
 const ACCENT = '#14B8A6'
 
-const INPUT_STYLE: CSSProperties = { background: 'var(--bg-canvas)', border: '1px solid var(--border)' }
-const SELECT_CLS = 'w-full h-8 rounded-md px-2 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag nopan'
 
 // プレビュー背景（仕様 3-2: 白 / グレー / 市松）
 const PREVIEW_BG: Record<CutoutPreviewBg, CSSProperties> = {
@@ -40,38 +37,7 @@ const PREVIEW_BG: Record<CutoutPreviewBg, CSSProperties> = {
 }
 const PREVIEW_BG_LABEL: Record<CutoutPreviewBg, string> = { white: '白', gray: 'グレー', checker: '市松' }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="text-[11px] font-medium text-[var(--text-secondary)] mb-1">{label}</div>
-      {children}
-    </div>
-  )
-}
 
-function Range({ label, value, min, max, unit, disabled, onChange }: {
-  label: string; value: number; min: number; max: number; unit?: string; disabled?: boolean; onChange: (v: number) => void
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[11px] font-medium text-[var(--text-secondary)]">{label}</span>
-        <span className="text-[11px] text-[var(--text-primary)] tabular-nums">{value}{unit ?? ''}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={1}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full nodrag nopan"
-        style={{ accentColor: ACCENT }}
-      />
-    </div>
-  )
-}
 
 function Notice({ tone, children }: { tone: 'warning' | 'info'; children: ReactNode }) {
   const color = tone === 'warning' ? '#F59E0B' : 'var(--text-secondary)'
@@ -205,7 +171,6 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
     }
   }, [output, params, ensureCache])
 
-  const engineDef = CUTOUT_ENGINES[params.engine]
 
   return (
     <BaseNode
@@ -218,54 +183,7 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
     >
       <div className="flex flex-col gap-2.5 nodrag">
         {/* エンジン */}
-        <Field label="エンジン">
-          <select
-            className={SELECT_CLS}
-            style={INPUT_STYLE}
-            value={params.engine}
-            disabled={isRunning}
-            onChange={(e) => setParams({ engine: e.target.value as CutoutEngine })}
-          >
-            {CUTOUT_ENGINE_IDS.map((k) => (
-              <option key={k} value={k}>{CUTOUT_ENGINES[k].label}</option>
-            ))}
-          </select>
-          <div className="text-[11px] text-[var(--text-tertiary)] mt-1 leading-snug">{engineDef.pricing}・{engineDef.note}</div>
-        </Field>
-
-        {params.engine === 'birefnet' && (
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="モデルバリアント">
-              <select
-                className={SELECT_CLS}
-                style={INPUT_STYLE}
-                value={params.birefnetModel}
-                disabled={isRunning}
-                onChange={(e) => setParams({ birefnetModel: e.target.value })}
-              >
-                {BIREFNET_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </Field>
-            <Field label="動作解像度">
-              <select
-                className={SELECT_CLS}
-                style={INPUT_STYLE}
-                value={params.birefnetResolution}
-                disabled={isRunning}
-                onChange={(e) => setParams({ birefnetResolution: e.target.value })}
-              >
-                {BIREFNET_RESOLUTIONS.map((r) => (
-                  <option key={r} value={r} disabled={r === '2304x2304' && params.birefnetModel !== 'General Use (Dynamic)'}>
-                    {r}{r === '2304x2304' ? '（Dynamic のみ）' : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-        )}
-
-        <Range label="アルファのしきい値" value={params.alphaThreshold} min={0} max={255} disabled={isRunning} onChange={(v) => setParams({ alphaThreshold: v })} />
-        <Range label="縁のぼかし幅" value={params.featherPx} min={0} max={20} unit="px" disabled={isRunning} onChange={(v) => setParams({ featherPx: v })} />
+        <CutoutParamsForm params={params} onChange={setParams} disabled={isRunning} />
 
         {/* プレビュー（背景 白/グレー/市松） */}
         <div

@@ -13,7 +13,7 @@ import { deleteGenerationServer } from './api/storage/_deleteGenerationLogic'
 import { signMediaServer } from './api/storage/_signMediaLogic'
 import { adminManage, type AdminManageBody } from './api/admin/_adminLogic'
 import { falProxyCore, FAL_TARGET_URL_HEADER } from './api/fal/_proxyLogic'
-import { batchCreate, batchSubmit, batchReconcile, batchCancel, batchDelete, batchRetryFailed } from './api/batch/_batchLogic'
+import { batchCreate, batchSubmit, batchReconcile, batchCancel, batchDelete, batchRetryFailed, batchRerunItems } from './api/batch/_batchLogic'
 import { isOperator } from './api/admin/_adminLogic'
 
 /**
@@ -198,7 +198,7 @@ function devImageProxyPlugin(): Plugin {
         }
       })
 
-      // 撮影後工程 バッチ: POST /dev-proxy/batch/<create|submit|reconcile|cancel|delete|retry>（JWT 必須。Edge の api/batch/* と同一コア）
+      // 撮影後工程 バッチ: POST /dev-proxy/batch/<create|submit|reconcile|cancel|delete|retry|rerun>（JWT 必須。Edge の api/batch/* と同一コア）
       // Webhook は localhost に届かないため dev には無く、結果は reconcile で回収する
       server.middlewares.use('/dev-proxy/batch', async (req: IncomingMessage, res: ServerResponse) => {
         if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
@@ -214,7 +214,7 @@ function devImageProxyPlugin(): Plugin {
           const fns: Record<string, (a: unknown, u: string, o: typeof opts, b: unknown) => Promise<{ status: number; body: object }>> = {
             create: (a, u, _o, b) => batchCreate(a, u, b as never), submit: (a, u, o, b) => batchSubmit(a, u, o, b as never),
             reconcile: (a, u, o, b) => batchReconcile(a, u, o, b as never), cancel: (a, u, o, b) => batchCancel(a, u, o, b as never),
-            delete: (a, u, o, b) => batchDelete(a, u, o, b as never), retry: (a, u, o, b) => batchRetryFailed(a, u, o, b as never),
+            delete: (a, u, o, b) => batchDelete(a, u, o, b as never), retry: (a, u, o, b) => batchRetryFailed(a, u, o, b as never), rerun: (a, u, o, b) => batchRerunItems(a, u, o, b as never),
           }
           const fn = fns[action]
           if (!fn) { send(res, 404, { error: `unknown action: ${action}` }); return }

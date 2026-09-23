@@ -10,6 +10,8 @@ export interface LayoutIdentityInput {
   alphaThreshold: number       // 切り抜き側のパラメータ（マスクの解釈に影響する）
   featherPx: number
   backgroundRef?: string | null
+  /** 同じパスに結果が上書きされる場合（一括実行の再実行）の版。未指定なら識別値に含めない（既存の値を変えない） */
+  maskVersion?: string | null
 }
 
 /** 識別値の元になる正規化文字列（キー順固定）。 */
@@ -22,6 +24,7 @@ export function layoutIdentityString(input: LayoutIdentityInput): string {
     alphaThreshold: input.alphaThreshold,
     featherPx: input.featherPx,
     backgroundRef: input.backgroundRef ?? null,
+    ...(input.maskVersion ? { maskVersion: input.maskVersion } : {}),
     params: Object.fromEntries((Object.keys(p) as Array<keyof LayoutParams>).sort().map((k) => [k, p[k]])),
   }
   return JSON.stringify(ordered)

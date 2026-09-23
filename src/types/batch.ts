@@ -70,3 +70,58 @@ export const REVIEW_META: Record<BatchReview, { label: string; color: string; bg
   ok:         { label: 'OK',     color: '#22C55E', bg: 'rgba(34,197,94,0.14)' },
   ng:         { label: 'NG',     color: '#EF4444', bg: 'rgba(239,68,68,0.14)' },
 }
+
+// ───────────────────────── ReviewGrid（Step 7）で読む行 ─────────────────────────
+
+export type BatchTaskStatus = 'pending' | 'submitted' | 'completed' | 'failed' | 'cancelled'
+
+export interface BatchTaskResultMeta {
+  kind?: string                    // 'mask' | 'rgba' | 'image'
+  width?: number | null
+  height?: number | null
+  contentType?: string
+  falRequestId?: string | null
+}
+
+export interface BatchTaskRow {
+  id: string
+  job_id: string
+  item_id: string | null
+  team_id: string
+  node_id: string
+  endpoint: string
+  input: Record<string, unknown>
+  status: BatchTaskStatus
+  attempts: number
+  error: string | null
+  result_path: string | null
+  result_meta: BatchTaskResultMeta | null
+  submitted_at: string | null
+  completed_at: string | null
+}
+
+export const TASK_COLUMNS = 'id, job_id, item_id, team_id, node_id, endpoint, input, status, attempts, error, result_path, result_meta, submitted_at, completed_at'
+
+export type BatchOutputKind = 'full' | 'thumb'
+
+export interface BatchOutputRow {
+  id: string
+  item_id: string
+  team_id: string
+  variant: string                  // ReviewGrid ではバリアント＝Product Layout ノード ID（'__cutout' は切り抜きプレビュー）
+  layout_hash: string
+  output_path: string
+  executor: 'browser' | 'server'
+  kind: BatchOutputKind
+  created_at: string
+}
+
+export const OUTPUT_COLUMNS = 'id, item_id, team_id, variant, layout_hash, output_path, executor, kind, created_at'
+
+/** ジョブ詳細（写しと上書き設定を含む） */
+export interface BatchJobDetail extends BatchJobRow {
+  workflow_snapshot: { nodes?: Array<{ id: string; type?: string; data?: Record<string, unknown> }>; edges?: Array<{ source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }> }
+  layout_overrides: Record<string, unknown>
+}
+
+export const JOB_DETAIL_COLUMNS = `${JOB_COLUMNS}, workflow_snapshot, layout_overrides`
