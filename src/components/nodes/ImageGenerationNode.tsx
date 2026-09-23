@@ -949,6 +949,24 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             </>
           )}
 
+          {/* 一括実行のスコープ（仕様 4-2）: アイテムごと / ジョブごと（背景生成は「ジョブごと」で 50 枚に同じ背景） */}
+          <div>
+            <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">一括実行のスコープ</label>
+            <div className="relative">
+              <select
+                className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
+                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+                value={(nodeData.params?.executionScope as string) === 'job' ? 'job' : 'item'}
+                onChange={(e) => updateNode(id, { params: { ...nodeData.params, executionScope: e.target.value } })}
+                disabled={isGenerating}
+              >
+                <option value="item">アイテムごと（画像 1 枚につき 1 回）</option>
+                <option value="job">ジョブごと（1 回だけ実行して全アイテムで共有）</option>
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+            </div>
+          </div>
+
           {/* Aspect Ratio / Size: モデルによって切り替え */}
           <div>
             <div className="flex items-center justify-between mb-1">

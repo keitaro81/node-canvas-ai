@@ -20,13 +20,18 @@ function ensureInit(): void {
  * Edge ハンドラを包み、未捕捉例外を Sentry に報告してから再 throw する。
  * SENTRY_DSN 未設定時は捕捉・再throw のみ（送信なし）。
  */
+/** Vercel Edge が第 2 引数で渡す実行コンテキスト（waitUntil = 応答後に処理を続ける）。 */
+export interface EdgeContext {
+  waitUntil?: (promise: Promise<unknown>) => void
+}
+
 export function withSentry(
-  handler: (req: Request) => Promise<Response>,
-): (req: Request) => Promise<Response> {
-  return async (req: Request): Promise<Response> => {
+  handler: (req: Request, ctx?: EdgeContext) => Promise<Response>,
+): (req: Request, ctx?: EdgeContext) => Promise<Response> {
+  return async (req: Request, ctx?: EdgeContext): Promise<Response> => {
     ensureInit()
     try {
-      return await handler(req)
+      return await handler(req, ctx)
     } catch (err) {
       Sentry.captureException(err)
       await Sentry.flush(2000)

@@ -13,6 +13,8 @@ import { deleteGenerationServer } from './api/storage/_deleteGenerationLogic'
 import { signMediaServer } from './api/storage/_signMediaLogic'
 import { adminManage, type AdminManageBody } from './api/admin/_adminLogic'
 import { falProxyCore, FAL_TARGET_URL_HEADER } from './api/fal/_proxyLogic'
+import { batchCreate, batchSubmit, batchReconcile, batchCancel, batchDelete } from './api/batch/_batchLogic'
+import { isOperator } from './api/admin/_adminLogic'
 
 /**
  * ローカル開発専用: 本番(Vercel)の Edge 関数を代替する Vite Dev Server ミドルウェア群。
@@ -25,6 +27,7 @@ function devImageProxyPlugin(): Plugin {
   let adminIds: string | undefined // ADMIN_USER_IDS（運営 allowlist）
   let falKey: string | undefined   // FAL_KEY（サーバー側の fal 鍵。旧 VITE_FAL_KEY も移行期間として読む）
   let testsetDir = ''              // CUTOUT_TESTSET_DIR（撮影後工程のテストセット。比較ページ /dev/cutout-bench 用）
+  let batchWebhookBase: string | null = null // BATCH_WEBHOOK_BASE_URL（dev は通常 null = Webhook なし・照合で回収）
 
   // JSON ボディを読む（空なら {}）
   const readJson = (req: IncomingMessage): Promise<unknown> =>
@@ -56,6 +59,7 @@ function devImageProxyPlugin(): Plugin {
       falKey = env.FAL_KEY ?? env.VITE_FAL_KEY
       // 既定はリポジトリ内 testset/cutout/（.gitignore 済み）。~/Desktop 等は macOS の TCC ダイアログで固まり得るので避ける
       testsetDir = env.CUTOUT_TESTSET_DIR || path.resolve(process.cwd(), 'testset', 'cutout')
+      batchWebhookBase = env.BATCH_WEBHOOK_BASE_URL || null
       if (!env.FAL_KEY && env.VITE_FAL_KEY) {
         console.warn('[dev] VITE_FAL_KEY は非推奨です。.env.local で FAL_KEY に改名してください（ブラウザには露出しません）。')
       }
@@ -190,6 +194,34 @@ function devImageProxyPlugin(): Plugin {
           res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store' })
           fs.createReadStream(file).pipe(res)
         } catch (err) {
+          send(res, 500, { error: String(err) })
+        }
+      })
+
+      // 撮影後工程 バッチ: POST /dev-proxy/batch/<create|submit|reconcile|cancel|delete>（JWT 必須。Edge の api/batch/* と同一コア）
+      // Webhook は localhost に届かないため dev には無く、結果は reconcile で回収する
+      server.middlewares.use('/dev-proxy/batch', async (req: IncomingMessage, res: ServerResponse) => {
+        if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
+        try {
+          if (!falKey) throw new Error('FAL_KEY が .env.local に設定されていません')
+          const action = (req.url ?? '/').split('?')[0].replace(/^\//, '')
+          const admin = await getAdmin()
+          const token = bearer(req); if (!token) { send(res, 403, { error: 'Forbidden' }); return }
+          const { data: { user } } = await admin.auth.getUser(token)
+          if (!user) { send(res, 403, { error: 'Forbidden' }); return }
+          const body = await readJson(req)
+          const opts = { falKey, webhookBaseUrl: batchWebhookBase, isAdmin: isOperator(user.id, adminIds) }
+          const fns: Record<string, (a: unknown, u: string, o: typeof opts, b: unknown) => Promise<{ status: number; body: object }>> = {
+            create: (a, u, _o, b) => batchCreate(a, u, b as never), submit: (a, u, o, b) => batchSubmit(a, u, o, b as never),
+            reconcile: (a, u, o, b) => batchReconcile(a, u, o, b as never), cancel: (a, u, o, b) => batchCancel(a, u, o, b as never),
+            delete: (a, u, o, b) => batchDelete(a, u, o, b as never),
+          }
+          const fn = fns[action]
+          if (!fn) { send(res, 404, { error: `unknown action: ${action}` }); return }
+          const result = await fn(admin, user.id, opts, body)
+          send(res, result.status, result.body)
+        } catch (err) {
+          console.error('[dev-batch] error:', err)
           send(res, 500, { error: String(err) })
         }
       })
