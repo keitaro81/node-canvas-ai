@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { CheckCircle, CircleNotch, Warning, X } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
 import { useCanvasStore } from '../../stores/canvasStore'
+import { useWorkflowStore } from '../../stores/workflowStore'
 import {
   batchCreate, batchDryRun, batchItemsFromNode, buildWorkflowSnapshot, submitJobFully,
   type BatchLimits, type BatchPlanInfo, type CreateItemInput, type SubmitResult, type WorkflowSnapshot,
@@ -87,7 +88,8 @@ export function BatchSubmitDialog() {
     setErrorMsg(null)
     setPhase('creating')
     try {
-      const r = await batchCreate({ name: name.trim() || undefined, items, workflowSnapshot: snapshot })
+      // 投入元ワークフローを記録する（バリアント = そのワークフローの Product Layout ノード、と連動させるため）
+      const r = await batchCreate({ name: name.trim() || undefined, items, workflowSnapshot: snapshot, workflowId: useWorkflowStore.getState().currentWorkflowId })
       setJobId(r.jobId); setLimits(r.limits); setPlan(r.plan)
       bump()
       await runSubmit(r.jobId)

@@ -169,7 +169,20 @@ export async function falCancel(falKey: string, endpoint: string, requestId: str
 // ───────────────────────── create ─────────────────────────
 
 export interface CreateItemInput { index: number; originalName: string; sku: string; interactivePath: string; width?: number; height?: number }
-export interface CreateBody { name?: string; items?: CreateItemInput[]; workflowSnapshot?: WorkflowSnapshot; dryRun?: boolean }
+export interface CreateBody { name?: string; items?: CreateItemInput[]; workflowSnapshot?: WorkflowSnapshot; dryRun?: boolean; workflowId?: string | null }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 投入元ワークフロー: 本人のプロジェクトのもの、または同じチームに共有されたものだけ記録する（それ以外は null） */
+async function resolveSourceWorkflow(admin: Admin, userId: string, teamId: string, workflowId: unknown): Promise<string | null> {
+  if (typeof workflowId !== 'string' || !UUID_RE.test(workflowId)) return null
+  const { data: wf } = await admin.from('workflows').select('id, project_id, team_id, visibility').eq('id', workflowId).maybeSingle()
+  if (!wf) return null
+  const { data: project } = await admin.from('projects').select('user_id').eq('id', wf.project_id).maybeSingle()
+  if (project?.user_id === userId) return wf.id
+  if (wf.team_id === teamId && (wf.visibility === 'team' || wf.visibility === 'public')) return wf.id
+  return null
+}
 
 export async function batchCreate(admin: Admin, userId: string, body: CreateBody): Promise<BatchResult> {
   const m = await memberOf(admin, userId)
@@ -203,9 +216,10 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   if (plan.tasks.length === 0) return fail(400, 'no_tasks', { message: '一括実行の対象となる AI 処理ノード（Batch Input に接続した Remove Background 等）がありません', warnings: plan.warnings })
 
   const name = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : `${jstDateTimeLabel()} ${items.length}枚`
+  const workflowId = await resolveSourceWorkflow(admin, userId, m.teamId, body.workflowId)
   const { data: job, error: jobErr } = await admin.from('batch_jobs').insert({
     team_id: m.teamId, created_by: userId, name, workflow_snapshot: body.workflowSnapshot ?? {}, status: 'uploading',
-    item_count: items.length, task_count: planInfo.totalTasks, estimated_cost_usd: estimatedCostUsd,
+    item_count: items.length, task_count: planInfo.totalTasks, estimated_cost_usd: estimatedCostUsd, workflow_id: workflowId,
   }).select('id, webhook_secret').single()
   if (jobErr || !job) return fail(500, 'job_insert_failed', { message: jobErr?.message })
 

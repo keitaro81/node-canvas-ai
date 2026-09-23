@@ -153,6 +153,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
   - 対話実行はブラウザ主導（fal proxy 経由）。一括実行は `batchStore.openSubmitDialog` → `api/batch/create`（上限検査: 50 枚/ジョブ・日次 300 枚/チーム・同時 2 ジョブ）→ `submit`（元画像コピー→タスク作成→fal キュー投入、冪等・チャンク・attempts の CAS で二重投入防止）→ fal Webhook / `reconcile`（10 分超の投入済み）→ RPC で集約。
   - ジョブ管理画面 `/jobs`・`/jobs/:jobId`（`src/components/jobs/`）: RLS で直接読み、`batch_jobs` を Realtime 購読（チーム全体・ログイン中）、`batch_items` は詳細を開いている間だけ購読。アプリ起動時に `BatchSync` が「進行中の取得 → 自分の中断ジョブ（uploading・60 秒以上停止）の再開 → 照合 → 購読」を行う。Realtime に接続できない環境では見張り（realtimeGate）が諦めて再取得ポーリングに切り替える。
   - **ReviewGrid（Step 7）** `src/components/jobs/review/`: 写しの Product Layout ノード＝バリアント（`batch_jobs.layout_overrides` で上書き）。サムネイル（長辺 400px）は識別値 layoutHash（設定＋元画像＋結果ファイル＋版）で管理し、`batch_outputs(kind='thumb')` に記録・Storage に保存して再利用。描画は `LayoutExecutor`（Worker + OffscreenCanvas。無ければメインスレッド）で 1 アイテムずつ、Step 2/3 の関数をそのまま使う。書き出しは Worker でフル解像度→形式変換→fflate ストリーム ZIP。NG のみ再実行は `api/batch/rerun`（対象タスクを新設定で pending に戻し `input.__params` に保持、確認結果は未確認へ）。
+  - **バリアントの連動（0014）**: ジョブは `workflow_id` の元ワークフローが読めれば、その現在の `canvas_data` の Product Layout ノードを列にする（`variantsFromSnapshot` は写しと canvas_data の両形式を読む）。本人のワークフロー（project_id = 自分の既定プロジェクト）なら Jobs 画面の追加/削除/変更を `canvas_data` に書き戻す（`addLayoutNodeToCanvas` 等の純関数 → `updateWorkflow`）。読めない/他人のものなら `layout_overrides`（ノード別上書き + `__added`）にジョブだけ保存。キャンバス側は `visibilitychange` で `updated_at` を見て、未保存の変更が無ければ読み直す（後勝ち）。AI 処理の設定・タスクは写しで固定のまま。
 
 ## 11. マイグレーション
 
@@ -168,6 +169,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 | 0011 | 撮影後工程の基盤: teams に日次上限/原価表示・batch_jobs/items/tasks/outputs・集約RPC `apply_batch_task_result`・`review_batch_item`・私有バケット batch・Realtime publication |
 | 0012 | 一括投入: タスク一意索引 (job,node,item) NULLS NOT DISTINCT・照合用索引・`batch_items.interactive_path`・RPC が pending→failed も許可 |
 | 0013 | ReviewGrid: `batch_jobs.layout_overrides`＋RPC `set_batch_job_layout`・`batch_outputs.kind`（full/thumb）＋一意 (item,variant,hash,kind)・`record_batch_output` 5 引数版 |
+| 0014 | ジョブと投入元ワークフローの連動: `batch_jobs.workflow_id`（投入時に本人 or チーム共有のワークフローだけ記録） |
 
 ## 12. テスト
 

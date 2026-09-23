@@ -165,10 +165,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       })
       // 非公開バケット化: 署名URL（/object/sign?token=）を保存し直さないよう canonical へ正規化する（書込口）
       const canonicalNodes = canonicalizeCanvasNodes(sanitizedNodes)
-      await updateWorkflow(currentWorkflowId, {
+      const saved = await updateWorkflow(currentWorkflowId, {
         canvas_data: { nodes: canonicalNodes, edges, viewport: viewport ?? null, capsuleGroupId } as unknown as Json,
       })
-      set({ hasUnsavedChanges: false, lastSavedAt: new Date() })
+      // サーバーの updated_at を保持する（他の画面での更新を updated_at の比較で検知するため）
+      set({ hasUnsavedChanges: false, lastSavedAt: saved?.updated_at ? new Date(saved.updated_at) : new Date() })
     } catch (err) {
       console.warn('[saveCurrentWorkflow] 保存失敗:', err)
       showToast('保存に失敗しました。ネットワーク接続を確認してください。', 'error')

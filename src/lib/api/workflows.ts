@@ -32,6 +32,13 @@ export async function getWorkflow(id: string): Promise<WorkflowRow> {
   return data as any
 }
 
+/** updated_at だけを読む（他の画面での更新を検知する用途。RLS で読めない場合は null） */
+export async function getWorkflowUpdatedAt(id: string): Promise<string | null> {
+  const { data, error } = await supabase.from('workflows').select('updated_at').eq('id', id).maybeSingle()
+  if (error || !data) return null
+  return (data as { updated_at: string }).updated_at
+}
+
 export async function createWorkflow(data: WorkflowInsert): Promise<WorkflowRow> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = supabase.from('workflows') as any

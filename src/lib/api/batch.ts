@@ -32,7 +32,7 @@ export interface DryRunResult { limits: BatchLimits; plan: BatchPlanInfo }
 export interface SubmitResult { jobId: string; copied: number; copyFailures: string[]; tasksCreated: number; submitted: number; failedSubmits: number; pendingCopies: number; pendingTasks: number; totalTasks: number; done: boolean; jobStatus: string; webhook: boolean; warnings: string[] }
 export interface ReconcileResult { checked: number; completed: number; failed: number; resubmitted: number; pending: number; skipped: number }
 
-export const batchCreate = (body: { name?: string; items: CreateItemInput[]; workflowSnapshot: WorkflowSnapshot }) => call<CreateResult>('create', body)
+export const batchCreate = (body: { name?: string; items: CreateItemInput[]; workflowSnapshot: WorkflowSnapshot; workflowId?: string | null }) => call<CreateResult>('create', body)
 export const batchDryRun = (body: { items: CreateItemInput[]; workflowSnapshot: WorkflowSnapshot }) => call<DryRunResult>('create', { ...body, dryRun: true })
 export const batchSubmit = (body: { jobId: string; disableWebhook?: boolean; chunk?: number }) => call<SubmitResult>('submit', body)
 export const batchReconcile = (body: { jobId?: string; minAgeSec?: number } = {}) => call<ReconcileResult>('reconcile', body)

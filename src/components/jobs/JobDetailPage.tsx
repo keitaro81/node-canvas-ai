@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
 import { useAuthStore } from '../../stores/authStore'
-import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, reviewItem, setJobLayoutOverrides, subscribeJobItems } from '../../lib/api/batchJobs'
+import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchWorkflowSource, reviewItem, saveWorkflowCanvas, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
+import { useWorkflowStore } from '../../stores/workflowStore'
 import { batchRerun, submitJobFully } from '../../lib/api/batch'
 import { signBatchPath } from '../../lib/cutout/store'
 import { jobProgress } from '../../lib/batch/jobsQuery'
@@ -13,14 +14,17 @@ import { downloadBlob } from '../../lib/export/zip'
 import type { CutoutParams, ExportParams } from '../../types/nodes'
 import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchReview, BatchTaskRow } from '../../types/batch'
 import { useReviewStore, type ReviewContext } from '../../lib/review/reviewStore'
-import { CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveSelection, thumbKey, variantsFromSnapshot } from '../../lib/review/model'
+import {
+  ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveSelection,
+  removeLayoutNodeFromCanvas, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike,
+} from '../../lib/review/model'
 import { estimateExportBytes, exportJobZip, exportTargets } from '../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
 import { ReviewGrid } from './review/ReviewGrid'
 import { ReviewToolbar } from './review/ReviewToolbar'
 import { ReviewLightbox } from './review/ReviewLightbox'
-import { LayoutSettingsDrawer } from './review/LayoutSettingsDrawer'
+import { LayoutSettingsDrawer, type LayoutChangePlan, type LayoutSaveTarget } from './review/LayoutSettingsDrawer'
 import { RerunDialog } from './review/RerunDialog'
 import { ExportDialog, type ExportDialogState } from './review/ExportDialog'
 import { BG_ORDER } from './review/reviewStyles'
@@ -43,6 +47,8 @@ export function JobDetailPage() {
   const [items, setItems] = useState<BatchItemRow[]>([])
   const [tasks, setTasks] = useState<BatchTaskRow[]>([])
   const [knownThumbs, setKnownThumbs] = useState<BatchOutputRow[]>([])
+  const [source, setSource] = useState<WorkflowSource | null>(null)          // 投入元ワークフローの現在の内容（読めるとき）
+  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,7 +82,8 @@ export function JobDetailPage() {
       const [j, its, ts] = await Promise.all([fetchJobDetail(jobId), fetchJobItems(jobId), fetchJobTasks(jobId)])
       if (!j) { setNotFound(true); return }
       const th = await fetchJobThumbs(its.map((i) => i.id)).catch(() => [] as BatchOutputRow[])
-      setJob(j); setItems(its); setTasks(ts); setKnownThumbs(th); setError(null)
+      const src = j.workflow_id ? await fetchWorkflowSource(j.workflow_id) : null
+      setJob(j); setItems(its); setTasks(ts); setKnownThumbs(th); setSource(src); setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -93,6 +100,20 @@ export function JobDetailPage() {
     void loadAll().finally(() => setLoading(false))
     return () => { useReviewStore.getState().close() }
   }, [jobId, loadAll])
+  // 自分のプロジェクト ID（元ワークフローが自分のものか＝書き戻せるかの判定に使う）
+  useEffect(() => { useWorkflowStore.getState().initializeDefaultProject().then((id) => setDefaultProjectId(id)).catch(() => {}) }, [])
+  // キャンバス側でノードを変えたら、タブに戻ったときに列へ反映する
+  const reloadSource = useCallback(async () => {
+    const wid = job?.workflow_id
+    if (!wid) return
+    const src = await fetchWorkflowSource(wid)
+    setSource((prev) => (src && prev && src.updatedAt === prev.updatedAt ? prev : src))
+  }, [job?.workflow_id])
+  useEffect(() => {
+    const h = () => { if (document.visibilityState === 'visible') void reloadSource() }
+    document.addEventListener('visibilitychange', h)
+    return () => document.removeEventListener('visibilitychange', h)
+  }, [reloadSource])
   // ジョブ行（上書き設定を含む）は Realtime → jobsVersion で再取得。タスクの結果も一緒に
   const firstVersion = useRef(true)
   useEffect(() => {
@@ -123,7 +144,18 @@ export function JobDetailPage() {
   }, [jobId, realtimeOk, reloadTasks])
 
   // ── 派生 ──
-  const variants = useMemo(() => (job ? variantsFromSnapshot(job.workflow_snapshot, job.layout_overrides) : []), [job])
+  // バリアントの出どころ: 元ワークフローが読めればその現在のノード（本人のものなら書き戻し可）。読めなければ投入時の写し
+  const target: LayoutSaveTarget = source ? (defaultProjectId && source.projectId === defaultProjectId ? 'workflow' : 'job-shared') : 'job-snapshot'
+  const variants = useMemo(() => {
+    if (!job) return []
+    if (source) {
+      // 書き戻せる場合はノードの設定が正。ジョブだけの追加分（他メンバーが足したもの等）は残す
+      const overrides = target === 'workflow' ? { [ADDED_VARIANTS_KEY]: addedVariantsOf(job.layout_overrides) } : job.layout_overrides
+      return variantsFromSnapshot(source.canvas as CanvasLike, overrides)
+    }
+    return variantsFromSnapshot(job.workflow_snapshot, job.layout_overrides)
+  }, [job, source, target])
+  const hasJobOverrides = !!job && Object.keys(job.layout_overrides).length > 0
   const cutoutNode = useMemo(() => (job ? cutoutNodesFromSnapshot(job.workflow_snapshot)[0] ?? null : null), [job])
   const exportParams = useMemo<ExportParams>(() => exportParamsFromSnapshot(job?.workflow_snapshot), [job])
   const ctx = useMemo<ReviewContext | null>(() => (job && teamId ? {
@@ -180,11 +212,57 @@ export function JobDetailPage() {
   }, [lbItem])
   const renderFull = useCallback((itemId: string, variantKey: string) => useReviewStore.getState().renderFull(itemId, variantKey), [])
 
-  // ── レイアウト設定（ジョブ単位・fal は呼ばない） ──
-  const applyOverrides = useCallback(async (overrides: Record<string, unknown>) => {
+  // ── レイアウト設定（fal は呼ばない）: 本人のワークフローならノードに書き戻す。それ以外はジョブにだけ保存 ──
+  const applyPlan = useCallback(async (plan: LayoutChangePlan) => {
     if (!job) return
     setSavingLayout(true)
-    try { await setJobLayoutOverrides(job.id, overrides); await loadAll(); showToast('レイアウト設定を全アイテムに再適用しました', 'success'); setSettingsOpen(false) }
+    try {
+      const jobAdded = addedVariantsOf(job.layout_overrides)
+      if (target === 'workflow' && source) {
+        // 最新の canvas_data を取り直してから差分を当てる（後勝ちの幅を狭める）
+        const fresh = (await fetchWorkflowSource(source.id)) ?? source
+        let canvas: CanvasLike = fresh.canvas as CanvasLike
+        const nodeIds = new Set((Array.isArray(canvas.nodes) ? canvas.nodes : []).map((n) => n.id))
+        let added = jobAdded
+        for (const [key, params] of Object.entries(plan.updated)) {
+          if (nodeIds.has(key)) canvas = updateLayoutNodeParams(canvas, key, params)
+          else added = added.map((a) => (a.key === key ? { key, params } : a))
+        }
+        for (const key of plan.removed) {
+          if (nodeIds.has(key)) canvas = removeLayoutNodeFromCanvas(canvas, key)
+          else added = added.filter((a) => a.key !== key)
+        }
+        for (const a of plan.added) canvas = addLayoutNodeToCanvas(canvas, a.params).canvas
+        await saveWorkflowCanvas(source.id, canvas)
+        const overrides: Record<string, unknown> = added.length ? { [ADDED_VARIANTS_KEY]: added } : {}
+        if (JSON.stringify(overrides) !== JSON.stringify(job.layout_overrides)) await setJobLayoutOverrides(job.id, overrides)
+        showToast('ワークフローのノードを更新し、全アイテムに再適用しました', 'success')
+      } else {
+        const overrides: Record<string, unknown> = { ...job.layout_overrides }
+        delete overrides[ADDED_VARIANTS_KEY]
+        let added = jobAdded
+        for (const [key, params] of Object.entries(plan.updated)) {
+          if (added.some((a) => a.key === key)) added = added.map((a) => (a.key === key ? { key, params } : a))
+          else overrides[key] = params
+        }
+        for (const key of plan.removed) { added = added.filter((a) => a.key !== key); delete overrides[key] }
+        added = [...added, ...plan.added]
+        if (added.length) overrides[ADDED_VARIANTS_KEY] = added
+        await setJobLayoutOverrides(job.id, overrides)
+        showToast('レイアウト設定を全アイテムに再適用しました', 'success')
+      }
+      await loadAll()
+      setSettingsOpen(false)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setSavingLayout(false)
+    }
+  }, [job, source, target, loadAll])
+  const resetJobOverrides = useCallback(async () => {
+    if (!job) return
+    setSavingLayout(true)
+    try { await setJobLayoutOverrides(job.id, {}); await loadAll(); showToast('ジョブ側の変更を消しました', 'success') }
     catch (e) { showToast(e instanceof Error ? e.message : String(e), 'error') }
     finally { setSavingLayout(false) }
   }, [job, loadAll])
@@ -268,7 +346,12 @@ export function JobDetailPage() {
       <div className="flex-1 overflow-auto px-8 py-4">
         {variants.length === 0 && (
           <div className="mb-3 rounded-lg px-3 py-2 text-[12px]" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
-            投入時のワークフローに Product Layout ノードが無いため、切り抜き列だけを表示しています。「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合の書き出しは切り抜きの透過 PNG）。
+            {source ? `ワークフロー「${source.name}」に Product Layout ノードが無いため、` : '投入時のワークフローに Product Layout ノードが無いため、'}切り抜き列だけを表示しています。「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合の書き出しは切り抜きの透過 PNG）。
+          </div>
+        )}
+        {source && variants.length > 0 && (
+          <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : '（他のメンバーのワークフローのため、変更はこのジョブにだけ保存されます）'}。
           </div>
         )}
         <ReviewGrid
@@ -294,7 +377,7 @@ export function JobDetailPage() {
           hasPrev={lbIdx > 0} hasNext={lbIdx >= 0 && lbIdx < visibleItems.length - 1}
         />
       )}
-      <LayoutSettingsDrawer open={settingsOpen} variants={variants} saving={savingLayout} onClose={() => setSettingsOpen(false)} onApply={applyOverrides} onReset={() => applyOverrides({})} />
+      <LayoutSettingsDrawer open={settingsOpen} variants={variants} target={target} sourceName={source?.name ?? null} saving={savingLayout} onClose={() => setSettingsOpen(false)} onApply={applyPlan} onReset={resetJobOverrides} canReset={hasJobOverrides} />
       <RerunDialog open={rerunOpen} count={counts.ng} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
       <ExportDialog
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
