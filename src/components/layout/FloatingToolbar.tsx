@@ -26,12 +26,16 @@ import {
   Camera,
   Scissors,
   Layout,
+  Images,
+  DownloadSimple,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { DEFAULT_CUTOUT_PARAMS } from '../../lib/cutout/engines'
 import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
+import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
+import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
 import type { NodeType } from '../../types/nodes'
 import type { WorkflowRow } from '../../lib/api/workflows'
 
@@ -73,6 +77,8 @@ const PALETTE = [
     items: [
       { type: 'removeBackground' as NodeType, label: 'Remove Background', description: '商品を背景から切り抜く', icon: <Scissors size={15} />, color: '#14B8A6' },
       { type: 'productLayout' as NodeType, label: 'Product Layout', description: '余白・背景・影を付けて規定サイズに配置', icon: <Layout size={15} />, color: '#14B8A6' },
+      { type: 'batchInput' as NodeType, label: 'Batch Input', description: '複数の商品画像を受け取り 1 枚ずつ流す（最大 50）', icon: <Images size={15} />, color: '#14B8A6' },
+      { type: 'export' as NodeType, label: 'Export', description: '規定の名前と形式で書き出し（ZIP）', icon: <DownloadSimple size={15} />, color: '#14B8A6' },
     ],
   },
 ]
@@ -88,6 +94,8 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode', list: 'listNode', cameraList: 'cameraListNode',
   removeBackground: 'removeBackgroundNode',
   productLayout: 'productLayoutNode',
+  batchInput: 'batchInputNode',
+  export: 'exportNode',
 }
 
 let nodeIdCounter = 1000
@@ -119,6 +127,12 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'productLayout') {
     return { type: 'productLayout', label, params: { ...DEFAULT_LAYOUT_PARAMS }, status: 'idle' }
+  }
+  if (type === 'batchInput') {
+    return { type: 'batchInput', label, params: { ...DEFAULT_BATCH_INPUT_PARAMS }, status: 'idle', items: [], currentItemId: null }
+  }
+  if (type === 'export') {
+    return { type: 'export', label, params: { ...DEFAULT_EXPORT_PARAMS }, status: 'idle' }
   }
   return { type, label, params: {}, status: 'idle' }
 }

@@ -44,6 +44,10 @@ import { REMOVE_BACKGROUND_INPUT_HANDLE, REMOVE_BACKGROUND_OUTPUT_HANDLE } from 
 import { ProductLayoutNode } from '../nodes/ProductLayoutNode'
 import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../../lib/layout/nodeIo'
+import { BatchInputNode } from '../nodes/BatchInputNode'
+import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
+import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
+import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { uploadVideoFile, uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
@@ -70,6 +74,8 @@ const nodeTypes: NodeTypes = {
   cameraListNode: CameraListNode,
   removeBackgroundNode: RemoveBackgroundNode,
   productLayoutNode: ProductLayoutNode,
+  batchInputNode: BatchInputNode,
+  exportNode: ExportNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -91,6 +97,8 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   cameraList:      'cameraListNode',
   removeBackground: 'removeBackgroundNode',
   productLayout:   'productLayoutNode',
+  batchInput:      'batchInputNode',
+  export:          'exportNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -145,6 +153,22 @@ const PRODUCT_LAYOUT_DEFAULT_DATA = {
   type: 'productLayout' as const,
   label: 'Product Layout',
   params: { ...DEFAULT_LAYOUT_PARAMS },
+  status: 'idle' as const,
+}
+
+// 撮影後工程: 一括入力 / 書き出し
+const BATCH_INPUT_DEFAULT_DATA = {
+  type: 'batchInput' as const,
+  label: 'Batch Input',
+  params: { ...DEFAULT_BATCH_INPUT_PARAMS },
+  status: 'idle' as const,
+  items: [] as unknown[],
+  currentItemId: null as string | null,
+}
+const EXPORT_DEFAULT_DATA = {
+  type: 'export' as const,
+  label: 'Export',
+  params: { ...DEFAULT_EXPORT_PARAMS },
   status: 'idle' as const,
 }
 
@@ -272,6 +296,8 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   cameraList:     {},
   removeBackground: { image: REMOVE_BACKGROUND_INPUT_HANDLE },
   productLayout:  { cutout: PRODUCT_LAYOUT_INPUT_CUTOUT, image: PRODUCT_LAYOUT_INPUT_BACKGROUND },
+  batchInput:     {},
+  export:         { image: 'in-image-0', item: EXPORT_ITEM_HANDLE },
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
@@ -287,6 +313,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   cameraList:     'out-list',
   removeBackground: REMOVE_BACKGROUND_OUTPUT_HANDLE,
   productLayout:  PRODUCT_LAYOUT_OUTPUT,
+  batchInput:     'out-image-image',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -296,6 +323,7 @@ const PORT_COMPATIBLE: Record<string, string[]> = {
   style: ['style', 'text'],
   list:  ['list'],
   cutout: ['cutout'],
+  item:  ['item'],
 }
 
 function parsePortType(handleId: string | null): string {
@@ -593,6 +621,10 @@ export function Canvas() {
         data = { ...REMOVE_BACKGROUND_DEFAULT_DATA, params: { ...DEFAULT_CUTOUT_PARAMS }, label }
       } else if (type === 'productLayout') {
         data = { ...PRODUCT_LAYOUT_DEFAULT_DATA, params: { ...DEFAULT_LAYOUT_PARAMS }, label }
+      } else if (type === 'batchInput') {
+        data = { ...BATCH_INPUT_DEFAULT_DATA, params: { ...DEFAULT_BATCH_INPUT_PARAMS }, items: [], label }
+      } else if (type === 'export') {
+        data = { ...EXPORT_DEFAULT_DATA, params: { ...DEFAULT_EXPORT_PARAMS }, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -712,13 +744,16 @@ export function Canvas() {
           if (matchedHandle) {
             let targetHandleId: string | null = matchedHandle.getAttribute('data-handleid')
 
-            // imageGenerationNode への画像接続: 既存スロットを置き換えず末尾の空きスロットに追加
+            // imageGenerationNode / exportNode への画像接続: 既存スロットを置き換えず末尾の空きスロットに追加
             if (srcPortType === 'image') {
               const { nodes: sNodes, edges: sEdges } = useCanvasStore.getState()
-              if (sNodes.find((n) => n.id === targetNodeId)?.type === 'imageGenerationNode') {
+              const targetType = sNodes.find((n) => n.id === targetNodeId)?.type
+              if (targetType === 'imageGenerationNode' || targetType === 'exportNode') {
                 const connectedHandles = new Set(sEdges.filter((e) => e.target === targetNodeId).map((e) => e.targetHandle))
-                const REF_SLOTS = ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5', 'in-image-6', 'in-image-7', 'in-image-8', 'in-image-9', 'in-image-10']
-                const nextFree = REF_SLOTS.find((h) => !connectedHandles.has(h))
+                const SLOTS = targetType === 'exportNode'
+                  ? Array.from({ length: EXPORT_MAX_IMAGE_SLOTS }, (_, i) => `in-image-${i}`)
+                  : ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5', 'in-image-6', 'in-image-7', 'in-image-8', 'in-image-9', 'in-image-10']
+                const nextFree = SLOTS.find((h) => !connectedHandles.has(h))
                 if (nextFree) targetHandleId = nextFree
               }
             }
@@ -1082,6 +1117,10 @@ export function Canvas() {
         data = { ...REMOVE_BACKGROUND_DEFAULT_DATA, params: { ...DEFAULT_CUTOUT_PARAMS }, label }
       } else if (type === 'productLayout') {
         data = { ...PRODUCT_LAYOUT_DEFAULT_DATA, params: { ...DEFAULT_LAYOUT_PARAMS }, label }
+      } else if (type === 'batchInput') {
+        data = { ...BATCH_INPUT_DEFAULT_DATA, params: { ...DEFAULT_BATCH_INPUT_PARAMS }, items: [], label }
+      } else if (type === 'export') {
+        data = { ...EXPORT_DEFAULT_DATA, params: { ...DEFAULT_EXPORT_PARAMS }, label }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }

@@ -115,6 +115,7 @@ const COMPATIBLE: Record<PortType, PortType[]> = {
   style: ['style', 'text'],
   list:  ['list'],
   cutout: ['cutout'],
+  item:   ['item'],
 }
 
 function isCompatible(sourceType: PortType, targetType: PortType): boolean {
@@ -325,6 +326,7 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       style: '#6B7280',
       list:  '#8B5CF6',
       cutout: '#14B8A6',
+      item:   '#6B7280',
     }
 
     set((state) => {

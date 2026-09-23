@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate } from 'lucide-react'
+import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -19,6 +19,8 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   cameraList:     [],
   removeBackground: ['image'],
   productLayout:  ['cutout', 'image'],
+  batchInput:     [],
+  export:         ['image', 'item'],
   imageGen:       ['text', 'image', 'list'],
   videoGen:       ['text', 'image', 'video'],
   note:           [],
@@ -33,6 +35,8 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   cameraList:     ['list'],
   removeBackground: ['cutout'],
   productLayout:  ['image'],
+  batchInput:     ['image', 'item'],
+  export:         [],
   imageGen:       ['image'],
   referenceImage: ['image'],
   videoGen:       ['video'],
@@ -76,6 +80,8 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
     items: [
       { type: 'removeBackground', label: 'Remove Background', icon: <Scissors size={14} />, color: '#14B8A6' },
       { type: 'productLayout',    label: 'Product Layout',    icon: <LayoutTemplate size={14} />, color: '#14B8A6' },
+      { type: 'batchInput',       label: 'Batch Input',       icon: <Images size={14} />, color: '#14B8A6' },
+      { type: 'export',           label: 'Export',            icon: <Download size={14} />, color: '#14B8A6' },
     ],
   },
 ]
