@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeProps } from '@xyflow/react'
 import { LayoutTemplate, Loader2, RefreshCw } from 'lucide-react'
 import { BaseNode } from './BaseNode'
@@ -16,67 +16,10 @@ import { loadLayoutAssets, runLayout, storeLayoutOutput, type LayoutAssets } fro
 import { layoutHash } from '../../lib/layout/identity'
 import { interactiveCutoutDir, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
+import { Field, Num, Sel } from './pp/controls'
+import { CHECKER, CTRL, INPUT_STYLE, stopKeys } from './pp/styles'
 
-const INPUT_STYLE: CSSProperties = { background: 'var(--bg-canvas)', border: '1px solid var(--border)' }
-const CTRL = 'h-8 rounded-md px-2 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag nopan'
-const CHECKER: CSSProperties = {
-  backgroundColor: '#FFFFFF',
-  backgroundImage:
-    'linear-gradient(45deg,#CCCCCC 25%,transparent 25%),linear-gradient(-45deg,#CCCCCC 25%,transparent 25%),' +
-    'linear-gradient(45deg,transparent 75%,#CCCCCC 75%),linear-gradient(-45deg,transparent 75%,#CCCCCC 75%)',
-  backgroundSize: '16px 16px',
-  backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
-}
 const RENDER_DEBOUNCE_MS = 500
-
-const stopKeys = (e: React.KeyboardEvent) => e.stopPropagation()
-
-function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
-  return (
-    <div className={className}>
-      <div className="text-[11px] font-medium text-[var(--text-secondary)] mb-1">{label}</div>
-      {children}
-    </div>
-  )
-}
-
-function Num({ value, min, max, step, onChange, title }: { value: number; min?: number; max?: number; step?: number; onChange: (v: number) => void; title?: string }) {
-  // 入力中の文字列はローカルに持つ（範囲外の途中値で丸められないように）。範囲内なら即反映、確定は blur / Enter
-  const [draft, setDraft] = useState(String(value))
-  const [prev, setPrev] = useState(value)
-  if (value !== prev) { setPrev(value); setDraft(String(value)) }
-  const inRange = (n: number) => Number.isFinite(n) && (min === undefined || n >= min) && (max === undefined || n <= max)
-  const commit = () => {
-    const n = Number(draft)
-    if (!Number.isFinite(n)) { setDraft(String(value)); return }
-    const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n))
-    setDraft(String(clamped))
-    if (clamped !== value) onChange(clamped)
-  }
-  return (
-    <input
-      type="number"
-      className={`${CTRL} w-full tabular-nums`}
-      style={INPUT_STYLE}
-      value={draft}
-      min={min}
-      max={max}
-      step={step ?? 1}
-      title={title}
-      onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-      onChange={(e) => { setDraft(e.target.value); const n = Number(e.target.value); if (e.target.value !== '' && inRange(n) && n !== value) onChange(n) }}
-      onBlur={commit}
-    />
-  )
-}
-
-function Sel<T extends string>({ value, options, onChange }: { value: T; options: Array<[T, string]>; onChange: (v: T) => void }) {
-  return (
-    <select className={`${CTRL} w-full`} style={INPUT_STYLE} value={value} onChange={(e) => onChange(e.target.value as T)}>
-      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-    </select>
-  )
-}
 
 function ProductLayoutNodeInner(props: NodeProps) {
   const { id, data } = props
@@ -238,19 +181,19 @@ function ProductLayoutNodeInner(props: NodeProps) {
             }}
           />
           <div className="grid grid-cols-3 gap-1.5 mt-1.5">
-            <Field label="幅 px"><Num value={params.width} min={16} max={8192} onChange={(v) => setParams({ width: v })} /></Field>
-            <Field label="高さ px"><Num value={params.height} min={16} max={8192} onChange={(v) => setParams({ height: v })} /></Field>
-            <Field label="拡大の上限 %"><Num value={params.maxScalePercent} min={100} max={400} step={10} onChange={(v) => setParams({ maxScalePercent: v })} title="100 = 拡大しない（既定）" /></Field>
+            <Field label="幅 px"><Num value={params.width} min={16} max={8192} onChange={(v) => { if (v !== null) setParams({ width: v }) }} /></Field>
+            <Field label="高さ px"><Num value={params.height} min={16} max={8192} onChange={(v) => { if (v !== null) setParams({ height: v }) }} /></Field>
+            <Field label="拡大の上限 %"><Num value={params.maxScalePercent} min={100} max={400} step={10} onChange={(v) => { if (v !== null) setParams({ maxScalePercent: v }) }} title="100 = 拡大しない（既定）" /></Field>
           </div>
         </Field>
 
         <Field label={`余白（上・右・下・左 / ${params.marginUnit === 'percent' ? '%' : 'px'}）`}>
           <div className="grid grid-cols-5 gap-1.5">
-            <Num value={params.marginTop} min={0} onChange={(v) => setParams({ marginTop: v })} title="上" />
-            <Num value={params.marginRight} min={0} onChange={(v) => setParams({ marginRight: v })} title="右" />
-            <Num value={params.marginBottom} min={0} onChange={(v) => setParams({ marginBottom: v })} title="下" />
-            <Num value={params.marginLeft} min={0} onChange={(v) => setParams({ marginLeft: v })} title="左" />
-            <Sel<LayoutMarginUnit> value={params.marginUnit} options={[['percent', '%'], ['px', 'px']]} onChange={(v) => setParams({ marginUnit: v })} />
+            <Num value={params.marginTop} min={0} onChange={(v) => { if (v !== null) setParams({ marginTop: v }) }} title="上" />
+            <Num value={params.marginRight} min={0} onChange={(v) => { if (v !== null) setParams({ marginRight: v }) }} title="右" />
+            <Num value={params.marginBottom} min={0} onChange={(v) => { if (v !== null) setParams({ marginBottom: v }) }} title="下" />
+            <Num value={params.marginLeft} min={0} onChange={(v) => { if (v !== null) setParams({ marginLeft: v }) }} title="左" />
+            <Sel<LayoutMarginUnit> value={params.marginUnit} options={[['percent', '%'], ['px', 'px']]} onChange={(v) => { if (v !== null) setParams({ marginUnit: v }) }} />
           </div>
           {eff && livePlan && (
             <div className="mt-1 text-[11px] leading-snug" style={{ color: scaleCapped ? '#F59E0B' : 'var(--text-tertiary)' }}>
@@ -262,16 +205,16 @@ function ProductLayoutNodeInner(props: NodeProps) {
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="水平方向">
-            <Sel<LayoutAlignH> value={params.alignH} options={[['left', '左'], ['center', '中央'], ['right', '右']]} onChange={(v) => setParams({ alignH: v })} />
+            <Sel<LayoutAlignH> value={params.alignH} options={[['left', '左'], ['center', '中央'], ['right', '右']]} onChange={(v) => { if (v !== null) setParams({ alignH: v }) }} />
           </Field>
           <Field label="垂直方向">
-            <Sel<LayoutAlignV> value={params.alignV} options={[['top', '上'], ['center', '中央'], ['bottom', '下']]} onChange={(v) => setParams({ alignV: v })} />
+            <Sel<LayoutAlignV> value={params.alignV} options={[['top', '上'], ['center', '中央'], ['bottom', '下']]} onChange={(v) => { if (v !== null) setParams({ alignV: v }) }} />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="背景">
-            <Sel<LayoutBackgroundKind> value={params.backgroundKind} options={[['color', '単色'], ['image', '画像（背景入力）'], ['transparent', '透過']]} onChange={(v) => setParams({ backgroundKind: v })} />
+            <Sel<LayoutBackgroundKind> value={params.backgroundKind} options={[['color', '単色'], ['image', '画像（背景入力）'], ['transparent', '透過']]} onChange={(v) => { if (v !== null) setParams({ backgroundKind: v }) }} />
           </Field>
           {params.backgroundKind === 'color' && (
             <Field label="背景色">
@@ -284,26 +227,26 @@ function ProductLayoutNodeInner(props: NodeProps) {
           )}
           {params.backgroundKind === 'image' && (
             <Field label="背景画像の合わせ方">
-              <Sel<LayoutBackgroundFit> value={params.backgroundFit} options={[['cover', '全面を覆う'], ['contain', '全体を収める']]} onChange={(v) => setParams({ backgroundFit: v })} />
+              <Sel<LayoutBackgroundFit> value={params.backgroundFit} options={[['cover', '全面を覆う'], ['contain', '全体を収める']]} onChange={(v) => { if (v !== null) setParams({ backgroundFit: v }) }} />
             </Field>
           )}
         </div>
 
         <Field label="影">
-          <Sel<LayoutShadowKind> value={params.shadowKind} options={[['none', 'なし'], ['drop', 'ドロップシャドウ'], ['contact', '接地影']]} onChange={(v) => setParams({ shadowKind: v })} />
+          <Sel<LayoutShadowKind> value={params.shadowKind} options={[['none', 'なし'], ['drop', 'ドロップシャドウ'], ['contact', '接地影']]} onChange={(v) => { if (v !== null) setParams({ shadowKind: v }) }} />
           {params.shadowKind !== 'none' && (
             <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-              <Field label="濃さ (0〜1)"><Num value={params.shadowOpacity} min={0} max={1} step={0.05} onChange={(v) => setParams({ shadowOpacity: v })} /></Field>
-              <Field label="ぼかし px"><Num value={params.shadowBlur} min={0} max={500} onChange={(v) => setParams({ shadowBlur: v })} /></Field>
+              <Field label="濃さ (0〜1)"><Num value={params.shadowOpacity} min={0} max={1} step={0.05} onChange={(v) => { if (v !== null) setParams({ shadowOpacity: v }) }} /></Field>
+              <Field label="ぼかし px"><Num value={params.shadowBlur} min={0} max={500} onChange={(v) => { if (v !== null) setParams({ shadowBlur: v }) }} /></Field>
               {params.shadowKind === 'drop' ? (
                 <>
-                  <Field label="ずらし 横 px"><Num value={params.shadowOffsetX} onChange={(v) => setParams({ shadowOffsetX: v })} /></Field>
-                  <Field label="ずらし 縦 px"><Num value={params.shadowOffsetY} onChange={(v) => setParams({ shadowOffsetY: v })} /></Field>
+                  <Field label="ずらし 横 px"><Num value={params.shadowOffsetX} onChange={(v) => { if (v !== null) setParams({ shadowOffsetX: v }) }} /></Field>
+                  <Field label="ずらし 縦 px"><Num value={params.shadowOffsetY} onChange={(v) => { if (v !== null) setParams({ shadowOffsetY: v }) }} /></Field>
                 </>
               ) : (
                 <>
-                  <Field label="幅（商品幅×）"><Num value={params.contactWidthRatio} min={0} max={5} step={0.05} onChange={(v) => setParams({ contactWidthRatio: v })} /></Field>
-                  <Field label="高さ（商品高さ×）"><Num value={params.contactHeightRatio} min={0} max={5} step={0.01} onChange={(v) => setParams({ contactHeightRatio: v })} /></Field>
+                  <Field label="幅（商品幅×）"><Num value={params.contactWidthRatio} min={0} max={5} step={0.05} onChange={(v) => { if (v !== null) setParams({ contactWidthRatio: v }) }} /></Field>
+                  <Field label="高さ（商品高さ×）"><Num value={params.contactHeightRatio} min={0} max={5} step={0.01} onChange={(v) => { if (v !== null) setParams({ contactHeightRatio: v }) }} /></Field>
                 </>
               )}
             </div>

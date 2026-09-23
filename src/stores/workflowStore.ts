@@ -55,6 +55,9 @@ interface WorkflowState {
   cloneWorkflow(sourceId?: string): Promise<string>  // クローンして新しいworkflowIdを返す
 }
 
+// initializeDefaultProject の進行中 Promise（多重呼び出しの合流用）
+let defaultProjectInit: Promise<string> | null = null
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   currentWorkflowId: null,
   currentWorkflowName: 'Untitled Workflow',
@@ -71,16 +74,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   async initializeDefaultProject(): Promise<string> {
     const cached = get().defaultProjectId
     if (cached) return cached
-
-    const projects = await getProjects()
-    if (projects.length > 0) {
-      set({ defaultProjectId: projects[0].id })
-      return projects[0].id
+    // 同時に複数箇所から呼ばれても既定プロジェクトを二重に作らない（初回ログイン時に
+    // 「My Project」が 2 つでき、ワークフローが一覧に出ない/読み取り専用になる不具合の対策）
+    if (!defaultProjectInit) {
+      defaultProjectInit = (async () => {
+        const projects = await getProjects()
+        if (projects.length > 0) {
+          set({ defaultProjectId: projects[0].id })
+          return projects[0].id
+        }
+        const newProject = await createProject({ name: 'My Project' })
+        set({ defaultProjectId: newProject.id })
+        return newProject.id
+      })().finally(() => { defaultProjectInit = null })
     }
-
-    const newProject = await createProject({ name: 'My Project' })
-    set({ defaultProjectId: newProject.id })
-    return newProject.id
+    return defaultProjectInit
   },
 
   async loadWorkflows(): Promise<void> {

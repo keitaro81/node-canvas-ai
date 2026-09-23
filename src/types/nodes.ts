@@ -1,4 +1,4 @@
-export type PortType = 'text' | 'image' | 'video' | 'style' | 'list' | 'cutout'
+export type PortType = 'text' | 'image' | 'video' | 'style' | 'list' | 'cutout' | 'item'
 
 export type NodeType =
   | 'text'
@@ -19,6 +19,8 @@ export type NodeType =
   | 'cameraList'
   | 'removeBackground'
   | 'productLayout'
+  | 'batchInput'
+  | 'export'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -60,6 +62,7 @@ export const PORT_COLORS: Record<PortType, string> = {
   style: '#6B7280',
   list:  '#8B5CF6',
   cutout: '#14B8A6',
+  item:   '#6B7280',
 }
 
 export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
@@ -81,6 +84,8 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   cameraList:      '#8B5CF6',
   removeBackground: '#14B8A6',
   productLayout:   '#14B8A6',
+  batchInput:      '#14B8A6',
+  export:          '#14B8A6',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -225,4 +230,61 @@ export interface LayoutOutputRef {
   sourceRef: string                // 使った元画像の canonical 参照
   maskPath: string                 // 使ったマスク
   createdAt: string
+}
+
+// ===== 撮影後工程: 一括入力（BatchInputNode）と書き出し（ExportNode） =====
+
+export interface BatchInputParams {
+  skuPattern: string               // SKU 抽出の正規表現（最初の一致 / 第 1 グループ）。既定: 先頭から最初のアンダースコアまで
+  sortOrder: 'filename'            // 並び順（今回はファイル名順のみ）
+}
+
+export type BatchItemStatus = 'pending' | 'uploading' | 'ready' | 'error'
+
+/** BatchInputNode が保持するアイテム（画像 1 枚）。File 本体は保存しない。 */
+export interface BatchItem {
+  id: string
+  index: number                    // 並び順（1 始まり）。{index} トークンに使う
+  originalName: string             // 元のファイル名（拡張子つき）
+  sku: string
+  path: string | null              // batch バケット内のパス（アップロード後）
+  size: number
+  width?: number
+  height?: number
+  status: BatchItemStatus
+  error?: string
+}
+
+/** ExportNode に渡すアイテム情報（仕様 2 章「元のファイル名、SKU、並び順」） */
+export interface BatchItemInfo {
+  sku: string
+  original: string                 // 拡張子を除いた元ファイル名
+  index: number
+}
+
+export type ExportFormat = 'jpeg' | 'png' | 'webp'
+export type ExportZipFolders = 'variant' | 'sku' | 'none'
+
+export interface ExportParams {
+  namePattern: string              // 既定 {sku}_{variant}_{index:02}
+  format: ExportFormat             // 既定 jpeg
+  jpegQuality: number              // 既定 90（JPEG/WebP）
+  maxFileKb: number | null         // 指定時は品質を段階的に下げて収める（下限 70）
+  zip: boolean                     // 既定 true
+  zipFolders: ExportZipFolders     // 既定 variant
+}
+
+export interface ExportFileResult {
+  path: string                     // ZIP 内のパス（フォルダ含む）
+  bytes: number
+  format: ExportFormat
+  quality: number | null
+  warnings: string[]
+}
+
+export interface ExportResult {
+  at: string
+  zipName: string | null
+  files: ExportFileResult[]
+  warnings: string[]
 }
