@@ -51,3 +51,28 @@ export function Sel<T extends string>({ value, options, onChange, disabled }: { 
     </select>
   )
 }
+
+/**
+ * テキスト入力。入力中の文字列はローカルに持つ（全部消しても既定値に戻らない）。
+ * 空でない間は即反映、空のまま欄を離れたら直前の有効な値に戻す。
+ */
+export function TextField({ value, onChange, placeholder, mono, title }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean; title?: string
+}) {
+  const [draft, setDraft] = useState(value)
+  const [prev, setPrev] = useState(value)
+  if (value !== prev) { setPrev(value); setDraft(value) }
+  return (
+    <input
+      type="text"
+      className={`${CTRL} w-full${mono ? ' font-mono' : ''}`}
+      style={INPUT_STYLE}
+      value={draft}
+      placeholder={placeholder}
+      title={title}
+      onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      onChange={(e) => { setDraft(e.target.value); if (e.target.value.trim() && e.target.value !== value) onChange(e.target.value) }}
+      onBlur={() => { if (!draft.trim()) setDraft(value) }}
+    />
+  )
+}

@@ -10,8 +10,8 @@ import {
 } from '../../lib/batch/items'
 import { readImageSize, runWithConcurrency } from '../../lib/batch/upload'
 import { interactiveCutoutDir, resolveTeamId, signBatchPath, signBatchPaths, uploadBatchObject } from '../../lib/cutout/store'
-import { Field } from './pp/controls'
-import { CTRL, INPUT_STYLE, PP_ACCENT, stopKeys } from './pp/styles'
+import { Field, TextField } from './pp/controls'
+import { PP_ACCENT } from './pp/styles'
 
 // アップロード用の File はセッション内だけ保持する（canvas_data には保存しない）
 const pendingFiles = new Map<string, Map<string, File>>()
@@ -182,14 +182,9 @@ function BatchInputNodeInner(props: NodeProps) {
         <input id={`batch-input-${id}`} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }} />
 
         <Field label="SKU の抽出規則（正規表現・最初の一致 / 第 1 グループ）">
-          <input
-            type="text"
-            className={`${CTRL} w-full font-mono`}
-            style={{ ...INPUT_STYLE, ...(patternError ? { borderColor: '#EF4444' } : {}) }}
-            value={params.skuPattern}
-            onKeyDown={stopKeys}
-            onChange={(e) => updateNode(id, { params: { ...params, skuPattern: e.target.value } })}
-          />
+          <div style={patternError ? { outline: '1px solid #EF4444', borderRadius: 6 } : undefined}>
+            <TextField value={params.skuPattern} onChange={(v) => updateNode(id, { params: { ...params, skuPattern: v } })} mono placeholder="^([A-Za-z0-9-]+)_" />
+          </div>
           <div className="text-[11px] mt-1" style={{ color: patternError ? '#EF4444' : 'var(--text-tertiary)' }}>
             {patternError ? '正規表現が不正です（拡張子を除いたファイル名を SKU にします）' : '一致しない場合は拡張子を除いたファイル名を SKU にします。並び順: ファイル名順'}
           </div>

@@ -16,7 +16,7 @@ import { loadLayoutAssets, runLayout, storeLayoutOutput, type LayoutAssets } fro
 import { layoutHash } from '../../lib/layout/identity'
 import { interactiveCutoutDir, resolveFetchableUrl, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
 import { REMOVE_BACKGROUND_INPUT_HANDLE, imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { Field, Num, Sel } from './pp/controls'
+import { Field, Num, Sel, TextField } from './pp/controls'
 import { CHECKER, CTRL, INPUT_STYLE, stopKeys } from './pp/styles'
 
 const RENDER_DEBOUNCE_MS = 500
@@ -161,15 +161,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
     >
       <div className="flex flex-col gap-2.5 nodrag">
         <Field label="バリアント名">
-          <input
-            type="text"
-            className={`${CTRL} w-full`}
-            style={INPUT_STYLE}
-            value={params.variantName}
-            onKeyDown={stopKeys}
-            onChange={(e) => setParams({ variantName: e.target.value })}
-            onBlur={(e) => { if (!e.target.value.trim()) setParams({ variantName: 'ec_white' }) }}
-          />
+          <TextField value={params.variantName} onChange={(v) => setParams({ variantName: v })} placeholder="ec_white" />
         </Field>
 
         <Field label="出力サイズ">

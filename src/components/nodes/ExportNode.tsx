@@ -12,8 +12,8 @@ import { buildZip, downloadBlob } from '../../lib/export/zip'
 import { normalizeLayoutParams } from '../../lib/layout/computeLayout'
 import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { Field, Num, Sel } from './pp/controls'
-import { CTRL, INPUT_STYLE, PP_ACCENT, stopKeys } from './pp/styles'
+import { Field, Num, Sel, TextField } from './pp/controls'
+import { PP_ACCENT } from './pp/styles'
 
 export const EXPORT_MAX_IMAGE_SLOTS = 10
 export const EXPORT_ITEM_HANDLE = 'in-item-item'
@@ -168,8 +168,7 @@ function ExportNodeInner(props: NodeProps) {
     >
       <div className="flex flex-col gap-2.5 nodrag">
         <Field label="ファイル名の規則">
-          <input type="text" className={`${CTRL} w-full font-mono`} style={INPUT_STYLE} value={params.namePattern} onKeyDown={stopKeys}
-            onChange={(e) => setParams({ namePattern: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) setParams({ namePattern: '{sku}_{variant}_{index:02}' }) }} />
+          <TextField value={params.namePattern} onChange={(v) => setParams({ namePattern: v })} mono placeholder="{sku}_{variant}_{index:02}" />
           <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">{'{sku} {original} {variant} {index} {index:02} {date}'}</div>
         </Field>
 
