@@ -133,6 +133,65 @@ export function identityFor(input: {
 /** 切り抜き列用のダミー設定（透過・余白なし・正方形は使わない。識別値の区別のためだけに固定値を入れる） */
 export const CUTOUT_PREVIEW_PARAMS: LayoutParams = normalizeLayoutParams({ variantName: '__cutout', backgroundKind: 'transparent', width: 16, height: 16, marginTop: 0, marginRight: 0, marginBottom: 0, marginLeft: 0 })
 
+// ───────────────────────── 投入元ワークフロー（canvas_data）との連動 ─────────────────────────
+// バリアント = ワークフローの Product Layout ノード。Jobs 画面での追加・削除・変更はノードを書き換える（本人のワークフローのみ）。
+
+export interface CanvasNode { id: string; type?: string; position?: { x: number; y: number }; data?: Record<string, unknown>; [k: string]: unknown }
+export interface CanvasEdge { id?: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null; [k: string]: unknown }
+export interface CanvasLike { nodes?: CanvasNode[]; edges?: CanvasEdge[]; [k: string]: unknown }
+export type CanvasFull = CanvasLike & { nodes: CanvasNode[]; edges: CanvasEdge[] }
+
+const CUTOUT_OUT_HANDLE = 'out-cutout-cutout'
+const LAYOUT_IN_HANDLE = 'in-cutout-cutout'
+const LAYOUT_NODE_TYPE = 'productLayoutNode'
+const LAYOUT_NODE_W = 300
+const LAYOUT_NODE_GAP = 720
+
+/** 一括実行の切り抜きノード（Batch Input に直結した Remove Background）。無ければ最初の Remove Background */
+export function cutoutSourceNodeId(canvas: CanvasLike | null | undefined): string | null {
+  const nodes = Array.isArray(canvas?.nodes) ? canvas!.nodes! : []
+  const fed = cutoutNodesFromSnapshot(canvas as Snapshot)[0]?.nodeId
+  return fed ?? nodes.find((n) => n?.data?.type === 'removeBackground')?.id ?? null
+}
+
+export function newLayoutNodeId(): string {
+  return `${LAYOUT_NODE_TYPE}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
+/** Product Layout ノードを追加し、切り抜きノードにつなぐ。位置は既存のレイアウトノードの下（無ければ切り抜きノードの右） */
+export function addLayoutNodeToCanvas(canvas: CanvasLike, params: LayoutParams, nodeId = newLayoutNodeId()): { canvas: CanvasFull; nodeId: string } {
+  const nodes = Array.isArray(canvas.nodes) ? canvas.nodes : []
+  const edges = Array.isArray(canvas.edges) ? canvas.edges : []
+  const layouts = nodes.filter((n) => n?.data?.type === 'productLayout')
+  const srcId = cutoutSourceNodeId(canvas)
+  const src = nodes.find((n) => n.id === srcId)
+  let position = { x: 760, y: 40 }
+  if (layouts.length) {
+    const lowest = layouts.reduce((a, b) => ((b.position?.y ?? 0) > (a.position?.y ?? 0) ? b : a))
+    position = { x: lowest.position?.x ?? 760, y: (lowest.position?.y ?? 0) + LAYOUT_NODE_GAP }
+  } else if (src?.position) {
+    position = { x: src.position.x + LAYOUT_NODE_W + 80, y: src.position.y }
+  }
+  const node: CanvasNode = { id: nodeId, type: LAYOUT_NODE_TYPE, position, data: { type: 'productLayout', label: 'Product Layout', params: { ...params }, status: 'idle' } }
+  const newEdges = srcId
+    ? [...edges, { id: `e-${srcId}-${nodeId}`, source: srcId, sourceHandle: CUTOUT_OUT_HANDLE, target: nodeId, targetHandle: LAYOUT_IN_HANDLE, style: { stroke: '#14B8A6', strokeWidth: 2 }, animated: false, className: '' }]
+    : edges
+  return { canvas: { ...canvas, nodes: [...nodes, node], edges: newEdges }, nodeId }
+}
+
+/** Product Layout ノードを削除し、そのノードにつながる辺も外す */
+export function removeLayoutNodeFromCanvas(canvas: CanvasLike, nodeId: string): CanvasFull {
+  const nodes = (Array.isArray(canvas.nodes) ? canvas.nodes : []).filter((n) => n.id !== nodeId)
+  const edges = (Array.isArray(canvas.edges) ? canvas.edges : []).filter((e) => e.source !== nodeId && e.target !== nodeId)
+  return { ...canvas, nodes, edges }
+}
+
+/** Product Layout ノードのパラメータを差し替える */
+export function updateLayoutNodeParams(canvas: CanvasLike, nodeId: string, params: LayoutParams): CanvasFull {
+  const nodes = (Array.isArray(canvas.nodes) ? canvas.nodes : []).map((n) => (n.id === nodeId ? { ...n, data: { ...(n.data ?? {}), params: { ...params } } } : n))
+  return { ...canvas, nodes, edges: Array.isArray(canvas.edges) ? canvas.edges : [] }
+}
+
 /** 書き出しの対象バリアント。レイアウトノードが無いジョブでは切り抜き（透過 PNG）を 'cutout' として書き出す */
 export function exportVariantsOf(variants: ReviewVariant[]): ReviewVariant[] {
   if (variants.length) return variants

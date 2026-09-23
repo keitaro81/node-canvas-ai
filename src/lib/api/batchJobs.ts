@@ -9,6 +9,8 @@ import {
   type BatchItemRow, type BatchJobDetail, type BatchJobRow, type BatchOutputRow, type BatchReview, type BatchTaskRow, type ReviewCounts,
 } from '../../types/batch'
 import { aggregateReviewCounts } from '../batch/jobsQuery'
+import { getWorkflow, updateWorkflow } from './workflows'
+import type { Json } from '../../types/database'
 
 // 手書きの Database 型は batch_* を持たない（列指定 select が never に潰れる）ため、既存の teams.ts と同じく untyped で引き、結果側で型を付ける
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,13 +86,30 @@ export async function fetchJob(jobId: string): Promise<BatchJobRow | null> {
   return (data as BatchJobRow | null) ?? null
 }
 
-/** ジョブ詳細（写し・上書き設定つき）。ReviewGrid 用 */
+/** ジョブ詳細（写し・上書き設定・投入元ワークフローつき）。ReviewGrid 用 */
 export async function fetchJobDetail(jobId: string): Promise<BatchJobDetail | null> {
   const { data, error } = await sb.from('batch_jobs').select(JOB_DETAIL_COLUMNS).eq('id', jobId).maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) return null
   const row = data as BatchJobDetail
-  return { ...row, workflow_snapshot: row.workflow_snapshot ?? {}, layout_overrides: row.layout_overrides && typeof row.layout_overrides === 'object' ? row.layout_overrides : {} }
+  return { ...row, workflow_snapshot: row.workflow_snapshot ?? {}, layout_overrides: row.layout_overrides && typeof row.layout_overrides === 'object' ? row.layout_overrides : {}, workflow_id: row.workflow_id ?? null }
+}
+
+/** 投入元ワークフローの現在の内容（RLS: 本人か、チーム共有のものだけ読める。読めなければ null） */
+export interface WorkflowSource { id: string; projectId: string; name: string; canvas: Record<string, unknown>; updatedAt: string }
+export async function fetchWorkflowSource(workflowId: string): Promise<WorkflowSource | null> {
+  try {
+    const w = await getWorkflow(workflowId)
+    const canvas = w.canvas_data && typeof w.canvas_data === 'object' && !Array.isArray(w.canvas_data) ? (w.canvas_data as Record<string, unknown>) : {}
+    return { id: w.id, projectId: w.project_id, name: w.name, canvas, updatedAt: w.updated_at }
+  } catch {
+    return null
+  }
+}
+
+/** 投入元ワークフローの canvas_data を保存する（本人のワークフローだけ RLS で通る） */
+export async function saveWorkflowCanvas(workflowId: string, canvas: Record<string, unknown>): Promise<void> {
+  await updateWorkflow(workflowId, { canvas_data: canvas as unknown as Json })
 }
 
 /** ジョブのタスク（結果ファイルのパスと付帯情報） */

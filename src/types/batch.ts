@@ -122,6 +122,7 @@ export const OUTPUT_COLUMNS = 'id, item_id, team_id, variant, layout_hash, outpu
 export interface BatchJobDetail extends BatchJobRow {
   workflow_snapshot: { nodes?: Array<{ id: string; type?: string; data?: Record<string, unknown> }>; edges?: Array<{ source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }> }
   layout_overrides: Record<string, unknown>
+  workflow_id: string | null      // 投入元ワークフロー（0014）。バリアントはこのワークフローの現在のノードから作る
 }
 
-export const JOB_DETAIL_COLUMNS = `${JOB_COLUMNS}, workflow_snapshot, layout_overrides`
+export const JOB_DETAIL_COLUMNS = `${JOB_COLUMNS}, workflow_snapshot, layout_overrides, workflow_id`

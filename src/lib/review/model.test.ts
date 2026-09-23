@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, cutoutParamsOf, estimateZipBytes, exportParamsFromSnapshot, filterItems, identityFor,
-  addedVariantsOf, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveSelection, newVariantKey, planJobExport, resultKindOf, thumbFileName, variantsFromSnapshot,
+  addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveSelection, newVariantKey, planJobExport,
+  removeLayoutNodeFromCanvas, resultKindOf, thumbFileName, updateLayoutNodeParams, variantsFromSnapshot,
 } from './model'
 import { layoutIdentityString } from '../layout/identity'
 import type { BatchItemRow, BatchTaskRow } from '../../types/batch'
@@ -45,6 +46,30 @@ describe('review model', () => {
     expect(newVariantKey(['pl1', 'added-1', 'added-2'])).toBe('added-3')
     // レイアウトノードが無いジョブに追加すれば、その列だけが書き出し対象になる（切り抜き PNG ではなく）
     expect(exportVariantsOf(variantsFromSnapshot({}, { __added: [{ key: 'added-1', params: { variantName: 'x' } }] })).map((x) => x.name)).toEqual(['x'])
+  })
+  it('canvas_data（React Flow 形式）からもバリアントを取り出せる', () => {
+    const canvas = { nodes: [{ id: 'bi', type: 'batchInputNode', position: { x: 0, y: 0 }, data: { type: 'batchInput', params: {} } }, { id: 'rb', type: 'removeBackgroundNode', position: { x: 400, y: 0 }, data: { type: 'removeBackground', params: {} } }, { id: 'pl', type: 'productLayoutNode', position: { x: 760, y: 0 }, data: { type: 'productLayout', params: { variantName: 'ec' } } }], edges: [{ id: 'e1', source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' }], viewport: { x: 1 } }
+    expect(variantsFromSnapshot(canvas, null).map((v) => `${v.key}:${v.name}`)).toEqual(['pl:ec'])
+    expect(cutoutSourceNodeId(canvas)).toBe('rb')
+  })
+  it('ワークフローへの追加・変更・削除（純関数）は辺と位置を整え、他のデータを保つ', () => {
+    const canvas = { nodes: [{ id: 'bi', type: 'batchInputNode', position: { x: 0, y: 0 }, data: { type: 'batchInput', params: {} } }, { id: 'rb', type: 'removeBackgroundNode', position: { x: 400, y: 0 }, data: { type: 'removeBackground', params: {} } }], edges: [{ id: 'e1', source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' }], viewport: { x: 1 } }
+    const p = { ...variantsFromSnapshot(snapshot, null)[0].params, variantName: 'amazon' }
+    const a = addLayoutNodeToCanvas(canvas, p, 'pl-new')
+    expect(a.nodeId).toBe('pl-new')
+    expect(a.canvas.nodes.map((n) => n.id)).toEqual(['bi', 'rb', 'pl-new'])
+    expect(a.canvas.nodes[2].position).toEqual({ x: 400 + 300 + 80, y: 0 })
+    expect(a.canvas.edges.map((e) => `${e.source}:${e.sourceHandle}->${e.target}:${e.targetHandle}`)).toContain('rb:out-cutout-cutout->pl-new:in-cutout-cutout')
+    expect(a.canvas.viewport).toEqual({ x: 1 })
+    expect(variantsFromSnapshot(a.canvas, null).map((v) => v.name)).toEqual(['amazon'])
+    const b = addLayoutNodeToCanvas(a.canvas, { ...p, variantName: 'sns' }, 'pl-2')
+    expect(b.canvas.nodes[3].position).toEqual({ x: 780, y: 720 })   // 既存レイアウトの下
+    const u = updateLayoutNodeParams(b.canvas, 'pl-new', { ...p, marginTop: 30 })
+    expect(variantsFromSnapshot(u, null)[0].params.marginTop).toBe(30)
+    const r = removeLayoutNodeFromCanvas(u, 'pl-new')
+    expect(r.nodes.map((n) => n.id)).toEqual(['bi', 'rb', 'pl-2'])
+    expect(r.edges.some((e) => e.target === 'pl-new')).toBe(false)
+    expect(r.edges.length).toBe(2)
   })
   it('切り抜きノードと書き出し設定', () => {
     expect(cutoutNodesFromSnapshot(snapshot).map((c) => `${c.nodeId}:${c.params.alphaThreshold}`)).toEqual(['rb:12'])

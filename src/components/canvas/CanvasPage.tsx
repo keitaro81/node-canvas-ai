@@ -12,6 +12,8 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import { useAutoSave } from '../../hooks/useAutoSave'
 import { useTheme } from '../../hooks/useTheme'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { getWorkflowUpdatedAt } from '../../lib/api/workflows'
+import { showToast } from '../../hooks/useToast'
 
 function LoadingScreen() {
   return (
@@ -40,6 +42,26 @@ export function CanvasPage() {
   const [initError, setInitError] = useState<string | null>(null)
 
   useAutoSave()
+
+  // 他の画面（Jobs のレイアウト設定など）で保存されたら、タブに戻ったときに読み直す。未保存の変更があれば知らせるだけ
+  useEffect(() => {
+    if (!workflowId) return
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return
+      const { hasUnsavedChanges, isSaving, isLoadingWorkflow, lastSavedAt, currentWorkflowId } = useWorkflowStore.getState()
+      if (isSaving || isLoadingWorkflow || currentWorkflowId !== workflowId || !lastSavedAt) return
+      const updatedAt = await getWorkflowUpdatedAt(workflowId)
+      if (!updatedAt || new Date(updatedAt).getTime() <= lastSavedAt.getTime()) return
+      if (hasUnsavedChanges) { showToast('このワークフローは他の画面で更新されています。ここで保存すると上書きされます', 'warning'); return }
+      // レイアウトノード（バリアント）が変わったときだけ知らせる（生成結果の書込などでも updated_at は進むため）
+      const sig = () => JSON.stringify(useCanvasStore.getState().nodes.filter((n) => (n.data as { type?: string }).type === 'productLayout').map((n) => [n.id, (n.data as { params?: unknown }).params]))
+      const before = sig()
+      await loadWorkflow(workflowId)
+      if (sig() !== before) showToast('他の画面でのバリアントの変更を読み込みました', 'info')
+    }
+    document.addEventListener('visibilitychange', check)
+    return () => document.removeEventListener('visibilitychange', check)
+  }, [workflowId, loadWorkflow])
 
   // モバイルでは常に capsule モードに固定
   useEffect(() => {
