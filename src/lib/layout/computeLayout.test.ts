@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeLayout, contentRectOf, fitBackground, normalizeLayoutParams, DEFAULT_LAYOUT_PARAMS } from './computeLayout'
+import { computeLayout, contentRectOf, effectiveMargins, fitBackground, normalizeLayoutParams, DEFAULT_LAYOUT_PARAMS } from './computeLayout'
 
 const P = DEFAULT_LAYOUT_PARAMS
 
@@ -37,6 +37,28 @@ describe('computeLayout', () => {
     expect(plan.productRect).toEqual({ x: 250, y: 100, width: 750, height: 1125 })
     expect(plan.warnings.some((w) => w.includes('100%'))).toBe(true)
     expect(Number.isInteger(plan.productRect.x) && Number.isInteger(plan.productRect.y)).toBe(true)
+  })
+
+  it('拡大の上限を上げると、その範囲で拡大する（200% なら領域いっぱい、110% なら 110% で止めて警告）', () => {
+    // bbox 500×900 → 領域 1008×1008 に収める倍率は 1.12（高さで決まる）
+    const full = computeLayout({ params: { ...P, maxScalePercent: 200 }, source, bbox })
+    expect(full.scale).toBeCloseTo(1.12, 6)
+    expect(full.bboxRect.height).toBeCloseTo(1008, 6)
+    expect(full.warnings).toEqual([])
+    const capped = computeLayout({ params: { ...P, maxScalePercent: 110 }, source, bbox })
+    expect(capped.scale).toBe(1.1)
+    expect(capped.bboxRect.width).toBeCloseTo(500 * 1.1, 6)
+    expect(capped.warnings.some((w) => w.includes('上限 110%'))).toBe(true)
+    expect(normalizeLayoutParams({ maxScalePercent: 50 }).maxScalePercent).toBe(100)
+    expect(normalizeLayoutParams({ maxScalePercent: 999 }).maxScalePercent).toBe(400)
+  })
+
+  it('実効余白: 上限で止まると設定値より広くなり、上限を上げると設定どおり（律速の辺）になる', () => {
+    const m = effectiveMargins(computeLayout({ params: P, source, bbox }))
+    expect(m).toEqual({ top: 150, right: 350, bottom: 150, left: 350, topPct: 12.5, rightPct: 29.2, bottomPct: 12.5, leftPct: 29.2 })
+    const exact = effectiveMargins(computeLayout({ params: { ...P, maxScalePercent: 200 }, source, bbox }))
+    expect(exact.topPct).toBe(8); expect(exact.bottomPct).toBe(8)   // 高さが律速 → 上下は設定どおり 8%
+    expect(exact.leftPct).toBeGreaterThan(8)                           // 幅は余る
   })
 
   it('余白を引いた領域に外接矩形が収まる最大倍率で縮小する', () => {

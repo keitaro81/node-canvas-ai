@@ -27,7 +27,8 @@ export interface LayoutPlan {
   canvas: Size
   contentRect: Rect                // 余白を引いた領域（整数 px）
   bbox: CutoutBBox                 // 使った外接矩形（元画像座標）
-  scale: number                    // 商品の倍率（≤ 1）
+  scale: number                    // 商品の倍率（≤ maxScalePercent/100）
+  fitScale: number                 // 領域いっぱいに置くのに必要な倍率（scale < fitScale なら上限で止まっている）
   productRect: Rect                // 元画像全体の配置矩形（出力 px）
   bboxRect: Rect                   // 外接矩形の配置矩形（出力 px）
   background: BackgroundPlan
@@ -39,6 +40,7 @@ export const DEFAULT_LAYOUT_PARAMS: LayoutParams = {
   variantName: 'ec_white',
   width: 1200,
   height: 1200,
+  maxScalePercent: 100,
   marginUnit: 'percent',
   marginTop: 8,
   marginRight: 8,
@@ -82,6 +84,7 @@ export function normalizeLayoutParams(p: unknown): LayoutParams {
     variantName: typeof s.variantName === 'string' && s.variantName.trim() ? s.variantName.trim() : d.variantName,
     width: Math.round(num(s.width, d.width, 16, 8192)),
     height: Math.round(num(s.height, d.height, 16, 8192)),
+    maxScalePercent: Math.round(num(s.maxScalePercent, d.maxScalePercent, 100, 400)),
     marginUnit,
     marginTop: num(s.marginTop, d.marginTop, 0, mMax),
     marginRight: num(s.marginRight, d.marginRight, 0, mMax),
@@ -143,7 +146,7 @@ export function fitBackground(canvas: Size, bg: Size, fit: 'cover' | 'contain'):
 
 /**
  * レイアウトを決める。
- * - 余白を引いた領域に、外接矩形が収まる最大の倍率で配置（拡大は 100% まで。超える場合は拡大せず警告）
+ * - 余白を引いた領域に、外接矩形が収まる最大の倍率で配置（拡大は maxScalePercent まで。既定 100% = 拡大しない。超える場合は上限で止めて警告）
  * - 倍率 1.0 のときは配置座標を整数に丸め、再サンプリングなしで画素をそのまま写せるようにする（7 章の画素一致）
  * - 影はマスクから決定的に作るための寸法だけをここで決める（描画は renderLayout）
  */
@@ -164,10 +167,11 @@ export function computeLayout(input: LayoutInput): LayoutPlan {
   }
 
   const fitScale = Math.min(contentRect.width / bbox.w, contentRect.height / bbox.h)
+  const maxScale = params.maxScalePercent / 100
   let scale = fitScale
-  if (fitScale > 1) {
-    scale = 1
-    warnings.push(`拡大が必要（${Math.round(fitScale * 100)}%）ですが、画質維持のため 100% で配置しました`)
+  if (fitScale > maxScale) {
+    scale = maxScale
+    warnings.push(`拡大が必要（${Math.round(fitScale * 100)}%）ですが、上限 ${params.maxScalePercent}% で配置しました`)
   }
 
   let bw = bbox.w * scale
@@ -212,5 +216,14 @@ export function computeLayout(input: LayoutInput): LayoutPlan {
     }
   }
 
-  return { canvas, contentRect, bbox, scale, productRect, bboxRect, background, shadow, warnings }
+  return { canvas, contentRect, bbox, scale, fitScale, productRect, bboxRect, background, shadow, warnings }
+}
+
+/** 実際に見える余白（出力 px と %）。拡大の上限で止まった場合は設定値より広くなる。表示用。 */
+export function effectiveMargins(plan: LayoutPlan): { top: number; right: number; bottom: number; left: number; topPct: number; rightPct: number; bottomPct: number; leftPct: number } {
+  const { width: W, height: H } = plan.canvas
+  const b = plan.bboxRect
+  const top = b.y, left = b.x, right = W - (b.x + b.width), bottom = H - (b.y + b.height)
+  const pct = (v: number, base: number) => Math.round((v / base) * 1000) / 10
+  return { top, right, bottom, left, topPct: pct(top, H), rightPct: pct(right, W), bottomPct: pct(bottom, H), leftPct: pct(left, W) }
 }

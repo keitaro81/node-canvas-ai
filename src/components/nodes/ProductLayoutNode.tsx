@@ -10,7 +10,7 @@ import type {
   NodeData, LayoutParams, LayoutOutputRef, LayoutAlignH, LayoutAlignV, LayoutBackgroundFit, LayoutBackgroundKind,
   LayoutMarginUnit, LayoutShadowKind,
 } from '../../types/nodes'
-import { LAYOUT_SIZE_PRESETS, normalizeLayoutParams } from '../../lib/layout/computeLayout'
+import { LAYOUT_SIZE_PRESETS, computeLayout, effectiveMargins, normalizeLayoutParams } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
 import { loadLayoutAssets, runLayout, storeLayoutOutput, type LayoutAssets } from '../../lib/layout/runLayout'
 import { layoutHash } from '../../lib/layout/identity'
@@ -41,18 +41,31 @@ function Field({ label, children, className }: { label: string; children: ReactN
 }
 
 function Num({ value, min, max, step, onChange, title }: { value: number; min?: number; max?: number; step?: number; onChange: (v: number) => void; title?: string }) {
+  // 入力中の文字列はローカルに持つ（範囲外の途中値で丸められないように）。範囲内なら即反映、確定は blur / Enter
+  const [draft, setDraft] = useState(String(value))
+  const [prev, setPrev] = useState(value)
+  if (value !== prev) { setPrev(value); setDraft(String(value)) }
+  const inRange = (n: number) => Number.isFinite(n) && (min === undefined || n >= min) && (max === undefined || n <= max)
+  const commit = () => {
+    const n = Number(draft)
+    if (!Number.isFinite(n)) { setDraft(String(value)); return }
+    const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n))
+    setDraft(String(clamped))
+    if (clamped !== value) onChange(clamped)
+  }
   return (
     <input
       type="number"
       className={`${CTRL} w-full tabular-nums`}
       style={INPUT_STYLE}
-      value={value}
+      value={draft}
       min={min}
       max={max}
       step={step ?? 1}
       title={title}
-      onKeyDown={stopKeys}
-      onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(n) }}
+      onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      onChange={(e) => { setDraft(e.target.value); const n = Number(e.target.value); if (e.target.value !== '' && inRange(n) && n !== value) onChange(n) }}
+      onBlur={commit}
     />
   )
 }
@@ -94,6 +107,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState<null | 'render' | 'upload'>(null)
+  const [forceCustomSize, setForceCustomSize] = useState(false)
   const assetsRef = useRef<{ key: string; assets: LayoutAssets } | null>(null)
   const runIdRef = useRef(0)
   const previewRef = useRef<string | null>(null)
@@ -173,8 +187,19 @@ function ProductLayoutNodeInner(props: NodeProps) {
     return () => clearTimeout(t)
   }, [cutoutKey, paramsKey, bgUrl])
 
-  const presetValue = LAYOUT_SIZE_PRESETS.find((p) => p.width === params.width && p.height === params.height)
-    ? `${params.width}x${params.height}` : 'custom'
+  const matchesPreset = LAYOUT_SIZE_PRESETS.some((p) => p.width === params.width && p.height === params.height)
+  const presetValue = !forceCustomSize && matchesPreset ? `${params.width}x${params.height}` : 'custom'
+  // 実効余白（拡大の上限で止まると設定値より広くなる）。背景は余白に影響しないので null でよい
+  const livePlan = useMemo(() => (cutout
+    ? computeLayout({ params, source: { width: cutout.width, height: cutout.height }, bbox: cutout.bbox, background: null })
+    : null), [cutout, params])
+  const eff = livePlan ? effectiveMargins(livePlan) : null
+  const setPct = (v: number, base: number) => (params.marginUnit === 'percent' ? v : Math.round((v / base) * 1000) / 10)
+  // 上限で止まっている（設定より広い余白の原因）か、縦横比の違いで一方の辺だけ余っているか
+  const scaleCapped = !!livePlan && livePlan.scale < livePlan.fitScale - 1e-6
+  const marginDeviates = !!eff && (
+    Math.abs(eff.topPct - setPct(params.marginTop, params.height)) > 1 || Math.abs(eff.leftPct - setPct(params.marginLeft, params.width)) > 1
+  )
   const warnings = layout?.warnings ?? []
   const isTransparent = params.backgroundKind === 'transparent'
   const shownUrl = previewUrl ?? signedOutput ?? null
@@ -205,11 +230,17 @@ function ProductLayoutNodeInner(props: NodeProps) {
           <Sel
             value={presetValue}
             options={[...LAYOUT_SIZE_PRESETS.map((p) => [`${p.width}x${p.height}`, p.label] as [string, string]), ['custom', 'カスタム']]}
-            onChange={(v) => { const p = LAYOUT_SIZE_PRESETS.find((x) => `${x.width}x${x.height}` === v); if (p) setParams({ width: p.width, height: p.height }) }}
+            onChange={(v) => {
+              if (v === 'custom') { setForceCustomSize(true); return }
+              setForceCustomSize(false)
+              const p = LAYOUT_SIZE_PRESETS.find((x) => `${x.width}x${x.height}` === v)
+              if (p) setParams({ width: p.width, height: p.height })
+            }}
           />
-          <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-            <Num value={params.width} min={16} max={8192} onChange={(v) => setParams({ width: v })} title="幅 px" />
-            <Num value={params.height} min={16} max={8192} onChange={(v) => setParams({ height: v })} title="高さ px" />
+          <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+            <Field label="幅 px"><Num value={params.width} min={16} max={8192} onChange={(v) => setParams({ width: v })} /></Field>
+            <Field label="高さ px"><Num value={params.height} min={16} max={8192} onChange={(v) => setParams({ height: v })} /></Field>
+            <Field label="拡大の上限 %"><Num value={params.maxScalePercent} min={100} max={400} step={10} onChange={(v) => setParams({ maxScalePercent: v })} title="100 = 拡大しない（既定）" /></Field>
           </div>
         </Field>
 
@@ -221,6 +252,12 @@ function ProductLayoutNodeInner(props: NodeProps) {
             <Num value={params.marginLeft} min={0} onChange={(v) => setParams({ marginLeft: v })} title="左" />
             <Sel<LayoutMarginUnit> value={params.marginUnit} options={[['percent', '%'], ['px', 'px']]} onChange={(v) => setParams({ marginUnit: v })} />
           </div>
+          {eff && livePlan && (
+            <div className="mt-1 text-[11px] leading-snug" style={{ color: scaleCapped ? '#F59E0B' : 'var(--text-tertiary)' }}>
+              実効: 上 {eff.topPct}% 右 {eff.rightPct}% 下 {eff.bottomPct}% 左 {eff.leftPct}%・倍率 {Math.round(livePlan.scale * 100)}%
+              {scaleCapped ? '（拡大の上限で止まっています）' : marginDeviates ? '（縦横比の違いで一方の辺が余ります）' : ''}
+            </div>
+          )}
         </Field>
 
         <div className="grid grid-cols-2 gap-2">
