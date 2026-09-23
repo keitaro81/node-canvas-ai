@@ -34,6 +34,7 @@ export function JobsPage() {
   const showCost = useBatchStore((s) => s.showCost)
   const memberNames = useBatchStore((s) => s.memberNames)
   const bump = useBatchStore((s) => s.bump)
+  const realtimeOk = useBatchStore((s) => s.realtimeOk)
 
   const [filters, setFilters] = useState<JobFilters>(DEFAULT_JOB_FILTERS)
   const [searchInput, setSearchInput] = useState('')
@@ -79,8 +80,8 @@ export function JobsPage() {
 
   // 初回・絞り込み・ページ・Realtime（jobsVersion）で再取得
   useEffect(() => { void load() }, [load, jobsVersion])
-  // 一覧を開いている間は 60 秒ごとに再取得（他メンバーの削除など Realtime で拾えない変更の保険）
-  useEffect(() => { const t = setInterval(() => bump(), 60_000); return () => clearInterval(t) }, [bump])
+  // 一覧を開いている間は定期的に再取得（他メンバーの削除など Realtime で拾えない変更の保険。Realtime 無しなら 20 秒ごと）
+  useEffect(() => { const t = setInterval(() => bump(), realtimeOk === false ? 20_000 : 60_000); return () => clearInterval(t) }, [bump, realtimeOk])
 
   const visibleActive = useMemo(() => activeJobs.filter((j) => matchesFilters(j, filters, skuJobIds)), [activeJobs, filters, skuJobIds])
   const pages = pageCount(total)
@@ -251,7 +252,8 @@ export function JobsPage() {
               )}
             </div>
             <p className="mt-2 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-              状態の色: {(['processing', 'completed', 'partial_failed', 'cancelled'] as BatchJobStatus[]).map((s) => JOB_STATUS_META[s].label).join(' / ')}。進捗と状態は自動で更新されます。
+              状態の色: {(['processing', 'completed', 'partial_failed', 'cancelled'] as BatchJobStatus[]).map((s) => JOB_STATUS_META[s].label).join(' / ')}。
+              {realtimeOk === false ? 'リアルタイム接続ができないため、20 秒ごとに再取得しています。' : '進捗と状態は自動で更新されます。'}
             </p>
           </>
         )}

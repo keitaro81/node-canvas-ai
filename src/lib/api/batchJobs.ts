@@ -104,13 +104,24 @@ export async function reviewItem(itemId: string, review: BatchReview): Promise<v
 
 let channelSeq = 0
 
+export type ChannelStatus = 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR'
+
 /** 自チームの batch_jobs の変更（INSERT/UPDATE/DELETE）。DELETE は行の中身を持たないため呼び出し側は再取得で反映する */
-export function subscribeTeamJobs(teamId: string, onChange: (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => void): () => void {
+export function subscribeTeamJobs(
+  teamId: string,
+  onChange: (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => void,
+  onStatus?: (status: ChannelStatus, err?: Error) => void,
+): () => void {
   const ch: RealtimeChannel = supabase
     .channel(`batch-jobs:${teamId}:${++channelSeq}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'batch_jobs', filter: `team_id=eq.${teamId}` }, onChange)
-    .subscribe()
+    .subscribe((status, err) => onStatus?.(status as ChannelStatus, err))
   return () => { void supabase.removeChannel(ch) }
+}
+
+/** Realtime を諦める: 再接続ループを止める（次に subscribe すれば自動で再接続を試みる） */
+export function disconnectRealtime(): void {
+  try { supabase.realtime.disconnect() } catch { /* 未接続なら何もしない */ }
 }
 
 /** 1 ジョブの batch_items の更新（状態・確認結果）。詳細画面を開いている間だけ購読する */

@@ -3,14 +3,17 @@
 // 一覧ページは jobsVersion の変化で現在ページを再取得する（Realtime のイベントを行にマージしない）。
 import { create } from 'zustand'
 import type { BatchJobRow } from '../types/batch'
-import { fetchActiveJobs, fetchTeamBatchSettings, fetchUsedToday, subscribeTeamJobs } from '../lib/api/batchJobs'
+import { disconnectRealtime, fetchActiveJobs, fetchTeamBatchSettings, fetchUsedToday, subscribeTeamJobs } from '../lib/api/batchJobs'
+import { initialGate, nextGate, type GateState } from '../lib/batch/realtimeGate'
 import { batchReconcile, submitJobFully } from '../lib/api/batch'
 import { getTeamInfo } from '../lib/api/team'
 import { isResumableJob } from '../lib/batch/jobsQuery'
 
 const RECONCILE_MIN_INTERVAL_MS = 60_000
 const REFRESH_DEBOUNCE_MS = 300
-const ACTIVE_POLL_MS = 30_000          // Realtime が届かない環境の保険（進行中ジョブがある間だけ）
+const POLL_TICK_MS = 15_000            // 再取得の刻み: Realtime なし=15 秒ごと / Realtime あり=進行中ジョブがある間 30 秒ごと（保険）
+const REALTIME_DEADLINE_MS = 25_000    // この時間内に購読できなければ諦めて再取得に切り替える
+const REALTIME_RETRY_MS = 5 * 60_000   // 諦めた後、タブ復帰時に再挑戦する間隔
 
 interface BatchState {
   teamId: string | null
@@ -23,6 +26,8 @@ interface BatchState {
   jobsVersion: number
   memberNames: Record<string, string>
   ready: boolean
+  /** null=接続中 / true=購読中 / false=接続できず再取得ポーリングで代替中 */
+  realtimeOk: boolean | null
   submitDialogNodeId: string | null
 
   start: (teamId: string, userId: string, role: 'owner' | 'member') => Promise<void>
@@ -35,6 +40,10 @@ interface BatchState {
 }
 
 let unsubscribe: (() => void) | null = null
+let gate: GateState = initialGate()
+let deadlineTimer: ReturnType<typeof setTimeout> | null = null
+let lastRealtimeAttempt = 0
+let pollTick = 0
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastReconcileAt = 0
@@ -52,6 +61,7 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   jobsVersion: 0,
   memberNames: {},
   ready: false,
+  realtimeOk: null,
   submitDialogNodeId: null,
 
   start: async (teamId, userId, role) => {
@@ -77,22 +87,64 @@ export const useBatchStore = create<BatchState>((set, get) => ({
     }
     // 3) 照合（10 分以上「投入済み」のままのタスク）
     void get().reconcileNow(true)
-    // 4) Realtime 購読（自チームの batch_jobs）
-    unsubscribe = subscribeTeamJobs(teamId, () => get().bump())
-    // タブ復帰・再接続時: 取りこぼしを再取得＋照合
-    visibilityHandler = () => { if (document.visibilityState === 'visible') { get().bump(); void get().reconcileNow() } }
-    document.addEventListener('visibilitychange', visibilityHandler)
-    window.addEventListener('online', visibilityHandler)
-    pollTimer = setInterval(() => { if (get().activeJobs.length) get().bump() }, ACTIVE_POLL_MS)
+    // 4) Realtime 購読（自チームの batch_jobs）。接続できない環境では諦めて再取得ポーリングに切り替える
+    const stopRealtime = () => {
+      unsubscribe?.(); unsubscribe = null
+      if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+    }
+    const giveUp = () => {
+      stopRealtime()
+      disconnectRealtime()
+      if (get().realtimeOk !== false) {
+        set({ realtimeOk: false })
+        console.warn('[batch] Realtime に接続できないため、定期的な再取得（15〜20 秒ごと）に切り替えました。他のメンバーの変更は少し遅れて反映されます。')
+      }
+    }
+    const startRealtime = () => {
+      stopRealtime()
+      gate = initialGate()
+      lastRealtimeAttempt = Date.now()
+      unsubscribe = subscribeTeamJobs(teamId, () => get().bump(), (status) => {
+        gate = nextGate(gate, status)
+        if (gate.subscribed) {
+          if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+          if (get().realtimeOk !== true) set({ realtimeOk: true })
+        } else if (gate.gaveUp) {
+          giveUp()
+        }
+      })
+      deadlineTimer = setTimeout(() => { if (!gate.subscribed) giveUp() }, REALTIME_DEADLINE_MS)
+    }
+    startRealtime()
+    // タブ復帰・再接続時: 取りこぼしを再取得＋照合。Realtime を諦めていれば間隔を空けて再挑戦
+    visibilityHandler = () => {
+      if (document.visibilityState !== 'visible') return
+      get().bump(); void get().reconcileNow()
+      if (get().realtimeOk === false && Date.now() - lastRealtimeAttempt > REALTIME_RETRY_MS) startRealtime()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visibilityHandler)
+    if (typeof window !== 'undefined') window.addEventListener('online', visibilityHandler)
+    pollTimer = setInterval(() => {
+      const s = get()
+      pollTick++
+      if (s.realtimeOk === false) s.bump()                       // Realtime なし: 15 秒ごと
+      else if (s.activeJobs.length && pollTick % 2 === 0) s.bump() // Realtime あり: 進行中がある間 30 秒ごとの保険
+    }, POLL_TICK_MS)
     set({ ready: true })
   },
 
   stop: () => {
     unsubscribe?.(); unsubscribe = null
+    if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+    gate = initialGate()
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-    if (visibilityHandler) { document.removeEventListener('visibilitychange', visibilityHandler); window.removeEventListener('online', visibilityHandler); visibilityHandler = null }
-    set({ teamId: null, userId: null, role: null, activeJobs: [], usedToday: 0, ready: false, memberNames: {}, submitDialogNodeId: null })
+    if (visibilityHandler) {
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visibilityHandler)
+      if (typeof window !== 'undefined') window.removeEventListener('online', visibilityHandler)
+      visibilityHandler = null
+    }
+    set({ teamId: null, userId: null, role: null, activeJobs: [], usedToday: 0, ready: false, realtimeOk: null, memberNames: {}, submitDialogNodeId: null })
   },
 
   refresh: async () => {
