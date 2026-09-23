@@ -25,11 +25,13 @@ import {
   Stack,
   Camera,
   Scissors,
+  Layout,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { DEFAULT_CUTOUT_PARAMS } from '../../lib/cutout/engines'
+import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
 import type { NodeType } from '../../types/nodes'
 import type { WorkflowRow } from '../../lib/api/workflows'
 
@@ -70,6 +72,7 @@ const PALETTE = [
     category: '撮影後工程',
     items: [
       { type: 'removeBackground' as NodeType, label: 'Remove Background', description: '商品を背景から切り抜く', icon: <Scissors size={15} />, color: '#14B8A6' },
+      { type: 'productLayout' as NodeType, label: 'Product Layout', description: '余白・背景・影を付けて規定サイズに配置', icon: <Layout size={15} />, color: '#14B8A6' },
     ],
   },
 ]
@@ -84,6 +87,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   referenceVideo: 'referenceVideoNode',
   note: 'noteNode', promptEnhancer: 'promptEnhancerNode', group: 'groupNode', list: 'listNode', cameraList: 'cameraListNode',
   removeBackground: 'removeBackgroundNode',
+  productLayout: 'productLayoutNode',
 }
 
 let nodeIdCounter = 1000
@@ -112,6 +116,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'removeBackground') {
     return { type: 'removeBackground', label, params: { ...DEFAULT_CUTOUT_PARAMS }, status: 'idle' }
+  }
+  if (type === 'productLayout') {
+    return { type: 'productLayout', label, params: { ...DEFAULT_LAYOUT_PARAMS }, status: 'idle' }
   }
   return { type, label, params: {}, status: 'idle' }
 }

@@ -16,10 +16,10 @@ export async function fetchBlob(url: string): Promise<Blob> {
   return res.blob()
 }
 
-type AnyCanvas = HTMLCanvasElement | OffscreenCanvas
-type Any2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+export type AnyCanvas = HTMLCanvasElement | OffscreenCanvas
+export type Any2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
-function makeCanvas(width: number, height: number): { canvas: AnyCanvas; ctx: Any2D } {
+export function makeCanvas(width: number, height: number): { canvas: AnyCanvas; ctx: Any2D } {
   if (typeof OffscreenCanvas !== 'undefined') {
     const canvas = new OffscreenCanvas(width, height)
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
@@ -34,7 +34,7 @@ function makeCanvas(width: number, height: number): { canvas: AnyCanvas; ctx: An
   return { canvas, ctx }
 }
 
-async function canvasToPng(canvas: AnyCanvas): Promise<Blob> {
+export async function canvasToPng(canvas: AnyCanvas): Promise<Blob> {
   if (canvas instanceof OffscreenCanvas) return canvas.convertToBlob({ type: 'image/png' })
   return new Promise((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG エンコードに失敗しました'))), 'image/png')
@@ -43,11 +43,11 @@ async function canvasToPng(canvas: AnyCanvas): Promise<Blob> {
 
 /**
  * 画像を RGBA 画素列にデコードする。
- * colorSpaceConversion:'none' で ICC 変換を避け（Adobe RGB 画像の値をそのまま持つ）、
- * premultiplyAlpha:'none' で半透明画素の RGB を保つ。アルファは常に正確に取れる。
+ * 色管理（仕様 7 章・方針 B）: ブラウザ標準の ICC 変換で sRGB に揃える（Adobe RGB の撮影データも EC 用の sRGB として扱う）。
+ * sRGB / プロファイル無しの画像はファイルの画素値そのまま。premultiplyAlpha:'none' で半透明画素の RGB を保つ。
  */
 export async function decodeBlob(blob: Blob): Promise<DecodedImage> {
-  const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' })
+  const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'default', premultiplyAlpha: 'none' })
   try {
     const { width, height } = bmp
     if (width * height > MAX_PIXELS) throw new Error(`画像が大きすぎます（${width}×${height}）。長辺 8000px 以下にしてください`)

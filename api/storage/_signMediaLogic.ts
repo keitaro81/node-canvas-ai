@@ -8,7 +8,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const SIGNED_URL_TTL = 60 * 60 * 24 // 24h — src/lib/api/storage.ts の SIGNED_URL_TTL と一致させること
-const PRIVATE_BUCKETS = ['generated-images', 'generated-videos']
+// 署名対象の私有バケット。batch（撮影後工程）は canvas_data からの署名時にチーム所属も要求する（下記 allowBatchUrl）
+const PRIVATE_BUCKETS = ['generated-images', 'generated-videos', 'batch']
 const MAX_URLS = 600
 
 // canvas_data ノード data に保存され得るメディアURLフィールド。
@@ -17,7 +18,7 @@ const TOP_LEVEL_URL_FIELDS = ['output', 'videoUrl', 'imageUrl', 'uploadedImagePr
 const PARAM_URL_FIELDS = ['imageUrl', 'maskUrl']
 
 /** 公開形式 /object/public/ と署名形式 /object/sign/...?token= の両方から自前バケットの {bucket,path} を抽出。 */
-function parseStorageUrl(url: unknown): { bucket: string; path: string } | null {
+export function parseStorageUrl(url: unknown): { bucket: string; path: string } | null {
   if (!url || typeof url !== 'string') return null
   for (const marker of ['/object/public/', '/object/sign/']) {
     const i = url.indexOf(marker)
@@ -119,6 +120,13 @@ export interface SignMediaResult {
   body: Record<string, unknown>
 }
 
+/** batch バケットの URL は、パス先頭の team_id が呼び出し者のチームと一致する場合だけ署名する（L2: WF 共有でも他チームの成果物は見せない）。 */
+export function allowBatchUrl(url: string, callerTeamId: string | null): boolean {
+  const p = parseStorageUrl(url)
+  if (!p || p.bucket !== BATCH_BUCKET) return true
+  return !!callerTeamId && batchPathTeam(p.path) === callerTeamId
+}
+
 export async function signMediaServer(
   admin: any,
   userId: string,
@@ -145,7 +153,7 @@ export async function signMediaServer(
       const isPublic = visibility === 'public'
       const isTeam = visibility === 'team' && !!w.team_id && !!callerTeamId && w.team_id === callerTeamId
       if (isOwner || isPublic || isTeam) {
-        toSign.push(...collectCanvasMedia(w.canvas_data, w.thumbnail_url))
+        toSign.push(...collectCanvasMedia(w.canvas_data, w.thumbnail_url).filter((u) => allowBatchUrl(u, callerTeamId)))
       } else {
         return { status: 403, body: { error: 'Forbidden' } }
       }

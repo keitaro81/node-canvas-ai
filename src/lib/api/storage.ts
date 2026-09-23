@@ -127,7 +127,10 @@ export type StorageTier = 'private' | 'public'
 // 将来の「明示公開」アセット用バケット（L2）。L1では予約のみ・未使用。
 export const PUBLIC_MEDIA_BUCKET = 'public-media'
 
-const PRIVATE_BUCKETS = new Set<string>([IMAGE_BUCKET, VIDEO_BUCKET])
+// 撮影後工程の私有バケット（<team_id>/... 階層。署名はサーバーがチーム所属で判定）
+const BATCH_BUCKET = 'batch'
+
+const PRIVATE_BUCKETS = new Set<string>([IMAGE_BUCKET, VIDEO_BUCKET, BATCH_BUCKET])
 
 // 署名URLの有効期限（秒）。長め=再署名チャーン最小／流出URLは24hで失効。tunable。
 export const SIGNED_URL_TTL = 60 * 60 * 24
