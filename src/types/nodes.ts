@@ -232,6 +232,9 @@ export interface LayoutOutputRef {
   createdAt: string
 }
 
+// 一括実行時のノードの実行スコープ（仕様 4-2）: アイテムごと（既定）/ ジョブごと（1 回だけ実行し全アイテムで共有。背景生成向け）
+export type ExecutionScope = 'item' | 'job'
+
 // ===== 撮影後工程: 一括入力（BatchInputNode）と書き出し（ExportNode） =====
 
 export interface BatchInputParams {
