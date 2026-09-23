@@ -28,7 +28,7 @@ interface Props {
   onClose: () => void
 }
 
-const mb = (b: number) => `${Math.round(b / 1024 / 1024)} MB`
+const mb = (b: number) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${Math.round(b / 1024 / 1024)} MB`)
 
 /** OK のみ / すべて書き出し（仕様 5 章・3-4）。フル解像度で描画して形式変換し、ZIP にまとめる */
 export function ExportDialog(props: Props) {

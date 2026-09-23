@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, cutoutParamsOf, estimateZipBytes, exportParamsFromSnapshot, filterItems, identityFor,
-  itemInfoOfRow, jobZipName, maskVersionOf, moveSelection, planJobExport, resultKindOf, thumbFileName, variantsFromSnapshot,
+  addedVariantsOf, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveSelection, newVariantKey, planJobExport, resultKindOf, thumbFileName, variantsFromSnapshot,
 } from './model'
 import { layoutIdentityString } from '../layout/identity'
 import type { BatchItemRow, BatchTaskRow } from '../../types/batch'
@@ -36,6 +36,15 @@ describe('review model', () => {
     expect(v[0].baseParams.marginTop).toBe(8)
     expect(v[1].backgroundNodeId).toBe('ig')
     expect(variantsFromSnapshot(null, null)).toEqual([])
+  })
+  it('後から追加したバリアント（layout_overrides.__added）は写しのものの後ろに並び、再実行なしで列になる', () => {
+    const v = variantsFromSnapshot(snapshot, { __added: [{ key: 'added-1', params: { variantName: 'amazon', width: 2000, height: 2000 } }, { key: 'bad key', params: {} }, 'junk'] })
+    expect(v.map((x) => `${x.key}:${x.name}:${x.added}`)).toEqual(['pl1:ec_white:false', 'pl2:sns:false', 'added-1:amazon:true'])
+    expect(v[2].params.width).toBe(2000)
+    expect(addedVariantsOf({ __added: 'nope' })).toEqual([])
+    expect(newVariantKey(['pl1', 'added-1', 'added-2'])).toBe('added-3')
+    // レイアウトノードが無いジョブに追加すれば、その列だけが書き出し対象になる（切り抜き PNG ではなく）
+    expect(exportVariantsOf(variantsFromSnapshot({}, { __added: [{ key: 'added-1', params: { variantName: 'x' } }] })).map((x) => x.name)).toEqual(['x'])
   })
   it('切り抜きノードと書き出し設定', () => {
     expect(cutoutNodesFromSnapshot(snapshot).map((c) => `${c.nodeId}:${c.params.alphaThreshold}`)).toEqual(['rb:12'])
@@ -78,6 +87,13 @@ describe('review model', () => {
     expect(moveSelection({ row: 1, col: 0 }, 'End', 3, 2)).toEqual({ row: 2, col: 0 })
     expect(moveSelection({ row: 1, col: 0 }, 'x', 3, 2)).toEqual({ row: 1, col: 0 })
     expect(moveSelection({ row: 1, col: 0 }, 'ArrowDown', 0, 2)).toBeNull()
+  })
+  it('レイアウトノードが無いジョブは切り抜きを透過 PNG として書き出す', () => {
+    const ev = exportVariantsOf([])
+    expect(ev.map((v) => `${v.key}:${v.name}:${v.params.backgroundKind}`)).toEqual([`${CUTOUT_VARIANT_KEY}:cutout:transparent`])
+    const plan = planJobExport([item({ sort_order: 2 })], ev, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
+    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/ABC-1_cutout_02.png'])
+    expect(exportVariantsOf(variantsFromSnapshot(snapshot, null)).length).toBe(2)
   })
   it('書き出し計画は透過バリアントを PNG にし、連番はアイテムの並び順', () => {
     const variants = variantsFromSnapshot(snapshot, null)
