@@ -26,9 +26,14 @@ export function currentPeriodJst(): string {
  * RLS により、自分の所属チームの teams / usage_counters のみ読める。
  */
 export async function getMyTeamContext(): Promise<TeamContext | null> {
+  // team_members は同じチームの全員の行が読めるため、必ず自分の user_id で絞る（他人の行を拾うと役割を誤る）
+  const { data: { session } } = await supabase.auth.getSession()
+  const uid = session?.user?.id ?? (await supabase.auth.getUser()).data.user?.id
+  if (!uid) return null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: member } = await (supabase.from('team_members') as any)
     .select('team_id, role')
+    .eq('user_id', uid)
     .limit(1)
     .maybeSingle()
   if (!member?.team_id) return null
