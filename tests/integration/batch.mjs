@@ -144,6 +144,29 @@ try {
   const [victimItem] = await userRest(A.jwt, `batch_items?select=status&id=eq.${victim.item_id}`)
   check(`再実行後にジョブが完了に戻る（${job3?.status}・完了 ${job3?.completed_tasks}/${job3?.task_count}・失敗 ${job3?.failed_tasks}・アイテム ${victimItem?.status}）`, job3?.status === 'completed' && job3.completed_tasks === ITEMS && job3.failed_tasks === 0 && victimItem?.status === 'ready', JSON.stringify(job3))
 
+  // NG のみ再実行（Step 7）: 2 枚だけ別エンジン（Bria）で再実行 → その 2 枚だけタスクが差し替わり、他は不変
+  const beforeTasks = await userRest(A.jwt, `batch_tasks?select=id,item_id,endpoint,completed_at&job_id=eq.${jobId}&order=created_at`)
+  const targets = beforeTasks.slice(0, 2).map((t) => t.item_id)
+  const rerun = await api(A.jwt, 'rerun', { jobId, nodeId: 'rb', itemIds: targets, params: { engine: 'bria', alphaThreshold: 16, featherPx: 0 } })
+  check(`rerun 200（対象 ${rerun.json?.rerunTasks} 件・${rerun.json?.status}）`, rerun.status === 200 && rerun.json?.rerunTasks === 2 && rerun.json?.status === 'processing', JSON.stringify(rerun.json).slice(0, 200))
+  let rr = null
+  for (let i = 0; i < 40; i++) { rr = (await api(A.jwt, 'submit', { jobId })).json; if (rr?.done) break }
+  check(`再投入 完了（投入 ${rr?.submitted} 件・タスク総数は増えない ${rr?.totalTasks}）`, !!rr?.done && rr.totalTasks === ITEMS && rr.tasksCreated === 0 && rr.submitted === 2)
+  let job4 = null
+  for (let i = 0; i < 60; i++) {
+    await sleep(5000)
+    if (IS_DEV || i >= 12) await api(A.jwt, 'reconcile', { jobId, minAgeSec: 0 })
+    ;[job4] = await userRest(A.jwt, `batch_jobs?select=status,completed_tasks,failed_tasks,task_count&id=eq.${jobId}`)
+    if (job4 && ['completed', 'partial_failed'].includes(job4.status)) break
+  }
+  const afterTasks = await userRest(A.jwt, `batch_tasks?select=id,item_id,endpoint,completed_at,input,result_path&job_id=eq.${jobId}&order=created_at`)
+  const changed = afterTasks.filter((t) => targets.includes(t.item_id))
+  const same = afterTasks.filter((t) => !targets.includes(t.item_id))
+  const beforeById = Object.fromEntries(beforeTasks.map((t) => [t.id, t]))
+  check(`再実行後: 対象 2 件は Bria で完了し __params を持つ（${changed.map((t) => t.endpoint.split('/')[1]).join(',')}）`,
+    job4?.status === 'completed' && changed.length === 2 && changed.every((t) => t.endpoint.startsWith('fal-ai/bria') && t.input?.__params?.engine === 'bria' && t.result_path && t.completed_at !== beforeById[t.id]?.completed_at), JSON.stringify(job4))
+  check(`再実行後: 他の ${same.length} 件は手つかず（エンドポイント・完了時刻が同じ）`, same.length === ITEMS - 2 && same.every((t) => t.endpoint.startsWith('fal-ai/birefnet') && t.completed_at === beforeById[t.id]?.completed_at))
+
   // 権限（仕様 4-11）: 同じチームの member は一覧を読めるが削除は 403。owner でない投入者以外の削除は拒否
   const C = await mkUser('c', false)
   await rest('team_members', { method: 'POST', body: JSON.stringify({ team_id: A.teamId, user_id: C.id, role: 'member' }) })

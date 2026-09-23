@@ -293,8 +293,7 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
   const webhook = webhookUrlFor(opts, job, !!body.disableWebhook)
   let submitted = 0, failedSubmits = 0
   for (const task of (pendingData ?? []) as any[]) {
-    const input: Record<string, unknown> = { ...task.input }
-    delete input.__kind
+    const input = falInputOf(task)
     if (task.item_id) {
       const it = items.find((i) => i.id === task.item_id)
       if (!it?.source_path) continue
@@ -336,6 +335,13 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
     jobId: job.id, copied, copyFailures, tasksCreated, submitted, failedSubmits, pendingCopies, pendingTasks,
     totalTasks: statuses.length, done, jobStatus: fresh?.status ?? job.status, webhook: !!webhook, warnings: plan.warnings,
   })
+}
+
+/** タスクの input から fal に送る分だけを取り出す（`__kind` / `__params` などの内部用キーは送らない） */
+export function falInputOf(task: { input?: Record<string, unknown> | null }): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(task.input ?? {})) if (!k.startsWith('__')) out[k] = v
+  return out
 }
 
 // ───────────────────────── 反映（1 か所） ─────────────────────────
@@ -389,8 +395,7 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
 
   // 失敗
   if ((task.attempts ?? 0) < MAX_ATTEMPTS) {
-    const input: Record<string, unknown> = { ...task.input }
-    delete input.__kind
+    const input = falInputOf(task)
     if (task.item_id) {
       const { data: it } = await admin.from('batch_items').select('source_path').eq('id', task.item_id).maybeSingle()
       const signed = it?.source_path ? await signOriginal(admin, it.source_path) : null
@@ -539,6 +544,81 @@ export async function batchRetryFailed(admin: Admin, userId: string, _opts: Batc
   if (plan.itemIds.length) await admin.from('batch_items').update({ status: 'pending', updated_at: now }).in('id', plan.itemIds)
   await admin.from('batch_jobs').update({ status: 'processing', failed_tasks: 0, updated_at: now }).eq('id', job.id)
   return ok({ jobId: job.id, retriedTasks: plan.taskIds.length, resetItems: plan.itemIds.length, status: 'processing' })
+}
+
+// ───────────────────────── rerun（NG のみ再実行・仕様 5 章） ─────────────────────────
+
+export interface RerunPlan { taskIds: string[]; itemIds: string[]; skipped: Array<{ itemId: string; reason: string }> }
+
+/**
+ * 指定アイテムの、指定ノードのタスクを新しい設定でやり直す計画（純関数）。
+ * 終了済み（completed / failed）のタスクだけが対象。投入中（pending / submitted）のものは飛ばす。
+ */
+export function planRerun(
+  tasks: Array<{ id: string; item_id: string | null; node_id: string; status: string }>,
+  jobItemIds: string[],
+  nodeId: string,
+  itemIds: string[],
+): RerunPlan {
+  const inJob = new Set(jobItemIds)
+  const plan: RerunPlan = { taskIds: [], itemIds: [], skipped: [] }
+  for (const itemId of Array.from(new Set(itemIds))) {
+    if (!inJob.has(itemId)) { plan.skipped.push({ itemId, reason: 'not_in_job' }); continue }
+    const t = tasks.find((x) => x.item_id === itemId && x.node_id === nodeId)
+    if (!t) { plan.skipped.push({ itemId, reason: 'no_task' }); continue }
+    if (t.status !== 'completed' && t.status !== 'failed') { plan.skipped.push({ itemId, reason: `task_${t.status}` }); continue }
+    plan.taskIds.push(t.id)
+    plan.itemIds.push(itemId)
+  }
+  return plan
+}
+
+export interface RerunBody { jobId?: string; nodeId?: string; itemIds?: string[]; params?: unknown }
+
+/**
+ * NG のみ再実行: 対象アイテムの切り抜きタスクを、エンジン/パラメータを差し替えて未投入に戻す（投入は batch-submit で続ける）。
+ * 新しいパラメータは task.input.__params に持たせ、画面側はそれを使ってマスクを解釈する（写しの設定は変えない）。
+ */
+export async function batchRerunItems(admin: Admin, userId: string, _opts: BatchOpts, body: RerunBody): Promise<BatchResult> {
+  const m = await memberOf(admin, userId)
+  if (!m) return fail(403, 'not_a_member')
+  if (!body?.jobId || !body.nodeId) return fail(400, 'job_id_required')
+  const itemIds = Array.isArray(body.itemIds) ? body.itemIds.filter((x): x is string => typeof x === 'string') : []
+  if (!itemIds.length) return fail(400, 'no_items', { message: '対象のアイテムがありません' })
+  const { data: job } = await admin.from('batch_jobs').select('id, team_id, status, workflow_snapshot').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
+  if (!job) return fail(404, 'job_not_found')
+  if (['cancelled', 'uploading'].includes(job.status)) return fail(409, 'job_not_rerunnable', { status: job.status, message: 'このジョブは再実行できません' })
+  const snapNode = (planTasks(job.workflow_snapshot).tasks).find((t) => t.nodeId === body.nodeId && t.kind === 'cutout')
+  if (!snapNode) return fail(400, 'node_not_cutout', { message: '指定ノードは一括実行の切り抜きノードではありません' })
+
+  const params = normalizeCutoutParams(body.params)
+  const req = buildEngineRequest(params, '__IMAGE_URL__')
+  const input: Record<string, unknown> = { ...req.input }
+  delete input.image_url
+  input.__kind = 'cutout'
+  input.__params = params
+
+  const { data: items } = await admin.from('batch_items').select('id').eq('job_id', job.id)
+  const { data: tasks } = await admin.from('batch_tasks').select('id, item_id, node_id, status').eq('job_id', job.id)
+  const plan = planRerun((tasks ?? []) as any[], ((items ?? []) as any[]).map((i) => i.id), body.nodeId, itemIds)
+  if (!plan.taskIds.length) return ok({ jobId: job.id, rerunTasks: 0, skipped: plan.skipped, status: job.status })
+  if (job.status === 'completed' || job.status === 'partial_failed') {
+    const { count } = await admin.from('batch_jobs').select('id', { count: 'exact', head: true }).eq('team_id', m.teamId).in('status', ['uploading', 'submitted', 'processing'])
+    if ((count ?? 0) >= MAX_ACTIVE_JOBS) return fail(429, 'active_jobs', { message: `同時に進行できるジョブは ${MAX_ACTIVE_JOBS} つまでです` })
+  }
+  const now = new Date().toISOString()
+  await admin.from('batch_tasks').update({
+    status: 'pending', attempts: 0, error: null, fal_request_id: null, submitted_at: null, completed_at: null,
+    endpoint: req.endpoint, input, result_path: null, result_meta: null,
+  }).in('id', plan.taskIds)
+  // 結果が差し替わるので確認結果は未確認に戻す
+  await admin.from('batch_items').update({ status: 'pending', review: 'unreviewed', reviewed_by: null, updated_at: now }).in('id', plan.itemIds)
+  const { data: allTasks } = await admin.from('batch_tasks').select('status').eq('job_id', job.id)
+  const st = ((allTasks ?? []) as Array<{ status: string }>).map((t) => t.status)
+  await admin.from('batch_jobs').update({
+    status: 'processing', completed_tasks: st.filter((s) => s === 'completed').length, failed_tasks: st.filter((s) => s === 'failed').length, updated_at: now,
+  }).eq('id', job.id)
+  return ok({ jobId: job.id, rerunTasks: plan.taskIds.length, skipped: plan.skipped, status: 'processing' })
 }
 
 // ───────────────────────── cancel / delete ─────────────────────────

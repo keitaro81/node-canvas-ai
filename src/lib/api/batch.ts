@@ -39,6 +39,7 @@ export const batchReconcile = (body: { jobId?: string; minAgeSec?: number } = {}
 export const batchCancel = (jobId: string) => call<{ jobId: string; cancelledTasks: number; status: string }>('cancel', { jobId })
 export const batchDelete = (jobId: string) => call<{ jobId: string; deletedFiles: number }>('delete', { jobId })
 export const batchRetry = (jobId: string) => call<{ jobId: string; retriedTasks: number; resetItems: number; status: string }>('retry', { jobId })
+export const batchRerun = (body: { jobId: string; nodeId: string; itemIds: string[]; params: unknown }) => call<{ jobId: string; rerunTasks: number; skipped: Array<{ itemId: string; reason: string }>; status: string }>('rerun', body)
 
 /** 投入を「残りなし」になるまで繰り返す（各呼び出しはチャンク単位・冪等）。 */
 export async function submitJobFully(jobId: string, onProgress?: (r: SubmitResult) => void, opts: { disableWebhook?: boolean; maxRounds?: number } = {}): Promise<SubmitResult> {

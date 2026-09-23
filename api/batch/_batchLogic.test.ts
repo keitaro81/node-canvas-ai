@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkLimits, extOf, jstDayRangeUtc, originalPath, pickResultFile, planRetry, planTasks, resultPath, MAX_ITEMS_PER_JOB } from './_batchLogic'
+import { checkLimits, extOf, falInputOf, jstDayRangeUtc, originalPath, pickResultFile, planRerun, planRetry, planTasks, resultPath, MAX_ITEMS_PER_JOB } from './_batchLogic'
 
 describe('planTasks（写しから AI 処理を抽出）', () => {
   const snapshot = {
@@ -86,5 +86,24 @@ describe('planRetry（失敗分の再実行）', () => {
   })
   it('失敗が無ければ空', () => {
     expect(planRetry([{ id: 't', item_id: 'i', status: 'completed' }], [{ id: 'i', status: 'ready' }])).toEqual({ taskIds: [], itemIds: [] })
+  })
+})
+
+describe('planRerun（NG のみ再実行）と falInputOf', () => {
+  const tasks = [
+    { id: 't1', item_id: 'i1', node_id: 'rb', status: 'completed' },
+    { id: 't2', item_id: 'i2', node_id: 'rb', status: 'failed' },
+    { id: 't3', item_id: 'i3', node_id: 'rb', status: 'submitted' },
+    { id: 'tx', item_id: 'i1', node_id: 'other', status: 'completed' },
+  ]
+  it('終了済みのタスクだけを対象にし、投入中・ジョブ外・タスク無しは理由付きで飛ばす', () => {
+    const p = planRerun(tasks, ['i1', 'i2', 'i3', 'i4'], 'rb', ['i1', 'i2', 'i3', 'i4', 'i9', 'i1'])
+    expect(p.taskIds).toEqual(['t1', 't2'])
+    expect(p.itemIds).toEqual(['i1', 'i2'])
+    expect(p.skipped).toEqual([{ itemId: 'i3', reason: 'task_submitted' }, { itemId: 'i4', reason: 'no_task' }, { itemId: 'i9', reason: 'not_in_job' }])
+  })
+  it('内部用キー（__ 始まり）は fal に送らない', () => {
+    expect(falInputOf({ input: { model: 'x', __kind: 'cutout', __params: { engine: 'bria' } } })).toEqual({ model: 'x' })
+    expect(falInputOf({ input: null })).toEqual({})
   })
 })
