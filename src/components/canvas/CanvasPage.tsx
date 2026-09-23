@@ -6,6 +6,7 @@ import { FloatingToolbar } from '../layout/FloatingToolbar'
 import { StatusBar } from '../layout/StatusBar'
 import { Header } from '../layout/Header'
 import { CapsuleView } from '../capsule/CapsuleView'
+import { BatchSubmitDialog } from '../jobs/BatchSubmitDialog'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useAutoSave } from '../../hooks/useAutoSave'
@@ -119,6 +120,8 @@ export function CanvasPage() {
       </div>
 
       {!isMobile && <StatusBar />}
+      {/* 一括実行の確認 → 投入（Batch Input ノードの「一括実行…」から開く） */}
+      <BatchSubmitDialog />
     </div>
   )
 }

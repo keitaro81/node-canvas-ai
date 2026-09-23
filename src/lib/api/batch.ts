@@ -38,6 +38,7 @@ export const batchSubmit = (body: { jobId: string; disableWebhook?: boolean; chu
 export const batchReconcile = (body: { jobId?: string; minAgeSec?: number } = {}) => call<ReconcileResult>('reconcile', body)
 export const batchCancel = (jobId: string) => call<{ jobId: string; cancelledTasks: number; status: string }>('cancel', { jobId })
 export const batchDelete = (jobId: string) => call<{ jobId: string; deletedFiles: number }>('delete', { jobId })
+export const batchRetry = (jobId: string) => call<{ jobId: string; retriedTasks: number; resetItems: number; status: string }>('retry', { jobId })
 
 /** 投入を「残りなし」になるまで繰り返す（各呼び出しはチャンク単位・冪等）。 */
 export async function submitJobFully(jobId: string, onProgress?: (r: SubmitResult) => void, opts: { disableWebhook?: boolean; maxRounds?: number } = {}): Promise<SubmitResult> {

@@ -8,7 +8,8 @@ export interface EndpointPricing {
   assumedSeconds?: number  // 見積り用の想定処理時間（計算秒課金のとき）
 }
 
-export const USD_JPY = 165
+import { USD_JPY } from '../../src/lib/batch/cost'
+export { USD_JPY }
 
 export const ENDPOINT_PRICING: Record<string, EndpointPricing> = {
   'fal-ai/bria/background/remove': { perRequestUsd: 0.018 },

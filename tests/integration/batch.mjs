@@ -122,6 +122,38 @@ try {
   const [job2] = await userRest(A.jwt, `batch_jobs?select=status,completed_tasks,failed_tasks,task_count,actual_cost_usd&id=eq.${jobId}`)
   check('完了後に照合を 2 回呼んでも状態・件数は不変', JSON.stringify(job2) === before)
 
+  // 失敗分の再実行（Step 6）: 完了タスク 1 件を失敗にした状態を作り（RPC の結果と同じ形）、retry → 再投入 → 完了に戻る
+  const noRetry = await api(A.jwt, 'retry', { jobId })
+  check(`失敗が無いジョブの retry は何もしない（${noRetry.status}・retried ${noRetry.json?.retriedTasks}）`, noRetry.status === 200 && noRetry.json?.retriedTasks === 0)
+  const [victim] = await (await rest(`batch_tasks?select=id,item_id&job_id=eq.${jobId}&status=eq.completed&limit=1`)).json()
+  await rest(`batch_tasks?id=eq.${victim.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: 'simulated' }) })
+  await rest(`batch_items?id=eq.${victim.item_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed' }) })
+  await rest(`batch_jobs?id=eq.${jobId}`, { method: 'PATCH', body: JSON.stringify({ status: 'partial_failed', completed_tasks: ITEMS - 1, failed_tasks: 1 }) })
+  const retry = await api(A.jwt, 'retry', { jobId })
+  check(`retry 200（失敗 1 件を未投入へ・アイテム ${retry.json?.resetItems} 件を待機へ・${retry.json?.status}）`, retry.status === 200 && retry.json?.retriedTasks === 1 && retry.json?.resetItems === 1 && retry.json?.status === 'processing', JSON.stringify(retry.json).slice(0, 160))
+  let rs = null
+  for (let i = 0; i < 40; i++) { rs = (await api(A.jwt, 'submit', { jobId })).json; if (rs?.done) break }
+  check(`再投入 完了（投入 ${rs?.submitted} 件・タスク総数は増えない ${rs?.totalTasks}）`, !!rs?.done && rs.totalTasks === ITEMS && rs.tasksCreated === 0)
+  let job3 = null
+  for (let i = 0; i < 60; i++) {
+    await sleep(5000)
+    if (IS_DEV || i >= 12) await api(A.jwt, 'reconcile', { jobId, minAgeSec: 0 })
+    ;[job3] = await userRest(A.jwt, `batch_jobs?select=status,completed_tasks,failed_tasks,task_count&id=eq.${jobId}`)
+    if (job3 && ['completed', 'partial_failed'].includes(job3.status)) break
+  }
+  const [victimItem] = await userRest(A.jwt, `batch_items?select=status&id=eq.${victim.item_id}`)
+  check(`再実行後にジョブが完了に戻る（${job3?.status}・完了 ${job3?.completed_tasks}/${job3?.task_count}・失敗 ${job3?.failed_tasks}・アイテム ${victimItem?.status}）`, job3?.status === 'completed' && job3.completed_tasks === ITEMS && job3.failed_tasks === 0 && victimItem?.status === 'ready', JSON.stringify(job3))
+
+  // 権限（仕様 4-11）: 同じチームの member は一覧を読めるが削除は 403。owner でない投入者以外の削除は拒否
+  const C = await mkUser('c', false)
+  await rest('team_members', { method: 'POST', body: JSON.stringify({ team_id: A.teamId, user_id: C.id, role: 'member' }) })
+  const cJobs = await userRest(C.jwt, `batch_jobs?select=id&id=eq.${jobId}`)
+  const cDel = await api(C.jwt, 'delete', { jobId })
+  check(`同チームの member はジョブを読めるが削除は拒否（読める=${Array.isArray(cJobs) && cJobs.length === 1}・delete ${cDel.status} ${cDel.json?.error}）`, Array.isArray(cJobs) && cJobs.length === 1 && cDel.status === 403)
+  const cReview = await fetch(`${URL_BASE}/rest/v1/rpc/review_batch_item`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${C.jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_item_id: victim.item_id, p_review: 'ok' }) })
+  const [reviewed] = await userRest(A.jwt, `batch_items?select=review,reviewed_by&id=eq.${victim.item_id}`)
+  check(`同チームの member は OK/NG を付けられる（${cReview.status}・review=${reviewed?.review}・確認者=本人）`, cReview.status < 300 && reviewed?.review === 'ok' && reviewed?.reviewed_by === C.id)
+
   // 同時進行ジョブは 2 つまで（未投入のまま 2 件作り、3 件目は 429）
   const j1 = await api(A.jwt, 'create', { name: `${TAG} j1`, items: items.slice(0, 1), workflowSnapshot: snapshotFor() })
   const j2 = await api(A.jwt, 'create', { name: `${TAG} j2`, items: items.slice(0, 1), workflowSnapshot: snapshotFor() })

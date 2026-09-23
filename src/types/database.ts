@@ -128,6 +128,8 @@ export interface Database {
           name: string
           quota_image_monthly: number
           quota_video_monthly: number
+          daily_item_limit: number
+          show_cost: boolean
           created_at: string
         }
         Insert: {
@@ -149,6 +151,7 @@ export interface Database {
           team_id: string
           user_id: string
           role: string
+          display_name: string | null
           created_at: string
         }
         Insert: {

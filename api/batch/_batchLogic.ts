@@ -7,6 +7,7 @@ import { buildEngineRequest, normalizeCutoutParams, pickEngineResult } from '../
 import type { CutoutEngine } from '../../src/types/nodes'
 import { estimatePlannedTaskCost, estimateTaskCost } from './_pricing'
 import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_falWebhook'
+import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -29,24 +30,9 @@ export interface BatchOpts {
   isAdmin: boolean                // 運営 allowlist（Webhook 無効化フラグの利用可否）
 }
 
-// ───────────────────────── 日付（JST） ─────────────────────────
+// ───────────────────────── 日付（JST）: src/lib/batch/dates.ts と共有 ─────────────────────────
 
-/** JST の「今日」の範囲（UTC の ISO）と日付キー。 */
-export function jstDayRangeUtc(now: Date = new Date()): { start: string; end: string; day: string } {
-  const JST = 9 * 60 * 60 * 1000
-  const j = new Date(now.getTime() + JST)
-  const dayStartUtcMs = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate()) - JST
-  return {
-    start: new Date(dayStartUtcMs).toISOString(),
-    end: new Date(dayStartUtcMs + 24 * 60 * 60 * 1000).toISOString(),
-    day: new Date(dayStartUtcMs + JST).toISOString().slice(0, 10),
-  }
-}
-
-export function jstDateTimeLabel(now: Date = new Date()): string {
-  const j = new Date(now.getTime() + 9 * 60 * 60 * 1000)
-  return `${j.toISOString().slice(0, 10)} ${j.toISOString().slice(11, 16)}`
-}
+export { jstDayRangeUtc, jstDateTimeLabel }
 
 // ───────────────────────── 所属 ─────────────────────────
 
@@ -316,10 +302,13 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
       if (!signed) continue
       input.image_url = signed
     }
-    const r = await falSubmit(opts.falKey, task.endpoint, input, webhook)
+    // 投入権を取る（attempts の CAS）。再開・失敗分の再実行が別のブラウザから同時に走っても同じタスクを二重に投入しない
     const attempts = (task.attempts ?? 0) + 1
+    const { data: claimed } = await admin.from('batch_tasks').update({ attempts }).eq('id', task.id).eq('status', 'pending').eq('attempts', task.attempts ?? 0).select('id')
+    if (!claimed?.length) continue
+    const r = await falSubmit(opts.falKey, task.endpoint, input, webhook)
     if ('requestId' in r) {
-      await admin.from('batch_tasks').update({ status: 'submitted', fal_request_id: r.requestId, submitted_at: new Date().toISOString(), attempts, error: null }).eq('id', task.id)
+      await admin.from('batch_tasks').update({ status: 'submitted', fal_request_id: r.requestId, submitted_at: new Date().toISOString(), error: null }).eq('id', task.id)
       if (task.item_id) await admin.from('batch_items').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', task.item_id).eq('status', 'pending')
       submitted++
     } else {
@@ -327,7 +316,7 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
       if (attempts >= MAX_ATTEMPTS) {
         await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: r.error })
       } else {
-        await admin.from('batch_tasks').update({ attempts, error: r.error }).eq('id', task.id)
+        await admin.from('batch_tasks').update({ error: r.error }).eq('id', task.id)
       }
     }
   }
@@ -505,6 +494,51 @@ export async function batchReconcile(admin: Admin, userId: string, opts: BatchOp
     else counts.skipped++
   }
   return ok(counts)
+}
+
+// ───────────────────────── retry（失敗分の再実行・仕様 4-11） ─────────────────────────
+
+export interface RetryPlan { taskIds: string[]; itemIds: string[] }
+
+/**
+ * 失敗タスクを未投入へ戻す計画（純関数）。
+ * 失敗アイテムのうち、失敗の原因が（自分の or ジョブごとの）失敗タスクであるものは待機へ戻す。
+ * 元画像のコピー失敗などタスクを持たない失敗アイテムは対象外（再実行では直らない）。
+ */
+export function planRetry(tasks: Array<{ id: string; item_id: string | null; status: string }>, items: Array<{ id: string; status: string }>): RetryPlan {
+  const failed = tasks.filter((t) => t.status === 'failed')
+  const taskIds = failed.map((t) => t.id)
+  const itemIds = items
+    .filter((i) => i.status === 'failed' && failed.some((t) => t.item_id === i.id || t.item_id === null))
+    .map((i) => i.id)
+  return { taskIds, itemIds }
+}
+
+/**
+ * 失敗タスクを pending に戻し、ジョブを処理中へ戻す。投入そのものは呼び出し側が batch-submit（冪等・チャンク）で行う。
+ * 枚数は同じジョブなので日次上限には二重に数えない。完了済みジョブを再び進行中にするため、同時進行数だけ検査する。
+ */
+export async function batchRetryFailed(admin: Admin, userId: string, _opts: BatchOpts, body: { jobId?: string }): Promise<BatchResult> {
+  const m = await memberOf(admin, userId)
+  if (!m) return fail(403, 'not_a_member')
+  if (!body?.jobId) return fail(400, 'job_id_required')
+  const { data: job } = await admin.from('batch_jobs').select('id, team_id, status, failed_tasks').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
+  if (!job) return fail(404, 'job_not_found')
+  if (job.status === 'completed') return ok({ jobId: job.id, retriedTasks: 0, resetItems: 0, status: job.status })   // 失敗が無い＝何もしない
+  if (!['partial_failed', 'processing', 'submitted'].includes(job.status)) return fail(409, 'job_not_retryable', { status: job.status, message: 'このジョブは再実行できません' })
+  const { data: tasks } = await admin.from('batch_tasks').select('id, item_id, status').eq('job_id', job.id)
+  const { data: items } = await admin.from('batch_items').select('id, status').eq('job_id', job.id)
+  const plan = planRetry((tasks ?? []) as any[], (items ?? []) as any[])
+  if (!plan.taskIds.length) return ok({ jobId: job.id, retriedTasks: 0, resetItems: 0, status: job.status })
+  if (job.status === 'partial_failed') {
+    const { count } = await admin.from('batch_jobs').select('id', { count: 'exact', head: true }).eq('team_id', m.teamId).in('status', ['uploading', 'submitted', 'processing'])
+    if ((count ?? 0) >= MAX_ACTIVE_JOBS) return fail(429, 'active_jobs', { message: `同時に進行できるジョブは ${MAX_ACTIVE_JOBS} つまでです` })
+  }
+  const now = new Date().toISOString()
+  await admin.from('batch_tasks').update({ status: 'pending', attempts: 0, error: null, fal_request_id: null, submitted_at: null, completed_at: null }).in('id', plan.taskIds)
+  if (plan.itemIds.length) await admin.from('batch_items').update({ status: 'pending', updated_at: now }).in('id', plan.itemIds)
+  await admin.from('batch_jobs').update({ status: 'processing', failed_tasks: 0, updated_at: now }).eq('id', job.id)
+  return ok({ jobId: job.id, retriedTasks: plan.taskIds.length, resetItems: plan.itemIds.length, status: 'processing' })
 }
 
 // ───────────────────────── cancel / delete ─────────────────────────

@@ -35,25 +35,34 @@ api/                              # Vercel Edge Functions（本番）。`_`始�
 ├── team/
 │   ├── manage.ts                 # チーム管理エンドポイント（薄いラッパー）
 │   └── _teamLogic.ts             # チーム管理の共有コア（全 action の認可込み）
+├── batch/                        # 撮影後工程の一括実行（仕様 docs/specs の撮影後工程 v4 §4）
+│   ├── create/submit/reconcile/cancel/delete/retry.ts   # 認証必須の薄いラッパー（authedPost）
+│   ├── webhook.ts                # fal Webhook 受け口（公開。ジョブ秘密値＋Ed25519 署名＋request_id 所属で検証）
+│   ├── _batchLogic.ts            # 共有コア。完了/失敗の反映は finalizeTask → RPC apply_batch_task_result の 1 経路
+│   ├── _falWebhook.ts / _pricing.ts / _common.ts
 └── cron/
     ├── cleanup-old-generations.ts   # 90日超の生成物を削除（日次）
     └── cleanup-orphan-storage.ts    # 孤児ストレージ回収（週次）
 
 src/
-├── components/{auth,canvas,capsule,home,layout,nodes,ui,legal}/
+├── components/{auth,canvas,capsule,home,jobs,layout,nodes,ui,legal}/   # jobs = ジョブ管理画面・投入ダイアログ
 ├── hooks/    useAuth, useAutoSave, useGenerationPolling, useIsMobile, useSignedMedia, useTheme, useToast
-├── stores/   authStore, canvasStore, workflowStore, teamStore
+├── stores/   authStore, canvasStore, workflowStore, teamStore, batchStore（進行中ジョブ・Realtime・再開・照合）
 ├── lib/
 │   ├── ai/    fal-client, fal-provider, fal-video-provider, provider-registry, kling-provider(@deprecated)
-│   ├── api/   workflows, generations, projects, storage, teams, team, signMedia
+│   ├── api/   workflows, generations, projects, storage, teams, team, signMedia, batch（Edge 呼び出し）, batchJobs（RLS 読取・Realtime）
+│   ├── batch/ items, upload, dates, cost, jobsQuery（純関数。api/batch と共有するものあり）
+│   ├── cutout/, layout/, export/   # 撮影後工程（切り抜き・レイアウト・書き出し）
 │   └── supabase.ts
 └── types/    nodes.ts, database.ts
 
 middleware.ts                     # Basic認証（ベータ／保護環境のアクセス制御）
-migrations/                       # 0001〜0010（下記§11）
+migrations/                       # 0001〜0012（下記§11）
 tests/                            # 統合テスト（§12）。ユニットは src/**/*.test.ts
 docs/specs/, docs/ops/            # PRD・運用ランブック
 ```
+
+**型検査の範囲**: `tsconfig.node.json` の include は `vite.config.ts` と `api/**/*.ts`。Edge のエントリファイルも `npm run build`（`tsc -b`）で検査される（過去にエントリファイルが未検査で引数の数の誤りが本番に出たため）。
 
 **dev/Edge の二重化解消（重要な構造）**: `sign-media` / `save-image` / `delete-generation` / `team-manage` は、Edge 関数（`api/`）と Vite dev ミドルウェア（`vite.config.ts` の `/dev-proxy/*`）の**両方が同一の共有コア `_*Logic.ts` を呼ぶ**。ロジックを変更するときは `_*Logic.ts` の1箇所だけ直せばよい（Edge/dev 両方に効く）。
 
@@ -139,6 +148,9 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 - 自動生成（手動追加不可）: ImageDisplay / VideoDisplay（生成時に自動）/ Group（Cmd+G）。
 - **StyleAnalysis ノードは仕様検討中の WIP で UI 非表示**（コードは存在するが未コミット WIP。§13）。
 - `utility` / `text` / `image` / `video` は旧世代の type（現行は textPrompt/imageGen 等）。`kling-provider.ts` は @deprecated。
+- **撮影後工程（2026-09）**: removeBackground / productLayout / batchInput / export。設計原則は仕様書 v4（商品ピクセル不変・マスクだけ保存・レイアウト計算は純関数・状態の正は DB）。
+  - 対話実行はブラウザ主導（fal proxy 経由）。一括実行は `batchStore.openSubmitDialog` → `api/batch/create`（上限検査: 50 枚/ジョブ・日次 300 枚/チーム・同時 2 ジョブ）→ `submit`（元画像コピー→タスク作成→fal キュー投入、冪等・チャンク・attempts の CAS で二重投入防止）→ fal Webhook / `reconcile`（10 分超の投入済み）→ RPC で集約。
+  - ジョブ管理画面 `/jobs`・`/jobs/:jobId`（`src/components/jobs/`）: RLS で直接読み、`batch_jobs` を Realtime 購読（チーム全体・ログイン中）、`batch_items` は詳細を開いている間だけ購読。アプリ起動時に `BatchSync` が「進行中の取得 → 自分の中断ジョブ（uploading・60 秒以上停止）の再開 → 照合 → 購読」を行う。
 
 ## 11. マイグレーション
 
@@ -151,12 +163,15 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 | 0008 | 生成バケット非公開化＋署名読取（L1） |
 | 0009 | **テナント分離（L2）**: workflows.visibility/team_id・RLS拡張・`storage_keys_owned_by` RPC。(A)非破壊→(B)blanket SELECT drop の2段 |
 | 0010 | チームメンバーシップ: team_invites・`team_members.user_id` unique・招待RLS |
+| 0011 | 撮影後工程の基盤: teams に日次上限/原価表示・batch_jobs/items/tasks/outputs・集約RPC `apply_batch_task_result`・`review_batch_item`・私有バケット batch・Realtime publication |
+| 0012 | 一括投入: タスク一意索引 (job,node,item) NULLS NOT DISTINCT・照合用索引・`batch_items.interactive_path`・RPC が pending→failed も許可 |
 
 ## 12. テスト
 
 詳細は [tests/README.md](../tests/README.md)。
 
 - `npm test` — Vitest ユニット（`src/**/*.test.ts`・純関数のみ・秘密情報なし・CI可）。現状: メディアURL解析、クォータJST月境界。
+- `npm run test:batch` — 撮影後工程の一括実行の受入（実 DB/実 Edge/実 fal。既定は本番=Webhook 経路、`APP_URL=http://localhost:5173` で dev=照合経路）。投入→完了→冪等→失敗分の再実行→権限→同時ジョブ上限→削除まで。一時ユーザー/チームを作り finally で削除。fal のコストが数セントかかる。
 - `npm run test:integration` — 実DB/実Edge に対するセキュリティ回帰（L2クロステナント署名遮断・team/manage認可・sign-mediaクロステナント）。**一時データを作り finally で必ず削除**。生成APIは叩かない（コストなし）。リリース前チェック向け。
 
 ## 13. デプロイと環境
