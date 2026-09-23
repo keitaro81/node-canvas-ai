@@ -2,6 +2,7 @@ import { supabase } from '../supabase'
 
 export interface TeamContext {
   teamId: string
+  role: 'owner' | 'member'
   quotaImageMonthly: number
   quotaVideoMonthly: number
   usedImage: number
@@ -27,11 +28,12 @@ export function currentPeriodJst(): string {
 export async function getMyTeamContext(): Promise<TeamContext | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: member } = await (supabase.from('team_members') as any)
-    .select('team_id')
+    .select('team_id, role')
     .limit(1)
     .maybeSingle()
   if (!member?.team_id) return null
   const teamId = member.team_id as string
+  const role: 'owner' | 'member' = member.role === 'owner' ? 'owner' : 'member'
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: team } = await (supabase.from('teams') as any)
@@ -55,6 +57,7 @@ export async function getMyTeamContext(): Promise<TeamContext | null> {
 
   return {
     teamId,
+    role,
     quotaImageMonthly: typeof team?.quota_image_monthly === 'number' ? team.quota_image_monthly : 100,
     quotaVideoMonthly: typeof team?.quota_video_monthly === 'number' ? team.quota_video_monthly : 7,
     usedImage,

@@ -11,6 +11,8 @@ const TeamPage = lazy(() => import('./components/home/TeamPage').then((m) => ({ 
 const TeamSettingsPage = lazy(() => import('./components/home/TeamSettingsPage').then((m) => ({ default: m.TeamSettingsPage })))
 const JoinPage = lazy(() => import('./components/home/JoinPage').then((m) => ({ default: m.JoinPage })))
 const HistoryPage = lazy(() => import('./components/home/HistoryPage').then((m) => ({ default: m.HistoryPage })))
+const JobsPage = lazy(() => import('./components/jobs/JobsPage').then((m) => ({ default: m.JobsPage })))
+const JobDetailPage = lazy(() => import('./components/jobs/JobDetailPage').then((m) => ({ default: m.JobDetailPage })))
 const MyPage = lazy(() => import('./components/home/MyPage').then((m) => ({ default: m.MyPage })))
 const CanvasPage = lazy(() => import('./components/canvas/CanvasPage').then((m) => ({ default: m.CanvasPage })))
 const TermsPage = lazy(() => import('./components/legal/TermsPage').then((m) => ({ default: m.TermsPage })))
@@ -37,6 +39,9 @@ export const router = createBrowserRouter([
       { path: '/team/settings', element: <TeamSettingsPage /> },
       { path: '/community', element: <CommunityPage /> },
       { path: '/history', element: <HistoryPage /> },
+      // 撮影後工程: ジョブ管理（仕様 4-11）。キャンバスとは別ページ
+      { path: '/jobs', element: <JobsPage /> },
+      { path: '/jobs/:jobId', element: <JobDetailPage /> },
       { path: '/account', element: <MyPage /> },
     ],
   },

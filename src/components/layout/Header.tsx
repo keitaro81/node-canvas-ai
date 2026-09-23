@@ -22,6 +22,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import type { WorkflowVisibility } from '../../lib/api/workflows'
+import { ActiveJobsIndicator } from '../jobs/ActiveJobsIndicator'
 
 type IconCmp = React.ComponentType<{ size?: number; weight?: 'regular' | 'fill' | 'bold'; style?: React.CSSProperties }>
 
@@ -253,8 +254,9 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
         )}
       </div>
 
-      {/* Right: Public toggle / Read only + Clone + Theme + User + Settings */}
+      {/* Right: Active jobs + Public toggle / Read only + Clone + Theme + User + Settings */}
       <div className="flex items-center justify-end gap-1 shrink-0" style={{ width: '35%' }}>
+        {!isMobile && <ActiveJobsIndicator />}
         {currentWorkflowIsOwned ? (
           /* Public/Private toggle — 自分のワークフロー（モバイルでは非表示） */
           !isMobile && (

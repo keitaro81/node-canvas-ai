@@ -11,10 +11,12 @@ import {
   CaretUpDown,
   User,
   UsersThree,
+  Queue,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useBatchStore } from '../../stores/batchStore'
 import { PageLoading } from '../ui/PageLoading'
 
 const NAV_ITEMS = [
@@ -22,6 +24,7 @@ const NAV_ITEMS = [
   { to: '/team', icon: UsersThree, label: 'Team' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
+  { to: '/jobs', icon: Queue, label: 'Jobs' },
 ]
 
 const MOBILE_NAV_ITEMS = [
@@ -47,6 +50,7 @@ export function HomeLayout() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const { createNewWorkflow, workflows } = useWorkflowStore()
+  const activeJobCount = useBatchStore((s) => s.activeJobs.length)
 
   async function handleNew() {
     await createNewWorkflow()
@@ -147,6 +151,11 @@ export function HomeLayout() {
                 <>
                   <Icon size={15} weight={isActive ? 'fill' : 'regular'} />
                   {label}
+                  {to === '/jobs' && activeJobCount > 0 && (
+                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center tabular-nums" style={{ background: '#6366F1', color: '#fff' }} title="進行中のジョブ">
+                      {activeJobCount}
+                    </span>
+                  )}
                 </>
               )}
             </NavLink>

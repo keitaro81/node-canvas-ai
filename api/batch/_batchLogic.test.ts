@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkLimits, extOf, jstDayRangeUtc, originalPath, pickResultFile, planTasks, resultPath, MAX_ITEMS_PER_JOB } from './_batchLogic'
+import { checkLimits, extOf, jstDayRangeUtc, originalPath, pickResultFile, planRetry, planTasks, resultPath, MAX_ITEMS_PER_JOB } from './_batchLogic'
 
 describe('planTasks（写しから AI 処理を抽出）', () => {
   const snapshot = {
@@ -60,5 +60,31 @@ describe('日付・パス', () => {
     expect(pickResultFile('fal-ai/flux-2', { images: [{ url: 'g', width: 5, height: 6 }] })).toEqual({ url: 'g', kind: 'image', width: 5, height: 6 })
     expect(pickResultFile('fal-ai/flux-2', {})).toBeNull()
     expect(pickResultFile('fal-ai/birefnet/v2', {})).toBeNull()
+  })
+})
+
+describe('planRetry（失敗分の再実行）', () => {
+  it('失敗タスクだけを戻し、失敗アイテムは原因が失敗タスクのものだけ待機へ', () => {
+    const tasks = [
+      { id: 't1', item_id: 'i1', status: 'failed' },
+      { id: 't2', item_id: 'i2', status: 'completed' },
+      { id: 't3', item_id: 'i3', status: 'failed' },
+      { id: 'tj', item_id: null, status: 'completed' },
+    ]
+    const items = [
+      { id: 'i1', status: 'failed' }, { id: 'i2', status: 'ready' }, { id: 'i3', status: 'failed' },
+      { id: 'i4', status: 'failed' },   // 元画像コピー失敗（タスク無し）→ 対象外
+    ]
+    const plan = planRetry(tasks, items)
+    expect(plan.taskIds).toEqual(['t1', 't3'])
+    expect(plan.itemIds).toEqual(['i1', 'i3'])
+  })
+  it('ジョブごとのタスクが失敗していれば失敗アイテム全部を待機へ', () => {
+    const plan = planRetry([{ id: 'tj', item_id: null, status: 'failed' }, { id: 't1', item_id: 'i1', status: 'completed' }], [{ id: 'i1', status: 'failed' }, { id: 'i2', status: 'failed' }])
+    expect(plan.taskIds).toEqual(['tj'])
+    expect(plan.itemIds).toEqual(['i1', 'i2'])
+  })
+  it('失敗が無ければ空', () => {
+    expect(planRetry([{ id: 't', item_id: 'i', status: 'completed' }], [{ id: 'i', status: 'ready' }])).toEqual({ taskIds: [], itemIds: [] })
   })
 })

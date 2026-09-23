@@ -6,6 +6,7 @@ import { AuthGuard } from './components/auth/AuthGuard'
 import { useAuthStore } from './stores/authStore'
 import { ToastContainer } from './components/ui/ToastContainer'
 import { PageLoading } from './components/ui/PageLoading'
+import { BatchSync } from './components/jobs/BatchSync'
 
 function App() {
   const initialize = useAuthStore((s) => s.initialize)
@@ -23,6 +24,8 @@ function App() {
         <RouterProvider router={router} />
       </Suspense>
       <ToastContainer />
+      {/* 一括実行: 進行中ジョブの復元・再開・照合・Realtime 購読（ログイン後に 1 回起動） */}
+      <BatchSync />
     </AuthGuard>
   )
 }

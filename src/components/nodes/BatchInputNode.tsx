@@ -3,6 +3,7 @@ import type { NodeProps } from '@xyflow/react'
 import { Images, Upload, X, RefreshCw, Star, Loader2, AlertCircle, Check } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import { useCanvasStore } from '../../stores/canvasStore'
+import { useBatchStore } from '../../stores/batchStore'
 import { showToast } from '../../hooks/useToast'
 import type { NodeData, BatchItem } from '../../types/nodes'
 import {
@@ -208,7 +209,8 @@ function BatchInputNodeInner(props: NodeProps) {
 
         {/* 一覧 */}
         {items.length > 0 && (
-          <div className="rounded-lg border border-[var(--border)] overflow-auto nodrag nopan" style={{ maxHeight: 240 }} onWheel={(e) => e.stopPropagation()}>
+          // nowheel: React Flow がホイールをズームに使うのを止め、一覧そのものをスクロールできるようにする
+          <div className="rounded-lg border border-[var(--border)] overflow-auto nodrag nopan nowheel" style={{ maxHeight: 240 }}>
             {items.map((it) => {
               const isCurrent = current?.id === it.id
               return (
@@ -245,9 +247,19 @@ function BatchInputNodeInner(props: NodeProps) {
           </div>
         )}
 
+        {/* 一括実行（仕様 4-7 / 4-8）: 準備完了の全アイテムをサーバーのジョブとして投入。確認ダイアログは CanvasPage 側 */}
+        <button
+          className="h-8 w-full rounded-lg text-[12px] font-medium text-white nodrag disabled:opacity-50 transition-opacity hover:opacity-90"
+          style={{ background: PP_ACCENT }}
+          disabled={readyCount === 0 || uploading}
+          title={uploading ? 'アップロードが終わるまで待ってください' : readyCount === 0 ? '準備完了の画像がありません' : '準備完了の全アイテムを一括実行する'}
+          onClick={() => useBatchStore.getState().openSubmitDialog(id)}
+        >
+          一括実行…（{readyCount} 枚）
+        </button>
         <div className="text-[11px] text-[var(--text-tertiary)] leading-snug">
           {current
-            ? <>対話実行では ★ の 1 枚（{current.index}. {current.sku}）だけを流します。一括実行は Step 5 で追加予定です</>
+            ? <>対話実行では ★ の 1 枚（{current.index}. {current.sku}）だけを流します。全アイテムは「一括実行」で裏側の処理に投入します</>
             : <>対話実行では先頭の 1 枚だけを流します（★ で差し替え可）</>}
         </div>
       </div>
