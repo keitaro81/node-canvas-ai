@@ -3,7 +3,7 @@
 // 一覧ページは jobsVersion の変化で現在ページを再取得する（Realtime のイベントを行にマージしない）。
 import { create } from 'zustand'
 import type { BatchJobRow } from '../types/batch'
-import { disconnectRealtime, fetchActiveJobs, fetchTeamBatchSettings, fetchUsedToday, subscribeTeamJobs } from '../lib/api/batchJobs'
+import { disconnectRealtime, fetchActiveJobs, fetchTeamBatchLimits, fetchTeamBatchSettings, fetchUsedToday, subscribeTeamJobs } from '../lib/api/batchJobs'
 import { initialGate, nextGate, type GateState } from '../lib/batch/realtimeGate'
 import { batchReconcile, submitJobFully } from '../lib/api/batch'
 import { getTeamInfo } from '../lib/api/team'
@@ -22,7 +22,8 @@ interface BatchState {
   dailyLimit: number
   showCost: boolean
   usedToday: number
-  activeJobs: BatchJobRow[]
+  activeCount: number            // チーム全体の進行中ジョブ数（見えないジョブも含む）
+  activeJobs: BatchJobRow[]      // 自分に見える進行中ジョブ（バッジ・再開・一覧に使う）
   jobsVersion: number
   memberNames: Record<string, string>
   ready: boolean
@@ -57,6 +58,7 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   dailyLimit: 300,
   showCost: false,
   usedToday: 0,
+  activeCount: 0,
   activeJobs: [],
   jobsVersion: 0,
   memberNames: {},
@@ -144,16 +146,19 @@ export const useBatchStore = create<BatchState>((set, get) => ({
       if (typeof window !== 'undefined') window.removeEventListener('online', visibilityHandler)
       visibilityHandler = null
     }
-    set({ teamId: null, userId: null, role: null, activeJobs: [], usedToday: 0, ready: false, realtimeOk: null, memberNames: {}, submitDialogNodeId: null })
+    set({ teamId: null, userId: null, role: null, activeJobs: [], activeCount: 0, usedToday: 0, ready: false, realtimeOk: null, memberNames: {}, submitDialogNodeId: null })
   },
 
   refresh: async () => {
     const { teamId } = get()
     if (!teamId) return
     try {
-      const [settings, activeJobs, usedToday] = await Promise.all([fetchTeamBatchSettings(teamId), fetchActiveJobs(teamId), fetchUsedToday(teamId)])
+      const [settings, activeJobs, limits] = await Promise.all([fetchTeamBatchSettings(teamId), fetchActiveJobs(teamId), fetchTeamBatchLimits()])
       if (get().teamId !== teamId) return
-      set({ dailyLimit: settings.dailyLimit, showCost: settings.showCost, activeJobs, usedToday, jobsVersion: get().jobsVersion + 1 })
+      // 利用枚数と進行中数はチーム全体（RPC）。RPC が無い環境では見えるジョブから数える
+      const usedToday = limits ? limits.usedToday : await fetchUsedToday(teamId)
+      const activeCount = limits ? limits.activeJobs : activeJobs.length
+      set({ dailyLimit: limits?.dailyLimit ?? settings.dailyLimit, showCost: settings.showCost, activeJobs, usedToday, activeCount, jobsVersion: get().jobsVersion + 1 })
     } catch (e) {
       console.warn('[batch] refresh failed:', e)
     }

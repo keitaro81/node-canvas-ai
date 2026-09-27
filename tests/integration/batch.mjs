@@ -167,15 +167,47 @@ try {
     job4?.status === 'completed' && changed.length === 2 && changed.every((t) => t.endpoint.startsWith('fal-ai/bria') && t.input?.__params?.engine === 'bria' && t.result_path && t.completed_at !== beforeById[t.id]?.completed_at), JSON.stringify(job4))
   check(`再実行後: 他の ${same.length} 件は手つかず（エンドポイント・完了時刻が同じ）`, same.length === ITEMS - 2 && same.every((t) => t.endpoint.startsWith('fal-ai/birefnet') && t.completed_at === beforeById[t.id]?.completed_at))
 
-  // 権限（仕様 4-11）: 同じチームの member は一覧を読めるが削除は 403。owner でない投入者以外の削除は拒否
+  // 閲覧ルール（0016）: 元ワークフローが共有されていないジョブは 作成者と owner だけ。member には見えない（読取・確認・削除すべて不可）
   const C = await mkUser('c', false)
   await rest('team_members', { method: 'POST', body: JSON.stringify({ team_id: A.teamId, user_id: C.id, role: 'member' }) })
+  const D = await mkUser('d', false)
+  await rest('team_members', { method: 'POST', body: JSON.stringify({ team_id: A.teamId, user_id: D.id, role: 'owner' }) })
   const cJobs = await userRest(C.jwt, `batch_jobs?select=id&id=eq.${jobId}`)
+  const cItems = await userRest(C.jwt, `batch_items?select=id&job_id=eq.${jobId}`)
   const cDel = await api(C.jwt, 'delete', { jobId })
-  check(`同チームの member はジョブを読めるが削除は拒否（読める=${Array.isArray(cJobs) && cJobs.length === 1}・delete ${cDel.status} ${cDel.json?.error}）`, Array.isArray(cJobs) && cJobs.length === 1 && cDel.status === 403)
   const cReview = await fetch(`${URL_BASE}/rest/v1/rpc/review_batch_item`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${C.jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_item_id: victim.item_id, p_review: 'ok' }) })
-  const [reviewed] = await userRest(A.jwt, `batch_items?select=review,reviewed_by&id=eq.${victim.item_id}`)
-  check(`同チームの member は OK/NG を付けられる（${cReview.status}・review=${reviewed?.review}・確認者=本人）`, cReview.status < 300 && reviewed?.review === 'ok' && reviewed?.reviewed_by === C.id)
+  check(`共有されていないジョブは member に見えない（jobs=${cJobs.length}・items=${cItems.length}・delete ${cDel.status}・review ${cReview.status}）`, cJobs.length === 0 && cItems.length === 0 && cDel.status === 404 && cReview.status >= 400)
+  const dJobs = await userRest(D.jwt, `batch_jobs?select=id&id=eq.${jobId}`)
+  check(`チームの owner は共有されていないジョブも見える（${dJobs.length}）`, dJobs.length === 1)
+  // 元ワークフローの列（api/batch/source）: private なワークフローに紐づくジョブでも、見える人（作成者・owner）は最新の列を読める。member は 404
+  const privProj = await (await rest('projects', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name: `${TAG} private project`, user_id: A.id }) })).json()
+  const privCanvas = { ...snapshotFor(), nodes: [...snapshotFor().nodes, { id: 'pl', type: 'productLayoutNode', data: { type: 'productLayout', params: { variantName: 'ec_white' } } }, { id: 'txt', type: 'textNode', data: { type: 'text', params: { text: 'secret' } } }] }
+  const privWf = await (await rest('workflows', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ project_id: privProj[0].id, name: `${TAG} private wf`, canvas_data: privCanvas, visibility: 'private', team_id: A.teamId }) })).json()
+  await rest(`batch_jobs?id=eq.${jobId}`, { method: 'PATCH', body: JSON.stringify({ workflow_id: privWf[0].id }) })
+  const cSrc = await api(C.jwt, 'source', { jobId })
+  const dSrc = await api(D.jwt, 'source', { jobId })
+  const dNodes = dSrc.json?.source?.canvas?.nodes ?? []
+  const dLayouts = dNodes.filter((n) => n.data?.type === 'productLayout').length
+  check(`元ワークフローの列: member は 404・owner は読める（C ${cSrc.status}・D ${dSrc.status}・Product Layout ${dLayouts}・列に無関係なノードは含まない=${!dNodes.some((n) => n.data?.type === 'text')}）`,
+    cSrc.status === 404 && dSrc.status === 200 && dSrc.json?.source?.id === privWf[0].id && dLayouts === 1 && !dNodes.some((n) => n.data?.type === 'text'), JSON.stringify(dSrc.json).slice(0, 200))
+  await rest(`workflows?id=eq.${privWf[0].id}`, { method: 'DELETE' }); await rest(`projects?id=eq.${privProj[0].id}`, { method: 'DELETE' })
+
+  // 共有ワークフローのジョブは member にも見え、OK/NG を付けられる（編集=レイアウト保存は作成者だけ）
+  const proj = await (await rest('projects', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name: `${TAG} project`, user_id: A.id }) })).json()
+  const wf = await (await rest('workflows', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ project_id: proj[0].id, name: `${TAG} wf`, canvas_data: snapshotFor(), visibility: 'team', team_id: A.teamId }) })).json()
+  const sharedJob = await api(A.jwt, 'create', { name: `${TAG} shared`, items: items.slice(0, 1), workflowSnapshot: snapshotFor(), workflowId: wf[0].id })
+  if (sharedJob.json?.jobId) created.jobs.push(sharedJob.json.jobId)
+  const [sj] = await (await rest(`batch_jobs?select=workflow_id&id=eq.${sharedJob.json?.jobId}`)).json()
+  const cShared = await userRest(C.jwt, `batch_jobs?select=id&id=eq.${sharedJob.json?.jobId}`)
+  const [sharedItem] = await userRest(C.jwt, `batch_items?select=id&job_id=eq.${sharedJob.json?.jobId}`)
+  const cReview2 = await fetch(`${URL_BASE}/rest/v1/rpc/review_batch_item`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${C.jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_item_id: sharedItem?.id, p_review: 'ok' }) })
+  const cLayout = await fetch(`${URL_BASE}/rest/v1/rpc/set_batch_job_layout`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${C.jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_job_id: sharedJob.json?.jobId, p_overrides: {} }) })
+  check(`共有ワークフローのジョブは member に見え、OK/NG は付けられるがレイアウト保存は不可（workflow_id 記録=${sj?.workflow_id === wf[0].id}・見える=${cShared.length === 1}・review ${cReview2.status}・layout ${cLayout.status}）`,
+    sharedJob.status === 200 && sj?.workflow_id === wf[0].id && cShared.length === 1 && cReview2.status < 300 && cLayout.status >= 400)
+  const cSrc2 = await api(C.jwt, 'source', { jobId: sharedJob.json?.jobId })
+  check(`共有ワークフローのジョブは member も元ワークフローの列を読める（${cSrc2.status}・一致=${cSrc2.json?.source?.id === wf[0].id}）`, cSrc2.status === 200 && cSrc2.json?.source?.id === wf[0].id)
+  await api(A.jwt, 'delete', { jobId: sharedJob.json?.jobId }); created.jobs = created.jobs.filter((j) => j !== sharedJob.json?.jobId)
+  await rest(`workflows?id=eq.${wf[0].id}`, { method: 'DELETE' }); await rest(`projects?id=eq.${proj[0].id}`, { method: 'DELETE' })
 
   // 同時進行ジョブは 2 つまで（未投入のまま 2 件作り、3 件目は 429）
   const j1 = await api(A.jwt, 'create', { name: `${TAG} j1`, items: items.slice(0, 1), workflowSnapshot: snapshotFor() })
