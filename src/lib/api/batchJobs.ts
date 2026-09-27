@@ -1,5 +1,6 @@
 // ジョブ管理（仕様 4-11）の読み取り・確認結果・Realtime。読み取りは RLS（所属チーム）で Supabase から直接引く。
 // 書き込みは Edge（src/lib/api/batch.ts）経由。ここで直接書くのは確認結果の RPC だけ（仕様 4-3 アクセス制御）。
+import { batchSource } from './batch'
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { supabase } from '../supabase'
 import { jstDayBounds, jstDayRangeUtc } from '../batch/dates'
@@ -9,7 +10,7 @@ import {
   type BatchItemRow, type BatchJobDetail, type BatchJobRow, type BatchOutputRow, type BatchReview, type BatchTaskRow, type ReviewCounts,
 } from '../../types/batch'
 import { aggregateReviewCounts } from '../batch/jobsQuery'
-import { getWorkflow, updateWorkflow } from './workflows'
+import { updateWorkflow } from './workflows'
 import type { Json } from '../../types/database'
 
 // 手書きの Database 型は batch_* を持たない（列指定 select が never に潰れる）ため、既存の teams.ts と同じく untyped で引き、結果側で型を付ける
@@ -95,13 +96,40 @@ export async function fetchJobDetail(jobId: string): Promise<BatchJobDetail | nu
   return { ...row, workflow_snapshot: row.workflow_snapshot ?? {}, layout_overrides: row.layout_overrides && typeof row.layout_overrides === 'object' ? row.layout_overrides : {}, workflow_id: row.workflow_id ?? null }
 }
 
-/** 投入元ワークフローの現在の内容（RLS: 本人か、チーム共有のものだけ読める。読めなければ null） */
-export interface WorkflowSource { id: string; projectId: string; name: string; canvas: Record<string, unknown>; updatedAt: string }
-export async function fetchWorkflowSource(workflowId: string): Promise<WorkflowSource | null> {
+/** 投入元ワークフロー（見えるジョブのワークフローは共有済み＝読める。作成者本人のものは書き戻しにも使う）。読めなければ null */
+export interface WorkflowSource {
+  id: string; projectId: string; name: string; canvas: Record<string, unknown>; updatedAt: string; full: boolean
+  /** ワークフローの所有者（projects.user_id）。プロジェクト行は本人にしか読めないので、他人のものは null */
+  ownerId: string | null
+}
+
+/** 本日の利用枚数・進行中ジョブ数・上限（チーム全体。見えないジョブも数える。0016 の RPC。無ければ null） */
+export interface TeamBatchLimits { usedToday: number; activeJobs: number; dailyLimit: number }
+export async function fetchTeamBatchLimits(): Promise<TeamBatchLimits | null> {
+  const { data, error } = await sb.rpc('team_batch_limits')
+  if (error || !data) return null
+  const r = data as { used_today?: number; active_jobs?: number; daily_limit?: number }
+  return { usedToday: r.used_today ?? 0, activeJobs: r.active_jobs ?? 0, dailyLimit: r.daily_limit ?? 300 }
+}
+
+/** ワークフロー全体（canvas_data ごと）。表示と書き戻しに使う。RLS で読めなければ null（406 は出ない） */
+export async function fetchWorkflowFull(workflowId: string): Promise<WorkflowSource | null> {
+  const { data, error } = await sb.from('workflows').select('id, project_id, name, canvas_data, updated_at, projects(user_id)').eq('id', workflowId).maybeSingle()
+  if (error || !data) return null
+  const w = data as unknown as { id: string; project_id: string; name: string; canvas_data: unknown; updated_at: string; projects?: { user_id?: string | null } | null }
+  const canvas = w.canvas_data && typeof w.canvas_data === 'object' && !Array.isArray(w.canvas_data) ? (w.canvas_data as Record<string, unknown>) : {}
+  return { id: w.id, projectId: w.project_id, name: w.name, canvas, updatedAt: w.updated_at, full: true, ownerId: w.projects?.user_id ?? null }
+}
+
+/** ジョブの元ワークフロー。自分のもの/共有済みなら直接読む（所有者なら書き戻し可）。
+ *  RLS で読めないがジョブは見える（チーム owner が他人の private ワークフローのジョブを開いた）なら Edge 経由で列だけ読む（閲覧のみ）。どちらも無理なら null＝投入時の写し */
+export async function fetchJobWorkflowSource(jobId: string, workflowId: string): Promise<WorkflowSource | null> {
+  const direct = await fetchWorkflowFull(workflowId)
+  if (direct) return direct
   try {
-    const w = await getWorkflow(workflowId)
-    const canvas = w.canvas_data && typeof w.canvas_data === 'object' && !Array.isArray(w.canvas_data) ? (w.canvas_data as Record<string, unknown>) : {}
-    return { id: w.id, projectId: w.project_id, name: w.name, canvas, updatedAt: w.updated_at }
+    const r = await batchSource(jobId)
+    if (!r.source) return null
+    return { id: r.source.id, projectId: r.source.projectId, name: r.source.name, canvas: r.source.canvas as unknown as Record<string, unknown>, updatedAt: r.source.updatedAt, full: false, ownerId: null }
   } catch {
     return null
   }

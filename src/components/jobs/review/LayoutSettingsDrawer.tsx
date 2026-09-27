@@ -4,10 +4,11 @@ import { CircleNotch, Plus, Trash, X } from '@phosphor-icons/react'
 import type { LayoutParams } from '../../../types/nodes'
 import { DEFAULT_LAYOUT_PARAMS } from '../../../lib/layout/computeLayout'
 import { newVariantKey, type ReviewVariant } from '../../../lib/review/model'
+import type { LayoutSaveTarget } from '../../../lib/review/model'
 import { LayoutParamsForm } from '../../nodes/pp/LayoutParamsForm'
 
 /** 保存先の種類: workflow = 元ワークフローのノードに書き戻す / job = このジョブにだけ保存 */
-export type LayoutSaveTarget = 'workflow' | 'job-shared' | 'job-snapshot'
+export type { LayoutSaveTarget }
 
 /** ドロワーが出す変更計画。保存先は呼び出し側（JobDetailPage）が決める */
 export interface LayoutChangePlan {
@@ -21,6 +22,8 @@ interface Props {
   variants: ReviewVariant[]
   target: LayoutSaveTarget
   sourceName?: string | null
+  /** 閲覧のみのときの説明（省略時は「作成者だけ」）。作成者でも元ワークフローが他人のものなら理由が違う */
+  readOnlyNotice?: string | null
   saving: boolean
   onClose: () => void
   onApply: (plan: LayoutChangePlan) => Promise<void>
@@ -33,7 +36,7 @@ export function LayoutSettingsDrawer(props: Props) {
   return <LayoutSettingsDrawerInner {...props} />
 }
 
-function LayoutSettingsDrawerInner({ variants, target, sourceName, saving, onClose, onApply, onReset, canReset }: Props) {
+function LayoutSettingsDrawerInner({ variants, target, sourceName, readOnlyNotice, saving, onClose, onApply, onReset, canReset }: Props) {
   // 開くたびにマウントされるので、下書きは初期値で足りる
   const [draft, setDraft] = useState<Record<string, LayoutParams>>(() => { const d: Record<string, LayoutParams> = {}; for (const v of variants) d[v.key] = v.params; return d })
   const [order, setOrder] = useState<string[]>(() => variants.map((v) => v.key))
@@ -43,7 +46,8 @@ function LayoutSettingsDrawerInner({ variants, target, sourceName, saving, onClo
   const existing = useMemo(() => new Map(variants.map((v) => [v.key, v])), [variants])
   const tabs = useMemo(() => order.filter((k) => !removed.includes(k)).map((k) => ({ key: k, name: draft[k]?.variantName ?? k, isNew: newKeys.includes(k), added: existing.get(k)?.added ?? false })), [order, removed, draft, newKeys, existing])
   const cur = tabs.find((t) => t.key === active) ?? tabs[0]
-  const canDelete = (key: string) => newKeys.includes(key) || target === 'workflow' || existing.get(key)?.added
+  const readOnly = target === 'readonly'
+  const canDelete = (key: string) => !readOnly && (newKeys.includes(key) || target === 'workflow' || existing.get(key)?.added)
 
   const plan = useMemo<LayoutChangePlan>(() => {
     const updated: Record<string, LayoutParams> = {}
@@ -78,8 +82,8 @@ function LayoutSettingsDrawerInner({ variants, target, sourceName, saving, onClo
 
   const notice = target === 'workflow'
     ? `変更は元のワークフロー「${sourceName ?? ''}」の Product Layout ノードに保存され、キャンバスにも反映されます。切り抜きは保存済みなので fal.ai への要求は発生しません。`
-    : target === 'job-shared'
-      ? '元のワークフローは他のメンバーのものなので編集できません。変更はこのジョブにだけ保存します（fal.ai への要求は発生しません）。'
+    : target === 'readonly'
+      ? (readOnlyNotice ?? 'バリアントの編集はジョブの作成者だけができます（ここでは設定の確認のみ）。')
       : 'このジョブは投入時の写しにレイアウトを持っています。変更はこのジョブにだけ保存します（fal.ai への要求は発生しません）。'
 
   return createPortal(
@@ -96,14 +100,18 @@ function LayoutSettingsDrawerInner({ variants, target, sourceName, saving, onClo
               {t.name}{t.isNew ? ' ＋' : plan.updated[t.key] ? ' *' : ''}
             </button>
           ))}
-          <button onClick={addVariant} disabled={saving} className="h-7 px-2 rounded-md text-[11px] font-medium flex items-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--accent)', border: '1px dashed var(--border-active)' }} title={target === 'workflow' ? 'Product Layout ノードを追加（切り抜きの再実行は不要）' : 'バリアントを追加（このジョブにだけ保存）'}>
-            <Plus size={12} />追加
-          </button>
+          {!readOnly && (
+            <button onClick={addVariant} disabled={saving} className="h-7 px-2 rounded-md text-[11px] font-medium flex items-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--accent)', border: '1px dashed var(--border-active)' }} title={target === 'workflow' ? 'Product Layout ノードを追加（切り抜きの再実行は不要）' : 'バリアントを追加（このジョブにだけ保存）'}>
+              <Plus size={12} />追加
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-auto px-4 py-3">
           {cur && draft[cur.key] ? (
             <>
-              <LayoutParamsForm params={draft[cur.key]} showVariantName={target === 'workflow' || cur.isNew || cur.added} onChange={(patch) => setDraft((d) => ({ ...d, [cur.key]: { ...d[cur.key], ...patch } }))} />
+              <fieldset disabled={readOnly} className="min-w-0 border-0 p-0 m-0" style={readOnly ? { opacity: 0.7 } : undefined}>
+                <LayoutParamsForm params={draft[cur.key]} showVariantName={target === 'workflow' || cur.isNew || cur.added} onChange={(patch) => setDraft((d) => ({ ...d, [cur.key]: { ...d[cur.key], ...patch } }))} />
+              </fieldset>
               {canDelete(cur.key) && (
                 <button onClick={() => removeVariant(cur.key)} disabled={saving} className="mt-4 h-7 px-2 rounded-md text-[11px] flex items-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ color: '#EF4444', border: '1px solid rgba(239,68,68,0.35)' }} title={target === 'workflow' && !cur.isNew ? 'ワークフローからノードを削除します' : undefined}>
                   <Trash size={12} />このバリアントを削除
@@ -117,14 +125,16 @@ function LayoutSettingsDrawerInner({ variants, target, sourceName, saving, onClo
           )}
         </div>
         <div className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
-          {canReset && (
+          {canReset && !readOnly && (
             <button onClick={() => void onReset()} disabled={saving} className="h-8 px-3 rounded-lg text-[12px] disabled:opacity-50 hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} title="このジョブだけの上書きと追加分を消します">ジョブ側の変更を消す</button>
           )}
           <div className="flex-1" />
           <button onClick={onClose} disabled={saving} className="h-8 px-3 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }}>閉じる</button>
-          <button onClick={() => void onApply(plan)} disabled={saving || changeCount === 0} className="h-8 px-4 rounded-lg text-[12px] font-medium text-white flex items-center gap-1.5 disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-            {saving && <CircleNotch size={12} className="animate-spin" />}全アイテムに再適用{changeCount ? `（${changeCount} 件）` : ''}
-          </button>
+          {!readOnly && (
+            <button onClick={() => void onApply(plan)} disabled={saving || changeCount === 0} className="h-8 px-4 rounded-lg text-[12px] font-medium text-white flex items-center gap-1.5 disabled:opacity-50" style={{ background: 'var(--accent)' }}>
+              {saving && <CircleNotch size={12} className="animate-spin" />}全アイテムに再適用{changeCount ? `（${changeCount} 件）` : ''}
+            </button>
+          )}
         </div>
       </aside>
     </div>,

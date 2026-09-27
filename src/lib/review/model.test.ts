@@ -3,6 +3,7 @@ import {
   CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, cutoutParamsOf, estimateZipBytes, exportParamsFromSnapshot, filterItems, identityFor,
   addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveSelection, newVariantKey, planJobExport,
   removeLayoutNodeFromCanvas, resultKindOf, thumbFileName, updateLayoutNodeParams, variantsFromSnapshot,
+  layoutSaveTargetFor,
 } from './model'
 import { layoutIdentityString } from '../layout/identity'
 import type { BatchItemRow, BatchTaskRow } from '../../types/batch'
@@ -125,5 +126,24 @@ describe('review model', () => {
     const plan = planJobExport([item({ sort_order: 7 })], variants, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
     expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_07.jpg', 'sns/ABC-1_sns_07.png'])
     expect(estimateZipBytes(150, 1200, 1200, 'jpeg')).toBe(54_000_000)
+  })
+})
+
+describe('layoutSaveTargetFor（レイアウト編集の保存先）', () => {
+  const me = 'user-a'
+  it('作成者以外は元ワークフローの有無にかかわらず閲覧のみ', () => {
+    expect(layoutSaveTargetFor(false, { ownerId: me }, me)).toBe('readonly')
+    expect(layoutSaveTargetFor(false, null, me)).toBe('readonly')
+  })
+  it('作成者で元ワークフローが自分のものなら書き戻し', () => {
+    expect(layoutSaveTargetFor(true, { ownerId: me }, me)).toBe('workflow')
+  })
+  it('作成者でも元ワークフローが他人のもの（共有から投入）や所有者不明なら閲覧のみ', () => {
+    expect(layoutSaveTargetFor(true, { ownerId: 'user-b' }, me)).toBe('readonly')
+    expect(layoutSaveTargetFor(true, { ownerId: null }, me)).toBe('readonly')
+    expect(layoutSaveTargetFor(true, { ownerId: me }, null)).toBe('readonly')
+  })
+  it('元ワークフローが無い（削除済み・読めない）ジョブは写しに保存', () => {
+    expect(layoutSaveTargetFor(true, null, me)).toBe('job-snapshot')
   })
 })

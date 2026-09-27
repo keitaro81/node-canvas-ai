@@ -244,3 +244,11 @@ export function estimateZipBytes(count: number, width: number, height: number, f
   const perPx = format === 'png' ? 1.2 : format === 'webp' ? 0.15 : 0.25
   return Math.round(count * width * height * perPx)
 }
+
+/** レイアウト編集の保存先。作成者以外は閲覧のみ。元ワークフローが自分のものなら書き戻し、他人のもの（共有ワークフローから投入）なら閲覧のみ、元が無ければジョブの写しへ */
+export type LayoutSaveTarget = 'workflow' | 'job-snapshot' | 'readonly'
+export function layoutSaveTargetFor(isCreator: boolean, source: { ownerId: string | null } | null, userId: string | null): LayoutSaveTarget {
+  if (!isCreator) return 'readonly'
+  if (!source) return 'job-snapshot'
+  return !!userId && source.ownerId === userId ? 'workflow' : 'readonly'
+}

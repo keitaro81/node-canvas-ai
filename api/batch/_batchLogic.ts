@@ -41,6 +41,13 @@ export async function memberOf(admin: Admin, userId: string): Promise<{ teamId: 
   return data?.team_id ? { teamId: data.team_id as string, role: (data.role as string) ?? 'member' } : null
 }
 
+/** ジョブが見えるか（0016 の閲覧ルール: 作成者 / チーム owner / 共有ワークフローのメンバー）。関数が無い環境（0016 未適用）は従来どおり所属のみ */
+async function canViewJob(admin: Admin, jobId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin.rpc('can_view_batch_job_as', { p_job_id: jobId, p_user_id: userId })
+  if (error) return true
+  return data === true
+}
+
 // ───────────────────────── ワークフローの写し → タスク計画 ─────────────────────────
 
 export interface SnapshotNode { id: string; type?: string; data?: any }
@@ -256,7 +263,7 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
   if (!body?.jobId) return fail(400, 'job_id_required')
   if (body.disableWebhook && !opts.isAdmin) return fail(403, 'operator_only', { message: 'Webhook 無効化は運営専用です' })
   const { data: job } = await admin.from('batch_jobs').select('*').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
-  if (!job) return fail(404, 'job_not_found')
+  if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (['cancelled', 'completed', 'partial_failed'].includes(job.status)) return fail(409, 'job_not_submittable', { status: job.status })
   const chunk = Math.min(25, Math.max(1, Number(body.chunk) || SUBMIT_CHUNK))
   const plan = planTasks(job.workflow_snapshot)
@@ -542,7 +549,7 @@ export async function batchRetryFailed(admin: Admin, userId: string, _opts: Batc
   if (!m) return fail(403, 'not_a_member')
   if (!body?.jobId) return fail(400, 'job_id_required')
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, status, failed_tasks').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
-  if (!job) return fail(404, 'job_not_found')
+  if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (job.status === 'completed') return ok({ jobId: job.id, retriedTasks: 0, resetItems: 0, status: job.status })   // 失敗が無い＝何もしない
   if (!['partial_failed', 'processing', 'submitted'].includes(job.status)) return fail(409, 'job_not_retryable', { status: job.status, message: 'このジョブは再実行できません' })
   const { data: tasks } = await admin.from('batch_tasks').select('id, item_id, status').eq('job_id', job.id)
@@ -600,7 +607,7 @@ export async function batchRerunItems(admin: Admin, userId: string, _opts: Batch
   const itemIds = Array.isArray(body.itemIds) ? body.itemIds.filter((x): x is string => typeof x === 'string') : []
   if (!itemIds.length) return fail(400, 'no_items', { message: '対象のアイテムがありません' })
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, status, workflow_snapshot').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
-  if (!job) return fail(404, 'job_not_found')
+  if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (['cancelled', 'uploading'].includes(job.status)) return fail(409, 'job_not_rerunnable', { status: job.status, message: 'このジョブは再実行できません' })
   const snapNode = (planTasks(job.workflow_snapshot).tasks).find((t) => t.nodeId === body.nodeId && t.kind === 'cutout')
   if (!snapNode) return fail(400, 'node_not_cutout', { message: '指定ノードは一括実行の切り抜きノードではありません' })
@@ -653,7 +660,7 @@ export async function batchCancel(admin: Admin, userId: string, opts: BatchOpts,
   if (!m) return fail(403, 'not_a_member')
   if (!body?.jobId) return fail(400, 'job_id_required')
   const { data: job } = await admin.from('batch_jobs').select('id, status').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
-  if (!job) return fail(404, 'job_not_found')
+  if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (['completed', 'partial_failed', 'cancelled'].includes(job.status)) return ok({ jobId: job.id, cancelledTasks: 0, status: job.status })
   const n = await cancelJobTasks(admin, opts, job)
   return ok({ jobId: job.id, cancelledTasks: n, status: 'cancelled' })
@@ -683,7 +690,7 @@ export async function batchDelete(admin: Admin, userId: string, opts: BatchOpts,
   if (!m) return fail(403, 'not_a_member')
   if (!body?.jobId) return fail(400, 'job_id_required')
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, status, created_by').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
-  if (!job) return fail(404, 'job_not_found')
+  if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (job.created_by !== userId && m.role !== 'owner') return fail(403, 'forbidden', { message: '削除できるのは投入者本人かオーナーだけです' })
   if (['uploading', 'submitted', 'processing'].includes(job.status)) await cancelJobTasks(admin, opts, job)
   const files = await listAllFiles(admin, `${job.team_id}/${job.id}`)
@@ -697,4 +704,29 @@ export async function batchDelete(admin: Admin, userId: string, opts: BatchOpts,
   const { error } = await admin.from('batch_jobs').delete().eq('id', job.id)
   if (error) return fail(500, 'job_delete_failed', { message: error.message, deleted })
   return ok({ jobId: job.id, deletedFiles: deleted })
+}
+
+// ───────────────────────── 元ワークフローの列（閲覧） ─────────────────────────
+
+const SOURCE_NODE_TYPES = new Set(['productLayout', 'removeBackground', 'batchInput'])
+/** ジョブの元ワークフローの列（Product Layout ノード）を、ジョブが見える人に返す（0016 の閲覧ルール）。
+ *  自分のもの/共有済みのワークフローはクライアントが直接読むので、ここは RLS で読めないがジョブは見える人（チーム owner）向け。
+ *  返すのは列の描画に要るノード（Product Layout / Remove Background / Batch Input）と接続だけ。閲覧専用で、書き戻しは本人が workflows を直接更新する */
+export async function batchSource(admin: Admin, userId: string, _opts: BatchOpts, body: { jobId?: string }): Promise<BatchResult> {
+  const m = await memberOf(admin, userId)
+  if (!m) return fail(403, 'not_a_member')
+  if (typeof body?.jobId !== 'string' || !UUID_RE.test(body.jobId)) return fail(400, 'job_id_required')
+  const { data: job } = await admin.from('batch_jobs').select('id, team_id, workflow_id').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
+  if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
+  if (!job.workflow_id) return ok({ jobId: job.id, source: null })
+  const { data: wf } = await admin.from('workflows').select('id, project_id, name, canvas_data, updated_at').eq('id', job.workflow_id).maybeSingle()
+  if (!wf) return ok({ jobId: job.id, source: null })
+  const canvas: WorkflowSnapshot = wf.canvas_data && typeof wf.canvas_data === 'object' && !Array.isArray(wf.canvas_data) ? wf.canvas_data : {}
+  const nodes = (Array.isArray(canvas.nodes) ? canvas.nodes : [])
+    .filter((n) => n && typeof n.id === 'string' && SOURCE_NODE_TYPES.has(String(n.data?.type)))
+    .map((n) => ({ id: n.id, type: n.type, data: { type: n.data?.type, label: n.data?.label, params: n.data?.params ?? {} } }))
+  const edges = (Array.isArray(canvas.edges) ? canvas.edges : [])
+    .filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string')
+    .map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null }))
+  return ok({ jobId: job.id, source: { id: wf.id, projectId: wf.project_id, name: wf.name, updatedAt: wf.updated_at, canvas: { nodes, edges } } })
 }

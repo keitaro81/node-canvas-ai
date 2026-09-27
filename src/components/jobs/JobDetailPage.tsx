@@ -3,8 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
 import { useAuthStore } from '../../stores/authStore'
-import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchWorkflowSource, reviewItem, saveWorkflowCanvas, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, reviewItem, saveWorkflowCanvas, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
 import { batchRerun, submitJobFully } from '../../lib/api/batch'
 import { signBatchPath } from '../../lib/cutout/store'
 import { jobProgress } from '../../lib/batch/jobsQuery'
@@ -16,8 +15,7 @@ import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchReview, BatchTa
 import { useReviewStore, type ReviewContext } from '../../lib/review/reviewStore'
 import {
   ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveSelection,
-  removeLayoutNodeFromCanvas, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike,
-} from '../../lib/review/model'
+  removeLayoutNodeFromCanvas, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike, layoutSaveTargetFor } from '../../lib/review/model'
 import { estimateExportBytes, exportJobZip, exportTargets } from '../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
@@ -48,7 +46,6 @@ export function JobDetailPage() {
   const [tasks, setTasks] = useState<BatchTaskRow[]>([])
   const [knownThumbs, setKnownThumbs] = useState<BatchOutputRow[]>([])
   const [source, setSource] = useState<WorkflowSource | null>(null)          // 投入元ワークフローの現在の内容（読めるとき）
-  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,7 +79,7 @@ export function JobDetailPage() {
       const [j, its, ts] = await Promise.all([fetchJobDetail(jobId), fetchJobItems(jobId), fetchJobTasks(jobId)])
       if (!j) { setNotFound(true); return }
       const th = await fetchJobThumbs(its.map((i) => i.id)).catch(() => [] as BatchOutputRow[])
-      const src = j.workflow_id ? await fetchWorkflowSource(j.workflow_id) : null
+      const src = j.workflow_id ? await fetchJobWorkflowSource(j.id, j.workflow_id) : null
       setJob(j); setItems(its); setTasks(ts); setKnownThumbs(th); setSource(src); setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -100,15 +97,12 @@ export function JobDetailPage() {
     void loadAll().finally(() => setLoading(false))
     return () => { useReviewStore.getState().close() }
   }, [jobId, loadAll])
-  // 自分のプロジェクト ID（元ワークフローが自分のものか＝書き戻せるかの判定に使う）
-  useEffect(() => { useWorkflowStore.getState().initializeDefaultProject().then((id) => setDefaultProjectId(id)).catch(() => {}) }, [])
   // キャンバス側でノードを変えたら、タブに戻ったときに列へ反映する
   const reloadSource = useCallback(async () => {
-    const wid = job?.workflow_id
-    if (!wid) return
-    const src = await fetchWorkflowSource(wid)
+    if (!job?.id || !job.workflow_id) return
+    const src = await fetchJobWorkflowSource(job.id, job.workflow_id)
     setSource((prev) => (src && prev && src.updatedAt === prev.updatedAt ? prev : src))
-  }, [job?.workflow_id])
+  }, [job?.id, job?.workflow_id])
   useEffect(() => {
     const h = () => { if (document.visibilityState === 'visible') void reloadSource() }
     document.addEventListener('visibilitychange', h)
@@ -145,16 +139,19 @@ export function JobDetailPage() {
 
   // ── 派生 ──
   // バリアントの出どころ: 元ワークフローが読めればその現在のノード（本人のものなら書き戻し可）。読めなければ投入時の写し
-  const target: LayoutSaveTarget = source ? (defaultProjectId && source.projectId === defaultProjectId ? 'workflow' : 'job-shared') : 'job-snapshot'
+  // 編集は作成者だけ: 元ワークフローが自分のものなら書き戻し、元が無ければジョブにだけ保存。作成者以外は閲覧のみ
+  const isCreator = !!job && !!userId && job.created_by === userId
+  const target: LayoutSaveTarget = layoutSaveTargetFor(isCreator, source, userId)
+  // 作成者なのに閲覧のみ＝共有ワークフロー（他のメンバーのもの）から投入したジョブ。変更は所有者がキャンバスで行う
+  const readOnlyNotice = isCreator && target === 'readonly' ? '元のワークフローは他のメンバーのものなので、ここでは変更できません。変更はワークフローの所有者がキャンバスで行い、このジョブの列に反映されます。' : null
   const variants = useMemo(() => {
     if (!job) return []
     if (source) {
-      // 書き戻せる場合はノードの設定が正。ジョブだけの追加分（他メンバーが足したもの等）は残す
-      const overrides = target === 'workflow' ? { [ADDED_VARIANTS_KEY]: addedVariantsOf(job.layout_overrides) } : job.layout_overrides
-      return variantsFromSnapshot(source.canvas as CanvasLike, overrides)
+      // ノードの設定が正。ジョブだけの追加分（元が無い時代に足したもの等）は残す
+      return variantsFromSnapshot(source.canvas as CanvasLike, { [ADDED_VARIANTS_KEY]: addedVariantsOf(job.layout_overrides) })
     }
     return variantsFromSnapshot(job.workflow_snapshot, job.layout_overrides)
-  }, [job, source, target])
+  }, [job, source])
   const hasJobOverrides = !!job && Object.keys(job.layout_overrides).length > 0
   const cutoutNode = useMemo(() => (job ? cutoutNodesFromSnapshot(job.workflow_snapshot)[0] ?? null : null), [job])
   const exportParams = useMemo<ExportParams>(() => exportParamsFromSnapshot(job?.workflow_snapshot), [job])
@@ -219,8 +216,9 @@ export function JobDetailPage() {
     try {
       const jobAdded = addedVariantsOf(job.layout_overrides)
       if (target === 'workflow' && source) {
-        // 最新の canvas_data を取り直してから差分を当てる（後勝ちの幅を狭める）
-        const fresh = (await fetchWorkflowSource(source.id)) ?? source
+        // 書き戻しはワークフロー全体が必要。最新を取り直してから差分を当てる（後勝ちの幅を狭める）
+        const fresh = await fetchWorkflowFull(source.id)
+        if (!fresh) throw new Error('元のワークフローを読み込めませんでした（編集権限がありません）')
         let canvas: CanvasLike = fresh.canvas as CanvasLike
         const nodeIds = new Set((Array.isArray(canvas.nodes) ? canvas.nodes : []).map((n) => n.id))
         let added = jobAdded
@@ -349,9 +347,14 @@ export function JobDetailPage() {
             {source ? `ワークフロー「${source.name}」に Product Layout ノードが無いため、` : '投入時のワークフローに Product Layout ノードが無いため、'}切り抜き列だけを表示しています。「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合の書き出しは切り抜きの透過 PNG）。
           </div>
         )}
+        {!source && job?.workflow_id && variants.length > 0 && (
+          <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+            元のワークフローを読み込めないため、投入時のレイアウトを表示しています（列が最新でない可能性があります）。
+          </div>
+        )}
         {source && variants.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : '（他のメンバーのワークフローのため、変更はこのジョブにだけ保存されます）'}。
+            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : isCreator ? '（他のメンバーのワークフローなので、変更は所有者がキャンバスで行います）' : '（編集はジョブの作成者のみ）'}。
           </div>
         )}
         <ReviewGrid
@@ -377,7 +380,7 @@ export function JobDetailPage() {
           hasPrev={lbIdx > 0} hasNext={lbIdx >= 0 && lbIdx < visibleItems.length - 1}
         />
       )}
-      <LayoutSettingsDrawer open={settingsOpen} variants={variants} target={target} sourceName={source?.name ?? null} saving={savingLayout} onClose={() => setSettingsOpen(false)} onApply={applyPlan} onReset={resetJobOverrides} canReset={hasJobOverrides} />
+      <LayoutSettingsDrawer open={settingsOpen} variants={variants} target={target} sourceName={source?.name ?? null} readOnlyNotice={readOnlyNotice} saving={savingLayout} onClose={() => setSettingsOpen(false)} onApply={applyPlan} onReset={resetJobOverrides} canReset={hasJobOverrides} />
       <RerunDialog open={rerunOpen} count={counts.ng} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
       <ExportDialog
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}

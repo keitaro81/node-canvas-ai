@@ -36,7 +36,7 @@ api/                              # Vercel Edge Functions（本番）。`_`始�
 │   ├── manage.ts                 # チーム管理エンドポイント（薄いラッパー）
 │   └── _teamLogic.ts             # チーム管理の共有コア（全 action の認可込み）
 ├── batch/                        # 撮影後工程の一括実行（仕様 docs/specs の撮影後工程 v4 §4）
-│   ├── create/submit/reconcile/cancel/delete/retry/rerun.ts   # 認証必須の薄いラッパー（authedPost）。rerun = NG のみ再実行（設定差し替え）
+│   ├── create/submit/reconcile/cancel/delete/retry/rerun/source.ts   # 認証必須の薄いラッパー（authedPost）。rerun = NG のみ再実行（設定差し替え）。source = 元ワークフローの列（閲覧）
 │   ├── webhook.ts                # fal Webhook 受け口（公開。ジョブ秘密値＋Ed25519 署名＋request_id 所属で検証）
 │   ├── _batchLogic.ts            # 共有コア。完了/失敗の反映は finalizeTask → RPC apply_batch_task_result の 1 経路
 │   ├── _falWebhook.ts / _pricing.ts / _common.ts
@@ -153,7 +153,8 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
   - 対話実行はブラウザ主導（fal proxy 経由）。一括実行は `batchStore.openSubmitDialog` → `api/batch/create`（上限検査: 50 枚/ジョブ・日次 300 枚/チーム・同時 2 ジョブ）→ `submit`（元画像コピー→タスク作成→fal キュー投入、冪等・チャンク・attempts の CAS で二重投入防止）→ fal Webhook / `reconcile`（10 分超の投入済み）→ RPC で集約。
   - ジョブ管理画面 `/jobs`・`/jobs/:jobId`（`src/components/jobs/`）: RLS で直接読み、`batch_jobs` を Realtime 購読（チーム全体・ログイン中）、`batch_items` は詳細を開いている間だけ購読。アプリ起動時に `BatchSync` が「進行中の取得 → 自分の中断ジョブ（uploading・60 秒以上停止）の再開 → 照合 → 購読」を行う。Realtime に接続できない環境では見張り（realtimeGate）が諦めて再取得ポーリングに切り替える。
   - **ReviewGrid（Step 7）** `src/components/jobs/review/`: 写しの Product Layout ノード＝バリアント（`batch_jobs.layout_overrides` で上書き）。サムネイル（長辺 400px）は識別値 layoutHash（設定＋元画像＋結果ファイル＋版）で管理し、`batch_outputs(kind='thumb')` に記録・Storage に保存して再利用。描画は `LayoutExecutor`（Worker + OffscreenCanvas。無ければメインスレッド）で 1 アイテムずつ、Step 2/3 の関数をそのまま使う。書き出しは Worker でフル解像度→形式変換→fflate ストリーム ZIP。NG のみ再実行は `api/batch/rerun`（対象タスクを新設定で pending に戻し `input.__params` に保持、確認結果は未確認へ）。
-  - **バリアントの連動（0014）**: ジョブは `workflow_id` の元ワークフローが読めれば、その現在の `canvas_data` の Product Layout ノードを列にする（`variantsFromSnapshot` は写しと canvas_data の両形式を読む）。本人のワークフロー（project_id = 自分の既定プロジェクト）なら Jobs 画面の追加/削除/変更を `canvas_data` に書き戻す（`addLayoutNodeToCanvas` 等の純関数 → `updateWorkflow`）。読めない/他人のものなら `layout_overrides`（ノード別上書き + `__added`）にジョブだけ保存。キャンバス側は `visibilitychange` で `updated_at` を見て、未保存の変更が無ければ読み直す（後勝ち）。AI 処理の設定・タスクは写しで固定のまま。
+  - **閲覧ルール（0016）**: ジョブが見えるのは作成者・チーム owner・元ワークフローが team/public のメンバー。Edge のジョブ操作（submit/cancel/retry/rerun/delete）と sign-media の `<team>/<job>/` パスも `can_view_batch_job_as(job, user)` で同じ判定（関数が無ければ所属のみ）。ジョブは見えるが元ワークフローが RLS で読めない人（チーム owner が他人の private ワークフローのジョブを開く）は `api/batch/source` で列（Product Layout / Remove Background / Batch Input ノードと接続）だけ読む＝`fetchJobWorkflowSource`（直接読み → Edge → 写し の順）。編集（レイアウト保存）は作成者だけ。一覧上部の枚数/進行中数は `team_batch_limits()`（チーム全体）。
+  - **バリアントの連動（0014）**: ジョブは元ワークフロー（見えるジョブのものは共有済みで RLS で読める）の `canvas_data` から Product Layout ノードを列にする（`fetchWorkflowFull`＝maybeSingle）（`variantsFromSnapshot` は写しと canvas_data の両形式を読む）。本人のワークフロー（`projects.user_id` = 自分。`fetchWorkflowFull` が `projects(user_id)` を埋め込み、他人のプロジェクト行は RLS で null → `layoutSaveTargetFor`）なら、書き戻し時に `fetchWorkflowFull` でワークフロー全体を取り直して差分を当て `canvas_data` に保存する（`addLayoutNodeToCanvas` 等の純関数 → `updateWorkflow`）。読めない/他人のものなら `layout_overrides`（ノード別上書き + `__added`）にジョブだけ保存。キャンバス側は `visibilitychange` で `updated_at` を見て、未保存の変更が無ければ読み直す（後勝ち）。AI 処理の設定・タスクは写しで固定のまま。
 
 ## 11. マイグレーション
 
@@ -170,6 +171,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 | 0012 | 一括投入: タスク一意索引 (job,node,item) NULLS NOT DISTINCT・照合用索引・`batch_items.interactive_path`・RPC が pending→failed も許可 |
 | 0013 | ReviewGrid: `batch_jobs.layout_overrides`＋RPC `set_batch_job_layout`・`batch_outputs.kind`（full/thumb）＋一意 (item,variant,hash,kind)・`record_batch_output` 5 引数版 |
 | 0014 | ジョブと投入元ワークフローの連動: `batch_jobs.workflow_id`（投入時に本人 or チーム共有のワークフローだけ記録） |
+| 0016 | ジョブの閲覧ルール: `can_view_batch_job(_as)`（作成者 / チーム owner / 共有ワークフローのメンバー）で batch_* の SELECT・storage の `<team>/<job>/` パス・`review_batch_item`・`record_batch_output` を判定。`set_batch_job_layout` は作成者のみ。`team_batch_limits()` でチーム全体の本日枚数/進行中数 |
 
 ## 12. テスト
 

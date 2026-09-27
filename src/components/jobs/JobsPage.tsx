@@ -28,6 +28,7 @@ export function JobsPage() {
   const teamId = useBatchStore((s) => s.teamId)
   const ready = useBatchStore((s) => s.ready)
   const activeJobs = useBatchStore((s) => s.activeJobs)
+  const activeCount = useBatchStore((s) => s.activeCount)
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
   const usedToday = useBatchStore((s) => s.usedToday)
   const dailyLimit = useBatchStore((s) => s.dailyLimit)
@@ -102,14 +103,14 @@ export function JobsPage() {
       <div className="flex items-center justify-between px-8 py-5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
         <div>
           <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Jobs</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>一括実行のジョブ（チームのメンバー全員分）</p>
+          <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>一括実行のジョブ（自分のジョブと、チームに共有されたワークフローのジョブ。owner は全件）</p>
         </div>
         <div className="flex items-center gap-4 shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
           <span title="本日（日本時間）に投入した枚数と、ワークスペースの 1 日の上限">
             本日 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{usedToday}</b> / {dailyLimit} 枚
           </span>
-          <span title="同時に進行できるジョブは 2 つまで">
-            進行中 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{activeJobs.length}</b> / 2
+          <span title="同時に進行できるジョブは 2 つまで（チーム全体。共有されていないジョブも数えます）">
+            進行中 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{activeCount}</b> / 2
           </span>
           <button
             onClick={() => bump()}
