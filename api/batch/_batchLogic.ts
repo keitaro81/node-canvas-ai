@@ -16,6 +16,7 @@ export const MAX_ITEMS_PER_JOB = 50
 export const MAX_ACTIVE_JOBS = 2
 export const DEFAULT_DAILY_ITEM_LIMIT = 300
 export const SUBMIT_CHUNK = 10
+export const SUBMIT_CONCURRENCY = 5       // チャンク内の fal 投入の同時数（Edge の応答期限 25 秒に収める）
 export const RECONCILE_MIN_AGE_SEC = 600
 export const RESULT_EXPIRY_SEC = 60 * 60          // fal の結果保持（Webhook 再送の記述から推定: 完了後およそ 1 時間）
 export const MAX_ATTEMPTS = 2
@@ -125,6 +126,15 @@ export function checkLimits(l: LimitInputs): LimitCheck {
   if (l.activeJobs >= MAX_ACTIVE_JOBS) return { ok: false, code: 'active_jobs', status: 429, message: `同時に進行できるジョブは ${MAX_ACTIVE_JOBS} つまでです` }
   if (l.usedToday + l.newItems > l.dailyLimit) return { ok: false, code: 'daily_limit', status: 429, message: `本日の上限 ${l.dailyLimit} 枚を超えます（本日 ${l.usedToday} 枚 + ${l.newItems} 枚）` }
   return { ok: true }
+}
+
+/** 配列を同時 limit 件ずつ処理する（順不同。各要素の失敗は fn 側で扱う） */
+export async function mapLimit<T>(arr: T[], limit: number, fn: (t: T) => Promise<void>): Promise<void> {
+  let i = 0
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, arr.length)) }, async () => {
+    while (i < arr.length) { const t = arr[i++]; await fn(t) }
+  })
+  await Promise.all(workers)
 }
 
 // ───────────────────────── 保存パス ─────────────────────────
@@ -287,21 +297,22 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
   const items = (itemsData ?? []) as any[]
 
   // 1) 元画像をジョブ階層へコピー（Batch Input の対話用アップロードから。冪等）
+  //    Edge の応答期限（25 秒）に収めるため、チャンク内は並列に処理する（コピーも投入も互いに独立）
   let copied = 0
   const copyFailures: string[] = []
-  for (const it of items.filter((i) => !i.source_path && i.interactive_path && i.status !== 'failed').slice(0, chunk)) {
+  await Promise.all(items.filter((i) => !i.source_path && i.interactive_path && i.status !== 'failed').slice(0, chunk).map(async (it) => {
     const dest = originalPath(job.team_id, job.id, it.id, it.interactive_path)
     const { error } = await admin.storage.from(BATCH_BUCKET).copy(it.interactive_path, dest)
     if (error && !/already exists|duplicate/i.test(String(error.message))) {
       copyFailures.push(`${it.original_filename}: ${error.message}`)
       await admin.from('batch_items').update({ status: 'failed', warnings: [`元画像のコピーに失敗: ${error.message}`], updated_at: new Date().toISOString() }).eq('id', it.id)
       it.status = 'failed'
-      continue
+      return
     }
     await admin.from('batch_items').update({ source_path: dest, updated_at: new Date().toISOString() }).eq('id', it.id)
     it.source_path = dest
     copied++
-  }
+  }))
 
   // 2) タスクを作る（(job, node, item) の一意索引 + ignoreDuplicates で再実行しても二重に作らない）
   const { data: existingData } = await admin.from('batch_tasks').select('id, node_id, item_id, status').eq('job_id', job.id)
@@ -329,19 +340,19 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
   const { data: pendingData } = await admin.from('batch_tasks').select('*').eq('job_id', job.id).eq('status', 'pending').order('created_at').limit(chunk)
   const webhook = webhookUrlFor(opts, job, !!body.disableWebhook)
   let submitted = 0, failedSubmits = 0
-  for (const task of (pendingData ?? []) as any[]) {
+  await mapLimit((pendingData ?? []) as any[], SUBMIT_CONCURRENCY, async (task) => {
     const input = falInputOf(task)
     if (task.item_id) {
       const it = items.find((i) => i.id === task.item_id)
-      if (!it?.source_path) continue
+      if (!it?.source_path) return
       const signed = await signOriginal(admin, it.source_path)
-      if (!signed) continue
+      if (!signed) return
       input.image_url = signed
     }
     // 投入権を取る（attempts の CAS）。再開・失敗分の再実行が別のブラウザから同時に走っても同じタスクを二重に投入しない
     const attempts = (task.attempts ?? 0) + 1
     const { data: claimed } = await admin.from('batch_tasks').update({ attempts }).eq('id', task.id).eq('status', 'pending').eq('attempts', task.attempts ?? 0).select('id')
-    if (!claimed?.length) continue
+    if (!claimed?.length) return
     const r = await falSubmit(opts.falKey, task.endpoint, input, webhook)
     if ('requestId' in r) {
       await admin.from('batch_tasks').update({ status: 'submitted', fal_request_id: r.requestId, submitted_at: new Date().toISOString(), error: null }).eq('id', task.id)
@@ -355,7 +366,7 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
         await admin.from('batch_tasks').update({ error: r.error }).eq('id', task.id)
       }
     }
-  }
+  })
 
   // 4) ジョブの記帳
   const { data: allTasks } = await admin.from('batch_tasks').select('status').eq('job_id', job.id)

@@ -123,3 +123,19 @@ describe('planRerun（NG のみ再実行）と falInputOf', () => {
     expect(falInputOf({ input: null })).toEqual({})
   })
 })
+
+describe('mapLimit（同時数つきの並列処理）', () => {
+  it('同時に limit 件までしか走らず、全件処理する', async () => {
+    const { mapLimit } = await import('./_batchLogic')
+    let running = 0, peak = 0
+    const seen: number[] = []
+    await mapLimit([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+      running++; peak = Math.max(peak, running)
+      await new Promise((r) => setTimeout(r, 5))
+      seen.push(n); running--
+    })
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(seen.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    await mapLimit([], 3, async () => { throw new Error('never') })
+  })
+})
