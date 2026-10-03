@@ -49,7 +49,12 @@ export const batchSource = (jobId: string) => call<{ jobId: string; source: JobS
 export async function submitJobFully(jobId: string, onProgress?: (r: SubmitResult) => void, opts: { disableWebhook?: boolean; maxRounds?: number } = {}): Promise<SubmitResult> {
   let last: SubmitResult | null = null
   for (let i = 0; i < (opts.maxRounds ?? 40); i++) {
-    last = await batchSubmit({ jobId, disableWebhook: opts.disableWebhook })
+    // 一時的な失敗（Edge の応答期限切れ・ネットワーク）は少し待って同じ回をやり直す（投入は冪等なので二重にならない）
+    let attempt = 0
+    for (;;) {
+      try { last = await batchSubmit({ jobId, disableWebhook: opts.disableWebhook }); break }
+      catch (e) { if (++attempt > 2) throw e; await new Promise((r) => setTimeout(r, 1500 * attempt)) }
+    }
     onProgress?.(last)
     if (last.done) return last
   }

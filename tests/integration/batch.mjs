@@ -162,7 +162,7 @@ try {
     if (job3 && ['completed', 'partial_failed'].includes(job3.status)) break
   }
   const [victimItem] = await userRest(A.jwt, `batch_items?select=status&id=eq.${victim.item_id}`)
-  check(`再実行後にジョブが完了に戻る（${job3?.status}・完了 ${job3?.completed_tasks}/${job3?.task_count}・失敗 ${job3?.failed_tasks}・アイテム ${victimItem?.status}）`, job3?.status === 'completed' && job3.completed_tasks === ITEMS && job3.failed_tasks === 0 && victimItem?.status === 'ready', JSON.stringify(job3))
+  check(`再実行後にジョブが完了に戻る（${job3?.status}・完了 ${job3?.completed_tasks}/${job3?.task_count}・失敗 ${job3?.failed_tasks}・アイテム ${victimItem?.status}）`, job3?.status === 'completed' && job3.completed_tasks === ITEMS + JOB_TASKS && job3.failed_tasks === 0 && victimItem?.status === 'ready', JSON.stringify(job3))
 
   // NG のみ再実行（Step 7）: 2 枚だけ別エンジン（Bria）で再実行 → その 2 枚だけタスクが差し替わり、他は不変
   const beforeTasks = await userRest(A.jwt, `batch_tasks?select=id,item_id,endpoint,completed_at&job_id=eq.${jobId}&order=created_at`)
