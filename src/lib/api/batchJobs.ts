@@ -82,6 +82,13 @@ export async function fetchFinishedJobs(teamId: string, f: JobFilters, page: num
   return { rows: asJobs(data), total: count ?? 0 }
 }
 
+/** ワークフローから投入したジョブ（新しい順・最大 limit 件）。見えるものだけ（RLS: 作成者 / 共有ワークフローならチーム）。一括結果ノード用 */
+export async function fetchWorkflowJobs(workflowId: string, limit = 30): Promise<BatchJobRow[]> {
+  const { data, error } = await sb.from('batch_jobs').select(JOB_COLUMNS).eq('workflow_id', workflowId).order('created_at', { ascending: false }).limit(limit)
+  if (error) throw new Error(error.message)
+  return asJobs(data)
+}
+
 export async function fetchJob(jobId: string): Promise<BatchJobRow | null> {
   const { data, error } = await sb.from('batch_jobs').select(JOB_COLUMNS).eq('id', jobId).maybeSingle()
   if (error) throw new Error(error.message)

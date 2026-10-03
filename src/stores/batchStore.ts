@@ -1,10 +1,11 @@
 // 一括実行（バッチ）のクライアント状態（仕様 4-8）:
 // 進行中ジョブ・本日の利用枚数・上限・原価表示の可否・Realtime 購読・アプリを開いた時の再開と照合。
 // 一覧ページは jobsVersion の変化で現在ページを再取得する（Realtime のイベントを行にマージしない）。
+import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { BatchJobRow } from '../types/batch'
 import { disconnectRealtime, fetchActiveJobs, fetchTeamBatchLimits, fetchTeamBatchSettings, fetchUsedToday, subscribeTeamJobs } from '../lib/api/batchJobs'
-import { initialGate, nextGate, type GateState } from '../lib/batch/realtimeGate'
+import { initialGate, nextGate, shouldSubscribeJobs, type GateState } from '../lib/batch/realtimeGate'
 import { batchReconcile, submitJobFully } from '../lib/api/batch'
 import { getTeamInfo } from '../lib/api/team'
 import { isResumableJob } from '../lib/batch/jobsQuery'
@@ -38,6 +39,9 @@ interface BatchState {
   reconcileNow: (force?: boolean) => Promise<void>
   openSubmitDialog: (nodeId: string) => void
   closeSubmitDialog: () => void
+  /** ジョブの変更を Realtime で追いたい画面（ジョブ管理・一括結果ノード）が登録する。登録が無く進行中ジョブも無ければ購読しない（DB の WAL ポーリングを止める） */
+  watch: (key: string) => void
+  unwatch: (key: string) => void
 }
 
 let unsubscribe: (() => void) | null = null
@@ -50,6 +54,53 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastReconcileAt = 0
 let visibilityHandler: (() => void) | null = null
 const resuming = new Set<string>()
+const watchers = new Set<string>()
+let realtimeTeamId: string | null = null
+
+// ── Realtime 購読（自チームの batch_jobs）。接続できない環境では諦めて再取得ポーリングに切り替える ──
+function stopRealtime(): void {
+  unsubscribe?.(); unsubscribe = null
+  if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+}
+function giveUpRealtime(): void {
+  stopRealtime()
+  disconnectRealtime()
+  if (useBatchStore.getState().realtimeOk !== false) {
+    useBatchStore.setState({ realtimeOk: false })
+    console.warn('[batch] Realtime に接続できないため、定期的な再取得（15〜20 秒ごと）に切り替えました。他のメンバーの変更は少し遅れて反映されます')
+  }
+}
+function startRealtime(teamId: string): void {
+  stopRealtime()
+  gate = initialGate()
+  lastRealtimeAttempt = Date.now()
+  const { bump } = useBatchStore.getState()
+  unsubscribe = subscribeTeamJobs(teamId, () => bump(), (status) => {
+    gate = nextGate(gate, status)
+    if (gate.subscribed) {
+      if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+      if (useBatchStore.getState().realtimeOk !== true) useBatchStore.setState({ realtimeOk: true })
+    } else if (gate.gaveUp) {
+      giveUpRealtime()
+    }
+  })
+  deadlineTimer = setTimeout(() => { if (!gate.subscribed) giveUpRealtime() }, REALTIME_DEADLINE_MS)
+}
+/** 購読の要否を見直す: 追いたい画面があるか、進行中ジョブがある間だけ購読する。要らなくなったら切る */
+function syncRealtime(): void {
+  const s = useBatchStore.getState()
+  const want = !!realtimeTeamId && shouldSubscribeJobs(watchers.size, s.activeJobs.length)
+  if (want) {
+    if (unsubscribe) return
+    // 諦めた直後は再挑戦を間隔を空けて（それまではポーリングで代替）
+    if (s.realtimeOk === false && Date.now() - lastRealtimeAttempt < REALTIME_RETRY_MS) return
+    startRealtime(realtimeTeamId!)
+  } else if (unsubscribe || s.realtimeOk === false) {
+    stopRealtime()
+    disconnectRealtime()
+    if (s.realtimeOk !== null) useBatchStore.setState({ realtimeOk: null })
+  }
+}
 
 export const useBatchStore = create<BatchState>((set, get) => ({
   teamId: null,
@@ -89,46 +140,21 @@ export const useBatchStore = create<BatchState>((set, get) => ({
     }
     // 3) 照合（10 分以上「投入済み」のままのタスク）
     void get().reconcileNow(true)
-    // 4) Realtime 購読（自チームの batch_jobs）。接続できない環境では諦めて再取得ポーリングに切り替える
-    const stopRealtime = () => {
-      unsubscribe?.(); unsubscribe = null
-      if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
-    }
-    const giveUp = () => {
-      stopRealtime()
-      disconnectRealtime()
-      if (get().realtimeOk !== false) {
-        set({ realtimeOk: false })
-        console.warn('[batch] Realtime に接続できないため、定期的な再取得（15〜20 秒ごと）に切り替えました。他のメンバーの変更は少し遅れて反映されます。')
-      }
-    }
-    const startRealtime = () => {
-      stopRealtime()
-      gate = initialGate()
-      lastRealtimeAttempt = Date.now()
-      unsubscribe = subscribeTeamJobs(teamId, () => get().bump(), (status) => {
-        gate = nextGate(gate, status)
-        if (gate.subscribed) {
-          if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
-          if (get().realtimeOk !== true) set({ realtimeOk: true })
-        } else if (gate.gaveUp) {
-          giveUp()
-        }
-      })
-      deadlineTimer = setTimeout(() => { if (!gate.subscribed) giveUp() }, REALTIME_DEADLINE_MS)
-    }
-    startRealtime()
+    // 4) Realtime 購読は「追いたい画面がある or 進行中ジョブがある」間だけ（syncRealtime）。待機中は DB の WAL ポーリングを発生させない
+    realtimeTeamId = teamId
+    syncRealtime()
     // タブ復帰・再接続時: 取りこぼしを再取得＋照合。Realtime を諦めていれば間隔を空けて再挑戦
     visibilityHandler = () => {
       if (document.visibilityState !== 'visible') return
       get().bump(); void get().reconcileNow()
-      if (get().realtimeOk === false && Date.now() - lastRealtimeAttempt > REALTIME_RETRY_MS) startRealtime()
+      syncRealtime()
     }
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visibilityHandler)
     if (typeof window !== 'undefined') window.addEventListener('online', visibilityHandler)
     pollTimer = setInterval(() => {
       const s = get()
       pollTick++
+      if (!shouldSubscribeJobs(watchers.size, s.activeJobs.length)) return   // 追う画面も進行中ジョブも無ければ何もしない
       if (s.realtimeOk === false) s.bump()                       // Realtime なし: 15 秒ごと
       else if (s.activeJobs.length && pollTick % 2 === 0) s.bump() // Realtime あり: 進行中がある間 30 秒ごとの保険
     }, POLL_TICK_MS)
@@ -136,8 +162,8 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   },
 
   stop: () => {
-    unsubscribe?.(); unsubscribe = null
-    if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+    stopRealtime()
+    realtimeTeamId = null
     gate = initialGate()
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
@@ -159,6 +185,7 @@ export const useBatchStore = create<BatchState>((set, get) => ({
       const usedToday = limits ? limits.usedToday : await fetchUsedToday(teamId)
       const activeCount = limits ? limits.activeJobs : activeJobs.length
       set({ dailyLimit: limits?.dailyLimit ?? settings.dailyLimit, showCost: settings.showCost, activeJobs, usedToday, activeCount, jobsVersion: get().jobsVersion + 1 })
+      syncRealtime()   // 進行中ジョブの有無で購読の要否が変わる
     } catch (e) {
       console.warn('[batch] refresh failed:', e)
     }
@@ -185,4 +212,14 @@ export const useBatchStore = create<BatchState>((set, get) => ({
 
   openSubmitDialog: (nodeId) => set({ submitDialogNodeId: nodeId }),
   closeSubmitDialog: () => set({ submitDialogNodeId: null }),
+
+  watch: (key) => { watchers.add(key); syncRealtime(); get().bump() },
+  unwatch: (key) => { watchers.delete(key); syncRealtime() },
 }))
+
+/** ジョブ変更を追いたい画面で呼ぶ（マウント中だけ Realtime を購読する） */
+export function useWatchBatchJobs(key: string): void {
+  const watch = useBatchStore((s) => s.watch)
+  const unwatch = useBatchStore((s) => s.unwatch)
+  useEffect(() => { watch(key); return () => unwatch(key) }, [key, watch, unwatch])
+}

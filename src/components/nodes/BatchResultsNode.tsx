@@ -1,0 +1,130 @@
+// 一括結果ノード（フェーズ C(b)）: このワークフローから投入したジョブと、その確認グリッド（切り抜き・バリアント・生成結果）をキャンバス上で見る。
+// 操作はジョブ管理画面と同じ（チェック・拡大・再度切り抜く・書き出し・キャンセル/再実行/削除）。レイアウトの変更だけはキャンバスの Product Layout ノードで行い、
+// 変更はこのノードのサムネイルにその場で反映される（fal は呼ばない）。入出力ポートは無い。
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { useNavigate } from 'react-router'
+import { LayoutGrid, Loader2, RefreshCw } from 'lucide-react'
+import { useCanvasStore } from '../../stores/canvasStore'
+import { useWorkflowStore } from '../../stores/workflowStore'
+import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
+import { fetchWorkflowJobs } from '../../lib/api/batchJobs'
+import { createReviewStoreHook } from '../../lib/review/reviewStore'
+import type { CanvasLike } from '../../lib/review/model'
+import { formatJst } from '../../lib/batch/dates'
+import { JOB_STATUS_META, type BatchJobRow } from '../../types/batch'
+import type { NodeData } from '../../types/nodes'
+import { JobReviewPanel } from '../jobs/review/JobReviewPanel'
+
+const ACCENT = '#14B8A6'
+// 既定サイズ 820×620 は Canvas.tsx / FloatingToolbar.tsx の追加時に style で与える
+const MIN_W = 560, MIN_H = 400
+
+/** 値が落ち着いてから反映する（Product Layout のスライダー操作中に描き直しが連打されないように） */
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value)
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t) }, [value, ms])
+  return v
+}
+
+function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
+  const nodeData = data as unknown as NodeData
+  const navigate = useNavigate()
+  const workflowId = useWorkflowStore((s) => s.currentWorkflowId)
+  const jobsVersion = useBatchStore((s) => s.jobsVersion)
+  const bump = useBatchStore((s) => s.bump)
+  useWatchBatchJobs(`results:${id}`)   // ノードがある間はジョブの変更を Realtime で追う
+
+  const [jobs, setJobs] = useState<BatchJobRow[] | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [reloadTick, setReloadTick] = useState(0)
+
+  // 確認グリッドの状態はノードごとに 1 つ（ジョブ管理画面や他のノードと混ざらない）。外すときに Worker と object URL を解放
+  const store = useMemo(() => createReviewStoreHook(), [])
+  useEffect(() => () => store.getState().close(), [store])
+
+  useEffect(() => {
+    if (!workflowId) { setJobs([]); return }
+    let alive = true
+    fetchWorkflowJobs(workflowId)
+      .then((rows) => { if (!alive) return; setJobs(rows); setError(null) })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
+    return () => { alive = false }
+  }, [workflowId, jobsVersion, reloadTick])
+  const current = useMemo(() => (jobs ? jobs.find((j) => j.id === selectedId) ?? jobs[0] ?? null : null), [jobs, selectedId])
+
+  // キャンバスの現在のノード（バリアント・背景・Export 設定の出どころ）。位置の変化では更新しない
+  const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
+  const latest = useRef({ nodes, edges })
+  latest.current = { nodes, edges }
+  const signature = useMemo(() => JSON.stringify({
+    n: nodes.map((n) => { const d = n.data as unknown as Record<string, unknown>; return [n.id, n.type, d.type, d.params ?? null, typeof d.output === 'string' ? d.output : null, typeof d.imageUrl === 'string' ? d.imageUrl : null] }),
+    e: edges.map((e) => [e.source, e.sourceHandle ?? null, e.target, e.targetHandle ?? null]),
+  }), [nodes, edges])
+  const settledSignature = useDebounced(signature, 400)
+  const liveCanvas = useMemo<CanvasLike>(() => ({
+    nodes: latest.current.nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as unknown as Record<string, unknown> })),
+    edges: latest.current.edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [settledSignature])
+
+  const statusLabel = (j: BatchJobRow) => JOB_STATUS_META[j.status]?.label ?? j.status
+
+  return (
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ width: '100%', height: '100%', minWidth: MIN_W, minHeight: MIN_H, background: 'var(--bg-surface)', border: `1px solid ${selected ? ACCENT : 'var(--border)'}`, borderRadius: 12, boxShadow: selected ? `0 0 0 1px ${ACCENT}44` : 'none' }}
+    >
+      <NodeResizer minWidth={MIN_W} minHeight={MIN_H} isVisible={selected} lineStyle={{ stroke: ACCENT, strokeWidth: 1 }} handleStyle={{ background: ACCENT, border: 'none', borderRadius: 3, width: 8, height: 8 }} />
+      {/* ヘッダー: タイトル・ジョブの選択・再読込 */}
+      <div className="flex items-center gap-2 px-3 shrink-0" style={{ height: 36, borderBottom: '1px solid var(--border)' }}>
+        <LayoutGrid size={14} style={{ color: ACCENT, flexShrink: 0 }} />
+        <span className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{nodeData.label || 'Batch Results'}</span>
+        {jobs && jobs.length > 0 && (
+          <select
+            className="nodrag ml-2 flex-1 min-w-0 h-7 rounded-md px-2 text-[11px] outline-none"
+            style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            value={current?.id ?? ''}
+            onChange={(e) => setSelectedId(e.target.value)}
+            title="表示するジョブ（このワークフローから投入したもの・新しい順）"
+          >
+            {jobs.map((j) => (
+              <option key={j.id} value={j.id}>{formatJst(j.created_at)}・{j.name}（{j.item_count} 枚・{statusLabel(j)}）</option>
+            ))}
+          </select>
+        )}
+        <div className="flex-1" />
+        <button className="nodrag w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="ジョブ一覧を読み直す" onClick={() => { setReloadTick((t) => t + 1); bump() }}>
+          <RefreshCw size={13} />
+        </button>
+      </div>
+      {/* 本体: ジョブ管理画面と同じ確認グリッド。ノード内でスクロールし、キャンバスのドラッグ/ズームには流さない */}
+      <div className="nodrag nowheel flex-1 min-h-0" style={{ cursor: 'default' }}>
+        {jobs === null && !error && (
+          <div className="flex items-center justify-center h-full gap-2 text-[12px]" style={{ color: 'var(--text-tertiary)' }}><Loader2 size={16} className="animate-spin" />ジョブを読み込み中…</div>
+        )}
+        {error && <div className="p-4 text-[12px]" style={{ color: '#EF4444' }}>ジョブを読み込めませんでした: {error}</div>}
+        {jobs && jobs.length === 0 && !error && (
+          <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-center text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+            <div className="font-medium" style={{ color: 'var(--text-primary)' }}>このワークフローの一括実行はまだありません</div>
+            <div style={{ color: 'var(--text-tertiary)' }}>Batch Input に写真を入れて「一括実行…」で投入すると、ここにジョブと結果が出ます。他のメンバーのジョブは、ワークフローがチームに共有されていれば表示されます。</div>
+            {workflowId ? null : <div style={{ color: '#F59E0B' }}>ワークフローを保存すると表示できるようになります</div>}
+          </div>
+        )}
+        {current && (
+          <JobReviewPanel key={current.id} jobId={current.id} store={store} mode="node" liveCanvas={liveCanvas} onDeleted={() => { setSelectedId(null); setReloadTick((t) => t + 1); bump() }} />
+        )}
+      </div>
+      {current && (
+        <div className="px-3 py-1 text-[10px] shrink-0 border-t truncate" style={{ borderColor: 'var(--border)', color: 'var(--text-tertiary)' }}>
+          クリックで選択・ダブルクリックで拡大・矢印キーで移動・Space でチェック。
+          <button className="nodrag underline ml-1" onClick={() => navigate(`/jobs/${current.id}`)} style={{ color: 'var(--text-secondary)' }}>ジョブ管理で開く</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const BatchResultsNode = memo(BatchResultsNodeInner)

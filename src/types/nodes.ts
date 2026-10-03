@@ -21,6 +21,7 @@ export type NodeType =
   | 'productLayout'
   | 'batchInput'
   | 'export'
+  | 'batchResults'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -86,6 +87,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   productLayout:   '#14B8A6',
   batchInput:      '#14B8A6',
   export:          '#14B8A6',
+  batchResults:    '#14B8A6',
 }
 
 // ===== ビデオノード関連の型 =====

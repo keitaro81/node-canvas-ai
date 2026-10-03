@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 撮影後工程 Step 5 の受入テスト（API だけで実行・ブラウザ不要）。本番 DB に一時ユーザー/チーム/ジョブを作り、最後に必ず削除する。
 //   APP_URL=https://node-canvas-ai.vercel.app（既定・Webhook で完了）/ APP_URL=http://localhost:5173（dev・照合で完了）
-//   ITEMS=20 枚（既定）。fal のコスト: BiRefNet ≈ $0.002 × 枚数
+//   ITEMS=5 枚（既定。Disk IO 対策で縮小。負荷を見るときは ITEMS=20）。fal のコスト: BiRefNet ≈ $0.002 × 枚数
 // 使い方: npm run test:batch  /  APP_URL=http://localhost:5173 npm run test:batch
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +13,7 @@ const URL_BASE = process.env.VITE_SUPABASE_URL, ANON = process.env.VITE_SUPABASE
 const APP = process.env.APP_URL || 'https://node-canvas-ai.vercel.app'
 const IS_DEV = APP.includes('localhost')
 const API = IS_DEV ? `${APP}/dev-proxy/batch` : `${APP}/api/batch`
-const ITEMS = Number(process.env.ITEMS || 20)
+const ITEMS = Number(process.env.ITEMS || 5)   // 本番 DB（Nano/Micro）の Disk IO を抑えるため既定 5 枚。多めに流すときは ITEMS=20
 const TESTSET = resolve(__dirname, '../../testset/cutout')
 
 const adminHeaders = { apikey: SRK, Authorization: `Bearer ${SRK}`, 'Content-Type': 'application/json' }
