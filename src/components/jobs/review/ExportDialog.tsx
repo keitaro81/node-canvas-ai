@@ -16,7 +16,7 @@ export interface ExportDialogState {
 
 interface Props {
   open: boolean
-  scope: 'ok' | 'all'
+  scope: 'selected' | 'all'
   initialParams: ExportParams
   targetCount: number
   variantNames: string[]
@@ -53,7 +53,7 @@ function ExportDialogInner({ scope, initialParams, targetCount, variantNames, sa
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !running) onClose() }}>
       <div role="dialog" aria-modal="true" className="w-[480px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
-        <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{scope === 'ok' ? 'OK のみ書き出し' : 'すべて書き出し'}</h2>
+        <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{scope === 'selected' ? 'チェックした写真を書き出し' : 'すべて書き出し'}</h2>
         <p className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
           対象 {targetCount} 枚 × {variantNames.length} バリアント = {total} ファイル。フル解像度で描画して ZIP にまとめます（概算 {mb(estimateBytes)}）。
         </p>

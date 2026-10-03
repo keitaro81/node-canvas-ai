@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, cutoutParamsOf, estimateZipBytes, exportParamsFromSnapshot, filterItems, identityFor,
-  addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveSelection, newVariantKey, planJobExport,
+  addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveFocus, newVariantKey, planJobExport,
   removeLayoutNodeFromCanvas, resultKindOf, thumbFileName, updateLayoutNodeParams, variantsFromSnapshot,
   layoutSaveTargetFor,
 } from './model'
@@ -104,15 +104,18 @@ describe('review model', () => {
   })
   it('絞り込みとキーボード移動', () => {
     const items = [item({ id: 'a', review: 'ok' }), item({ id: 'b', review: 'ng' }), item({ id: 'c', status: 'failed' })]
-    expect(filterItems(items, 'ok').map((i) => i.id)).toEqual(['a'])
     expect(filterItems(items, 'failed').map((i) => i.id)).toEqual(['c'])
-    expect(filterItems(items, 'unreviewed').map((i) => i.id)).toEqual(['c'])
-    expect(moveSelection(null, 'ArrowDown', 3, 2)).toEqual({ row: 1, col: 0 })
-    expect(moveSelection({ row: 2, col: 1 }, 'ArrowDown', 3, 2)).toEqual({ row: 2, col: 1 })
-    expect(moveSelection({ row: 0, col: 0 }, 'ArrowLeft', 3, 2)).toEqual({ row: 0, col: 0 })
-    expect(moveSelection({ row: 1, col: 0 }, 'End', 3, 2)).toEqual({ row: 2, col: 0 })
-    expect(moveSelection({ row: 1, col: 0 }, 'x', 3, 2)).toEqual({ row: 1, col: 0 })
-    expect(moveSelection({ row: 1, col: 0 }, 'ArrowDown', 0, 2)).toBeNull()
+    expect(filterItems(items, 'all').length).toBe(items.length)
+    // カードグリッド: 3 列で 7 枚
+    expect(moveFocus(null, 'ArrowDown', 7, 3)).toBe(0)
+    expect(moveFocus(0, 'ArrowDown', 7, 3)).toBe(3)
+    expect(moveFocus(5, 'ArrowDown', 7, 3)).toBe(6)
+    expect(moveFocus(6, 'ArrowRight', 7, 3)).toBe(6)
+    expect(moveFocus(4, 'ArrowUp', 7, 3)).toBe(1)
+    expect(moveFocus(2, 'ArrowLeft', 7, 3)).toBe(1)
+    expect(moveFocus(2, 'End', 7, 3)).toBe(6)
+    expect(moveFocus(2, 'x', 7, 3)).toBe(2)
+    expect(moveFocus(2, 'ArrowDown', 0, 3)).toBeNull()
   })
   it('レイアウトノードが無いジョブは切り抜きを透過 PNG として書き出す', () => {
     const ev = exportVariantsOf([])

@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ArrowsClockwise, CaretLeft, CaretRight, CircleNotch, MagnifyingGlass, X } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
-import { fetchFinishedJobs, fetchReviewCounts, fetchSkuJobIds } from '../../lib/api/batchJobs'
+import { fetchFinishedJobs, fetchSkuJobIds } from '../../lib/api/batchJobs'
 import {
   DEFAULT_JOB_FILTERS, JOBS_PAGE_SIZE, jobProgress, matchesFilters, mergeJobRows, normalizeSearch, pageCount, type JobFilters, type JobStatusFilter,
 } from '../../lib/batch/jobsQuery'
 import { formatJst } from '../../lib/batch/dates'
 import { formatCost } from '../../lib/batch/cost'
-import { JOB_STATUS_META, type BatchJobRow, type BatchJobStatus, type ReviewCounts } from '../../types/batch'
+import { JOB_STATUS_META, type BatchJobRow, type BatchJobStatus } from '../../types/batch'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
 
@@ -43,7 +43,6 @@ export function JobsPage() {
   const [finished, setFinished] = useState<BatchJobRow[]>([])
   const [total, setTotal] = useState(0)
   const [skuJobIds, setSkuJobIds] = useState<Set<string> | null>(null)
-  const [reviewCounts, setReviewCounts] = useState<Record<string, ReviewCounts>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,9 +68,6 @@ export function JobsPage() {
       setFinished(res.rows)
       setTotal(res.total)
       setError(null)
-      const active = useBatchStore.getState().activeJobs
-      const counts = await fetchReviewCounts([...active.map((j) => j.id), ...res.rows.map((j) => j.id)])
-      if (seq === reqSeq.current) setReviewCounts(counts)
     } catch (e) {
       if (seq === reqSeq.current) setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -183,11 +179,11 @@ export function JobsPage() {
               <table className="w-full text-[12px]" style={{ tableLayout: 'fixed', minWidth: showCost ? 1180 : 1080 }}>
                 <colgroup>
                   <col style={{ minWidth: 160 }} /><col style={{ width: 140 }} /><col style={{ width: 112 }} /><col style={{ width: 104 }} /><col style={{ width: 160 }} />
-                  <col style={{ width: 48 }} /><col style={{ width: 124 }} /><col style={{ width: showCost ? 170 : 72 }} /><col style={{ width: 112 }} /><col style={{ width: 120 }} />
+                  <col style={{ width: 48 }} /><col style={{ width: showCost ? 170 : 72 }} /><col style={{ width: 112 }} /><col style={{ width: 120 }} />
                 </colgroup>
                 <thead>
                   <tr style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
-                    {['ジョブ名', '投入者', '投入日時', '状態', '進捗', '失敗', '確認状況', '利用量', '最終更新', ''].map((h, i) => (
+                    {['ジョブ名', '投入者', '投入日時', '状態', '進捗', '失敗', '利用量', '最終更新', ''].map((h, i) => (
                       <th key={i} className={`font-medium px-3 py-2 whitespace-nowrap ${i === 5 ? 'text-right' : 'text-left'}`}>{h}</th>
                     ))}
                   </tr>
@@ -195,7 +191,6 @@ export function JobsPage() {
                 <tbody>
                   {rows.map(({ job, active }, idx) => {
                     const p = jobProgress(job)
-                    const rc = reviewCounts[job.id]
                     const firstFinished = !active && idx > 0 && rows[idx - 1].active
                     return (
                       <tr
@@ -223,9 +218,6 @@ export function JobsPage() {
                           {p.failed > 0
                             ? <span className="inline-flex px-1.5 py-0.5 rounded font-semibold" style={{ color: '#EF4444', background: 'rgba(239,68,68,0.14)' }}>{p.failed}</span>
                             : <span style={{ color: 'var(--text-tertiary)' }}>0</span>}
-                        </td>
-                        <td className="px-3 py-2 tabular-nums whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                          {rc ? <><span style={{ color: '#22C55E' }}>OK {rc.ok}</span> · <span style={{ color: rc.ng ? '#EF4444' : undefined }}>NG {rc.ng}</span> · 未 {rc.unreviewed}</> : '—'}
                         </td>
                         <td className="px-3 py-2 tabular-nums whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                           {job.item_count} 枚{showCost && <span className="ml-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{formatCost(job.actual_cost_usd)}</span>}

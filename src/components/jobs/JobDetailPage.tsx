@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
 import { useAuthStore } from '../../stores/authStore'
-import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, reviewItem, saveWorkflowCanvasChecked, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
+import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, saveWorkflowCanvasChecked, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
 import { batchRerun, submitJobFully } from '../../lib/api/batch'
 import { signBatchPath } from '../../lib/cutout/store'
 import { jobProgress } from '../../lib/batch/jobsQuery'
@@ -11,16 +11,16 @@ import { formatJst } from '../../lib/batch/dates'
 import { formatCost } from '../../lib/batch/cost'
 import { downloadBlob } from '../../lib/export/zip'
 import type { CutoutParams, ExportParams } from '../../types/nodes'
-import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchReview, BatchTaskRow } from '../../types/batch'
+import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchTaskRow } from '../../types/batch'
 import { useReviewStore, type ReviewContext } from '../../lib/review/reviewStore'
 import {
-  ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveSelection,
+  ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveFocus,
   removeLayoutNodeFromCanvas, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike, layoutSaveTargetFor } from '../../lib/review/model'
-import { estimateExportBytes, exportJobZip, exportTargets } from '../../lib/review/exportJob'
+import { estimateExportBytes, exportJobZip, exportTargets, type ExportScope } from '../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
 import { ReviewGrid } from './review/ReviewGrid'
-import { ReviewToolbar } from './review/ReviewToolbar'
+import { ReviewTabs, ReviewToolbar } from './review/ReviewToolbar'
 import { ReviewLightbox } from './review/ReviewLightbox'
 import { LayoutSettingsDrawer, type LayoutChangePlan, type LayoutSaveTarget } from './review/LayoutSettingsDrawer'
 import { acquireEditLock, releaseEditLock } from '../../lib/api/workflowLocks'
@@ -54,12 +54,12 @@ export function JobDetailPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [reviewing, setReviewing] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
   const [rerunOpen, setRerunOpen] = useState(false)
   const [rerunBusy, setRerunBusy] = useState(false)
-  const [exportScope, setExportScope] = useState<'ok' | 'all' | null>(null)
+  const [exportScope, setExportScope] = useState<ExportScope | null>(null)
+  const [columns, setColumns] = useState(1)   // カードグリッドの 1 行あたりの枚数（矢印キー用）
   const [exportState, setExportState] = useState<ExportDialogState>({ phase: 'idle' })
   const exportCancel = useRef(false)
   const [originalUrl, setOriginalUrl] = useState<string | null>(null)
@@ -67,14 +67,20 @@ export function JobDetailPage() {
   // ReviewGrid の状態
   const bg = useReviewStore((s) => s.bg)
   const filter = useReviewStore((s) => s.filter)
-  const selection = useReviewStore((s) => s.selection)
+  const focusId = useReviewStore((s) => s.focusId)
+  const activeKey = useReviewStore((s) => s.activeKey)
+  const selected = useReviewStore((s) => s.selected)
   const lightbox = useReviewStore((s) => s.lightbox)
   const thumbs = useReviewStore((s) => s.thumbs)
   const progress = useReviewStore((s) => s.progress)
   const executorKind = useReviewStore((s) => s.executorKind)
   const setBg = useReviewStore((s) => s.setBg)
   const setFilter = useReviewStore((s) => s.setFilter)
-  const setSelection = useReviewStore((s) => s.setSelection)
+  const setFocusId = useReviewStore((s) => s.setFocusId)
+  const setActiveKey = useReviewStore((s) => s.setActiveKey)
+  const toggleSelected = useReviewStore((s) => s.toggleSelected)
+  const setSelected = useReviewStore((s) => s.setSelected)
+  const clearSelected = useReviewStore((s) => s.clearSelected)
   const setLightbox = useReviewStore((s) => s.setLightbox)
 
   // ── 読み込み ──
@@ -197,39 +203,37 @@ export function JobDetailPage() {
   useEffect(() => { if (ctx) void useReviewStore.getState().sync(ctx) }, [ctx])
 
   const visibleItems = useMemo(() => filterItems(items, filter), [items, filter])
-  const counts = useMemo(() => ({
-    all: items.length, ok: items.filter((i) => i.review === 'ok').length, ng: items.filter((i) => i.review === 'ng').length,
-    unreviewed: items.filter((i) => i.review === 'unreviewed').length, failed: items.filter((i) => i.status === 'failed').length,
-  }), [items])
+  const counts = useMemo(() => ({ all: items.length, failed: items.filter((i) => i.status === 'failed').length }), [items])
   const readyCount = useMemo(() => (ctx ? exportTargets(ctx, 'all').length : 0), [ctx])
-  const colKeys = useMemo(() => [CUTOUT_VARIANT_KEY, ...variants.map((v) => v.key)], [variants])
   const nameOf = useCallback((id: string | null) => (id && memberNames[id]) || (id ? `${id.slice(0, 8)}…` : '不明'), [memberNames])
+  // チェック中の写真（削除済みの id は数えない）
+  const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected])
+  // 列のタブ（切り抜き + バリアント）。表示中の列が無くなったら切り抜きへ
+  const tabs = useMemo(() => [
+    { key: CUTOUT_VARIANT_KEY, name: '切り抜き', size: '元のサイズ' },
+    ...variants.map((v) => ({ key: v.key, name: v.name, size: `${v.params.width}×${v.params.height}` })),
+  ], [variants])
+  useEffect(() => { if (activeKey !== CUTOUT_VARIANT_KEY && !variants.some((v) => v.key === activeKey)) setActiveKey(CUTOUT_VARIANT_KEY) }, [variants, activeKey, setActiveKey])
 
-  // ── 判定 ──
-  const setReview = useCallback(async (item: BatchItemRow, review: BatchReview) => {
-    if (reviewing) return
-    const next = item.review === review ? 'unreviewed' : review
-    setReviewing(item.id)
-    const prev = items
-    setItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, review: next, reviewed_by: userId } : i)))
-    try { await reviewItem(item.id, next) } catch (e) { setItems(prev); showToast(e instanceof Error ? e.message : String(e), 'error') } finally { setReviewing(null) }
-  }, [reviewing, items, userId])
-
-  // ── キーボード（グリッド） ──
+  // ── キーボード（カードグリッド）: 矢印で移動、Space でチェック、Enter で拡大、B で背景 ──
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (lightbox || isTypingTarget(e.target) || settingsOpen || rerunOpen || exportScope) return
-      const rows = visibleItems.length, cols = colKeys.length
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); setSelection(moveSelection(selection, e.key, rows, cols)); return }
-      const item = selection ? visibleItems[selection.row] : undefined
-      if ((e.key === 'o' || e.key === 'O') && item) { e.preventDefault(); void setReview(item, 'ok') }
-      else if ((e.key === 'n' || e.key === 'N') && item) { e.preventDefault(); void setReview(item, 'ng') }
-      else if ((e.key === 'Enter' || e.key === ' ') && item && selection) { e.preventDefault(); setLightbox({ itemId: item.id, variantKey: colKeys[selection.col] ?? CUTOUT_VARIANT_KEY }) }
+      const idx = focusId ? visibleItems.findIndex((i) => i.id === focusId) : -1
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+        e.preventDefault()
+        const n = moveFocus(idx >= 0 ? idx : null, e.key, visibleItems.length, columns)
+        if (n !== null && visibleItems[n]) setFocusId(visibleItems[n].id)
+        return
+      }
+      const item = idx >= 0 ? visibleItems[idx] : undefined
+      if (e.key === ' ' && item) { e.preventDefault(); toggleSelected(item.id) }
+      else if (e.key === 'Enter' && item) { e.preventDefault(); setLightbox({ itemId: item.id, variantKey: activeKey }) }
       else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); setBg(BG_ORDER[(BG_ORDER.indexOf(bg) + 1) % BG_ORDER.length]) }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [lightbox, settingsOpen, rerunOpen, exportScope, visibleItems, colKeys, selection, setSelection, setReview, setLightbox, bg, setBg])
+  }, [lightbox, settingsOpen, rerunOpen, exportScope, visibleItems, focusId, columns, setFocusId, toggleSelected, setLightbox, activeKey, bg, setBg])
 
   // ── 拡大表示 ──
   const lbItem = lightbox ? items.find((i) => i.id === lightbox.itemId) ?? null : null
@@ -318,21 +322,23 @@ export function JobDetailPage() {
     finally { setSavingLayout(false) }
   }, [job, loadAll])
 
-  // ── NG のみ再実行 ──
+  // ── チェックした写真を再度切り抜く ──
   const runRerun = useCallback(async (params: CutoutParams) => {
     if (!job || !cutoutNode) return
-    const ngIds = items.filter((i) => i.review === 'ng').map((i) => i.id)
+    const ngIds = items.filter((i) => selected.has(i.id)).map((i) => i.id)
+    if (!ngIds.length) { showToast('写真をチェックしてください', 'warning'); return }
     setRerunBusy(true)
     try {
       const r = await batchRerun({ jobId: job.id, nodeId: cutoutNode.nodeId, itemIds: ngIds, params })
-      if (!r.rerunTasks) { showToast(`再実行できるアイテムがありません（${r.skipped.map((s) => s.reason).join(', ')}）`, 'warning'); return }
+      if (!r.rerunTasks) { showToast(`再実行できる写真がありません（${r.skipped.map((s) => s.reason).join(', ')}）`, 'warning'); return }
       await submitJobFully(job.id)
-      showToast(`NG の ${r.rerunTasks} 枚を再投入しました。完了すると結果が差し替わります`, 'success')
+      showToast(`チェックした ${r.rerunTasks} 枚を再投入しました。完了すると結果が差し替わります`, 'success')
       setRerunOpen(false)
+      clearSelected()
       bump(); await loadAll()
     } catch (e) { showToast(e instanceof Error ? e.message : String(e), 'error') }
     finally { setRerunBusy(false) }
-  }, [job, cutoutNode, items, bump, loadAll])
+  }, [job, cutoutNode, items, selected, clearSelected, bump, loadAll])
 
   // ── 書き出し ──
   const startExport = useCallback(async (params: ExportParams) => {
@@ -340,16 +346,15 @@ export function JobDetailPage() {
     exportCancel.current = false
     setExportState({ phase: 'running', progress: { done: 0, total: 0, message: '準備中…' } })
     try {
-      const out = await exportJobZip({ ctx, jobName: job.name, scope: exportScope, params, executor: useReviewStore.getState().getExecutor(), isCancelled: () => exportCancel.current, onProgress: (p) => setExportState({ phase: 'running', progress: p }) })
+      const out = await exportJobZip({ ctx, jobName: job.name, scope: exportScope, selected, params, executor: useReviewStore.getState().getExecutor(), isCancelled: () => exportCancel.current, onProgress: (p) => setExportState({ phase: 'running', progress: p }) })
       if (out.cancelled || !out.blob) { setExportState({ phase: 'cancelled', result: out }); return }
       downloadBlob(out.blob, out.name)
       setExportState({ phase: 'done', result: out })
     } catch (e) {
       setExportState({ phase: 'error', error: e instanceof Error ? e.message : String(e) })
     }
-  }, [ctx, job, exportScope])
+  }, [ctx, job, exportScope, selected])
 
-  const nameOfReviewer = nameOf
   if (loading) return <div className="flex items-center justify-center h-48"><CircleNotch size={24} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} /></div>
   if (notFound || !job) {
     return (
@@ -388,9 +393,13 @@ export function JobDetailPage() {
 
       <ReviewToolbar
         bg={bg} onBg={setBg} filter={filter} onFilter={setFilter} counts={counts} progress={progress} executorKind={executorKind} readyCount={readyCount}
+        selectedCount={selectedItems.length} canRerun={!!cutoutNode}
         busy={rerunBusy || savingLayout || exportState.phase === 'running'}
+        onSelectAll={() => setSelected([...selected, ...visibleItems.map((i) => i.id)])}
+        onSelectFailed={() => setSelected([...selected, ...items.filter((i) => i.status === 'failed').map((i) => i.id)])}
+        onClearSelection={clearSelected}
         onExport={(scope) => { setExportScope(scope); setExportState({ phase: 'idle' }) }}
-        onRerun={() => setRerunOpen(true)}
+        onRerunSelected={() => setRerunOpen(true)}
         onSettings={() => setSettingsOpen(true)}
       />
 
@@ -410,14 +419,16 @@ export function JobDetailPage() {
             バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : '（編集できるのはワークフローの所有者と、編集を許可されたチームのメンバーだけ）'}。
           </div>
         )}
+        <ReviewTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} />
         <ReviewGrid
-          items={visibleItems} variants={variants} thumbs={thumbs} bg={bg} selection={selection}
-          onSelect={setSelection}
-          onOpen={(itemId, variantKey) => setLightbox({ itemId, variantKey })}
-          onReview={setReview} reviewing={reviewing} nameOf={nameOfReviewer}
+          items={visibleItems} variants={variants} activeKey={activeKey} thumbs={thumbs} bg={bg}
+          selected={selected} onToggle={toggleSelected}
+          focusId={focusId} onFocus={setFocusId}
+          onOpen={(itemId) => setLightbox({ itemId, variantKey: activeKey })}
+          onColumns={setColumns}
         />
         <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-          クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、O / N で判定（もう一度押すと取り消し）、B で背景切替。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
+          タブで列（切り抜き・各バリアント）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック、B で背景切替。チェックした写真は「再度切り抜く」「書き出し」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
         </p>
       </div>
 
@@ -429,16 +440,16 @@ export function JobDetailPage() {
           onPrev={() => { const n = visibleItems[lbIdx - 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
           onNext={() => { const n = visibleItems[lbIdx + 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
           onVariant={(key) => setLightbox({ itemId: lbItem.id, variantKey: key })}
-          onReview={(r) => void setReview(lbItem, r)}
+          checked={selected.has(lbItem.id)} onToggleCheck={() => toggleSelected(lbItem.id)}
           hasPrev={lbIdx > 0} hasNext={lbIdx >= 0 && lbIdx < visibleItems.length - 1}
         />
       )}
       <LayoutSettingsDrawer open={settingsOpen} variants={variants} target={target} sourceName={source?.name ?? null} readOnlyNotice={readOnlyNotice} saving={savingLayout} onClose={() => setSettingsOpen(false)} onApply={applyPlan} onReset={resetJobOverrides} canReset={hasJobOverrides} />
-      <RerunDialog open={rerunOpen} count={counts.ng} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
+      <RerunDialog open={rerunOpen} count={selectedItems.length} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
       <ExportDialog
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
-        targetCount={ctx && exportScope ? exportTargets(ctx, exportScope).length : 0} variantNames={exportVariantsOf(variants).map((v) => v.name)}
-        sampleSku={items[0]?.sku ?? null} estimateBytes={ctx && exportScope ? estimateExportBytes(ctx, exportScope, exportParams) : 0}
+        targetCount={ctx && exportScope ? exportTargets(ctx, exportScope, selected).length : 0} variantNames={exportVariantsOf(variants).map((v) => v.name)}
+        sampleSku={items[0]?.sku ?? null} estimateBytes={ctx && exportScope ? estimateExportBytes(ctx, exportScope, exportParams, selected) : 0}
         state={exportState} onStart={(params) => void startExport(params)} onCancel={() => { exportCancel.current = true }}
         onClose={() => { if (exportState.phase !== 'running') { setExportScope(null); setExportState({ phase: 'idle' }) } }}
       />
