@@ -166,7 +166,7 @@ try {
 
   // NG のみ再実行（Step 7）: 2 枚だけ別エンジン（Bria）で再実行 → その 2 枚だけタスクが差し替わり、他は不変
   const beforeTasks = await userRest(A.jwt, `batch_tasks?select=id,item_id,endpoint,completed_at&job_id=eq.${jobId}&order=created_at`)
-  const targets = beforeTasks.slice(0, 2).map((t) => t.item_id)
+  const targets = beforeTasks.filter((t) => t.item_id).slice(0, 2).map((t) => t.item_id)   // アイテムごとのタスクから選ぶ（背景のジョブごとタスクは再実行の対象外）
   const rerun = await api(A.jwt, 'rerun', { jobId, nodeId: 'rb', itemIds: targets, params: { engine: 'bria', alphaThreshold: 16, featherPx: 0 } })
   check(`rerun 200（対象 ${rerun.json?.rerunTasks} 件・${rerun.json?.status}）`, rerun.status === 200 && rerun.json?.rerunTasks === 2 && rerun.json?.status === 'processing', JSON.stringify(rerun.json).slice(0, 200))
   let rr = null
