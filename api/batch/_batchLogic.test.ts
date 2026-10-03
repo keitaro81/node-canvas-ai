@@ -252,3 +252,38 @@ describe('dependentTaskIds（再度切り抜く → 後段の生成も未投入�
     expect(dependentTaskIds(tasks, 'nope', ['i1'])).toEqual([])
   })
 })
+
+describe('planTasks: 「ジョブごと」でも写真由来の画像入力があれば写真ごと', () => {
+  const base = {
+    nodes: [
+      { id: 'bi', data: { type: 'batchInput', params: {} } },
+      { id: 'rb', data: { type: 'removeBackground', params: { engine: 'birefnet' } } },
+      { id: 'tp', data: { type: 'textPrompt', params: { prompt: 'compose' } } },
+      { id: 'compose', data: { type: 'imageGen', label: '合成', params: { executionScope: 'job', model: 'fal-ai/nano-banana-2' } } },
+      { id: 'pl', data: { type: 'productLayout', params: {} } },
+    ],
+    edges: [
+      { source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' },
+      { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'compose', targetHandle: 'in-image' },
+      { source: 'tp', sourceHandle: 'out-text-text-out', target: 'compose', targetHandle: 'in-text' },
+      { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl', targetHandle: 'in-cutout-cutout' },
+    ],
+  }
+  it('切り抜きを入力にした「ジョブごと」の Image Generation は 2 段目の写真ごと生成になり、背景の警告は出ない', () => {
+    const { tasks, warnings } = planTasks(base)
+    expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.scope}:${t.stage}`)).toEqual(['rb:cutout:item:1', 'compose:imageEdit:item:2'])
+    expect(tasks.find((t) => t.nodeId === 'rb')?.dualOutput).toBe(true)
+    expect(warnings).toEqual([])
+  })
+  it('写真ごとになった Image Generation が背景入力にもつながっていれば、背景には使えない旨の警告だけ（二重にタスクは作らない）', () => {
+    const snap = {
+      nodes: [...base.nodes, { id: 'pl-bg', data: { type: 'productLayout', params: { backgroundKind: 'image' } } }],
+      edges: [...base.edges, { source: 'compose', sourceHandle: 'out-image-image-out', target: 'pl-bg', targetHandle: 'in-image-background' }, { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl-bg', targetHandle: 'in-cutout-cutout' }],
+    }
+    const { tasks, warnings } = planTasks(snap)
+    expect(tasks.filter((t) => t.nodeId === 'compose').length).toBe(1)
+    expect(tasks.some((t) => t.scope === 'job')).toBe(false)
+    expect(warnings.some((w) => w.includes('合成') && w.includes('背景には使えません'))).toBe(true)
+    expect(warnings.some((w) => w.includes('背景入力につながっていない'))).toBe(false)
+  })
+})

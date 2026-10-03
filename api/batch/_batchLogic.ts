@@ -107,7 +107,8 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     if (node.data?.type === 'removeBackground') return edges.filter((e) => e.target === node.id && e.targetHandle === 'in-image-image')
     return edges.filter((e) => e.target === node.id && (e.targetHandle ?? '').startsWith('in-image'))
   }
-  const isItemAi = (n: SnapshotNode) => n?.data?.type === 'removeBackground' || (n?.data?.type === 'imageGen' && n?.data?.params?.executionScope !== 'job')
+  // 写真ごとの AI ノード候補。Image Generation は「一括実行のスコープ」に関わらず、写真由来の画像入力があれば写真ごと（スコープ「ジョブごと」は背景生成＝画像入力なしのときだけ意味を持つ）
+  const isItemAi = (n: SnapshotNode) => n?.data?.type === 'removeBackground' || n?.data?.type === 'imageGen'
 
   // 段の割り当て（写真 → 1 段目 → 2 段目）。メモ化して循環も止める
   const stageMemo = new Map<string, { stage: number | null; dependsOn: string | null }>()
@@ -131,6 +132,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   }
 
   const itemNodes = nodes.filter(isItemAi)
+  const perItemIds = new Set<string>()   // 写真ごとの処理として扱った Image Generation（背景生成とは排他）
   for (const node of itemNodes) {
     const label = labelOf(node)
     const ins = imageInputEdges(node)
@@ -139,6 +141,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       if (node.data?.type === 'removeBackground') warnings.push(`Remove Background（${label}）は Batch Input に接続されていないため一括実行の対象外です`)
       continue
     }
+    if (node.data?.type === 'imageGen') perItemIds.add(node.id)
     if (stage > MAX_ITEM_STAGES) { warnings.push(`AI 処理は 1 経路につき ${MAX_ITEM_STAGES} 段までです（${label} は ${stage} 段目のため対象外）`); continue }
     if (ins.length > 1) warnings.push(`${label} の画像入力は最初の 1 つだけを使います（複数の画像入力は未対応）`)
     if (node.data?.type === 'removeBackground') {
@@ -171,6 +174,10 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     const gen = nodes.find((n) => n.id === genId)
     const p = (gen?.data?.params ?? {}) as Record<string, unknown>
     const label = labelOf(gen)
+    if (perItemIds.has(genId)) {
+      warnings.push(`Image Generation（${label}）は写真由来の画像入力があるため写真ごとに実行します。背景には使えません（背景の生成は画像入力の無い「ジョブごと」の Image Generation にしてください）`)
+      continue
+    }
     if (p.executionScope !== 'job') {
       warnings.push(`背景の Image Generation（${label}）は「一括実行のスコープ: ジョブごと」にしてください（アイテムごとの背景生成は未対応のため対象外）`)
       continue
@@ -184,7 +191,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     tasks.push({ nodeId: genId, scope: 'job', endpoint: model, input: buildTextToImageInput(model, prompt, p), kind: 'imageGen', stage: 1, dependsOn: null, label, dualOutput: false })
   }
   for (const node of nodes) {
-    if (node?.data?.type === 'imageGen' && node?.data?.params?.executionScope === 'job' && !generators.has(node.id)) {
+    if (node?.data?.type === 'imageGen' && node?.data?.params?.executionScope === 'job' && !generators.has(node.id) && !perItemIds.has(node.id)) {
       warnings.push(`Image Generation（${labelOf(node)}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
     }
   }

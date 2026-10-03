@@ -106,7 +106,9 @@ export function BatchSubmitDialog() {
 
   const submittedSoFar = progress ? progress.totalTasks - progress.pendingTasks : 0
   const remainingAfter = limits ? limits.remaining - items.length : null
-  const perItemGen = plan?.perItemGenerations ?? 0
+  // 写真ごとの画像生成: 種類（ノード数）は内訳から、回数（タスク数）はサーバーの perItemGenerations（= 枚数 × 種類）
+  const perItemKinds = plan?.breakdown ? plan.breakdown.filter((b) => b.kind === 'imageEdit').length : ((plan?.perItemGenerations ?? 0) > 0 ? 1 : 0)
+  const perItemRuns = plan?.perItemGenerations ?? perItemKinds * items.length
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close() }}>
@@ -149,10 +151,10 @@ export function BatchSubmitDialog() {
             {limits && <div className={ROW}><span>同時進行のジョブ</span><span className="tabular-nums">{limits.activeJobs} / {limits.maxActiveJobs}</span></div>}
             {plan?.showCost && <div className={ROW}><span>推定コスト</span><span className="tabular-nums">{formatCost(plan.estimatedCostUsd)}</span></div>}
             {/* 写真ごとの画像生成は枚数分の生成になる。原価を見せない設定でも必ず注意を出す */}
-            {perItemGen > 0 ? (
+            {perItemRuns > 0 ? (
               <div className="mt-2 rounded-lg px-3 py-2 text-[11px]" style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.3)', color: 'var(--text-primary)' }}>
                 <div className="flex items-start gap-1"><Warning size={12} weight="fill" className="mt-0.5 shrink-0" style={{ color: '#8B5CF6' }} />
-                  <span>写真ごとの画像生成が {perItemGen} 種あります。{items.length} 枚 × {perItemGen} = <b>{items.length * perItemGen} 回</b>の生成を行います（切り抜きより時間もコストもかかります）。枚数とプロンプトを確認してから投入してください。</span>
+                  <span>写真ごとの画像生成が {perItemKinds} 種あります。{items.length} 枚 × {perItemKinds} = <b>{perItemRuns} 回</b>の生成を行います（切り抜きより時間もコストもかかります）。枚数とプロンプトを確認してから投入してください。</span>
                 </div>
               </div>
             ) : null}
