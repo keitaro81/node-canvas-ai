@@ -44,3 +44,18 @@ describe('背景の出どころ', () => {
     expect(interactiveBackgroundUrl(canvas, 'pl-none', urlOf)).toBeNull()
   })
 })
+
+describe('背景の出どころ: Image Generation 直結のレイアウトが自分の出力を背景にしない（描き直しループの回帰）', () => {
+  it('結果ノードが無ければ null、あれば結果ノードの出力。レイアウト自身の output は使わない', () => {
+    const c = {
+      nodes: [
+        { id: 'gen', data: { type: 'imageGen', params: {} } },
+        { id: 'pl', data: { type: 'productLayout', params: { backgroundKind: 'image' }, output: 'https://x/pl-own-output.png' } },
+      ],
+      edges: [{ source: 'gen', sourceHandle: 'out-image-image-out', target: 'pl', targetHandle: 'in-image-background' }],
+    }
+    expect(interactiveBackgroundUrl(c, 'pl', urlOf)).toBeNull()
+    const withDisplay = { nodes: [...c.nodes, { id: 'disp', data: { type: 'imageDisplay', output: 'https://x/bg.png' } }], edges: [...c.edges, { source: 'gen', sourceHandle: 'out-image-image-out', target: 'disp', targetHandle: 'in-image-image-in' }] }
+    expect(interactiveBackgroundUrl(withDisplay, 'pl', urlOf)).toBe('https://x/bg.png')
+  })
+})

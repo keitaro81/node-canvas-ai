@@ -72,10 +72,13 @@ export function interactiveBackgroundUrl(canvas: BgCanvas | null | undefined, la
   const nodes = nodesOf(canvas), edges = edgesOf(canvas)
   const src = nodes.find((n) => n.id === s.sourceNodeId)
   if (typeOf(src) !== 'imageGen') return imageUrlOf(src?.data)
-  // Image Generation 直結: その結果ノードのうち画像を持つ最後のもの
+  // Image Generation 直結: その結果ノード（Image Display）のうち画像を持つ最後のもの。
+  // 出力辺の先には Product Layout 自身もつながっているので、結果ノード以外は見ない（自分の描画結果を背景にしてしまうと描き直しが止まらない）
   const outputs = edges
     .filter((e) => e.source === s.sourceNodeId && e.sourceHandle === IMAGE_GEN_OUTPUT_HANDLE)
-    .map((e) => imageUrlOf(nodes.find((n) => n.id === e.target)?.data))
+    .map((e) => nodes.find((n) => n.id === e.target))
+    .filter((n): n is BgNode => !!n && typeOf(n) === 'imageDisplay' && n.id !== layoutNodeId)
+    .map((n) => imageUrlOf(n.data))
     .filter((u): u is string => !!u)
   return outputs[outputs.length - 1] ?? null
 }
