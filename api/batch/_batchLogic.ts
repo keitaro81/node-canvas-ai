@@ -8,6 +8,8 @@ import type { CutoutEngine } from '../../src/types/nodes'
 import { estimatePlannedTaskCost, estimateTaskCost } from './_pricing'
 import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_falWebhook'
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
+import { backgroundSourcesOf, promptForGenerator } from '../../src/lib/batch/background'
+import { buildTextToImageInput } from '../../src/lib/ai/imageGenModels'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -65,7 +67,8 @@ export interface PlannedTask {
 /**
  * 写しから AI 処理ノードを抽出する（仕様 4-2）。
  * - Remove Background（Batch Input に直結しているもの）→ アイテムごとのタスク
- * - Image Generation で executionScope='job' → ジョブごとのタスク（背景生成。Step 8 で入力を仕上げる）
+ * - Product Layout の背景入力につながる Image Generation（executionScope='job'）→ ジョブごとのタスク 1 件（Step 8。50 枚でも生成は 1 回）
+ *   背景につながっていないジョブごとの生成、アイテムごとの背景生成、プロンプト無しは対象外（警告）
  */
 export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[] } {
   const nodes = Array.isArray(snapshot?.nodes) ? snapshot!.nodes! : []
@@ -74,25 +77,38 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   const tasks: PlannedTask[] = []
   const warnings: string[] = []
   for (const node of nodes) {
-    const t = node?.data?.type
-    if (t === 'removeBackground') {
-      const feed = edges.find((e) => e.target === node.id && e.targetHandle === 'in-image-image')
-      if (!feed || !batchInputIds.has(feed.source)) {
-        warnings.push(`Remove Background（${node.id}）は Batch Input に接続されていないため一括実行の対象外です`)
-        continue
-      }
-      const req = buildEngineRequest(normalizeCutoutParams(node.data?.params), '__IMAGE_URL__')
-      const input: Record<string, unknown> = { ...req.input }
-      delete input.image_url
-      tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input, kind: 'cutout' })
-    } else if (t === 'imageGen' && node?.data?.params?.executionScope === 'job') {
-      const p = node.data.params as Record<string, unknown>
-      const prompt = typeof p.prompt === 'string' ? p.prompt.trim() : ''
-      if (!prompt) {
-        warnings.push(`Image Generation（${node.id}）はプロンプトが空のため一括実行の対象外です`)
-        continue
-      }
-      tasks.push({ nodeId: node.id, scope: 'job', endpoint: String(p.model ?? 'fal-ai/nano-banana-2'), input: { prompt, image_size: 'square_hd' }, kind: 'imageGen' })
+    if (node?.data?.type !== 'removeBackground') continue
+    const feed = edges.find((e) => e.target === node.id && e.targetHandle === 'in-image-image')
+    if (!feed || !batchInputIds.has(feed.source)) {
+      warnings.push(`Remove Background（${node.id}）は Batch Input に接続されていないため一括実行の対象外です`)
+      continue
+    }
+    const req = buildEngineRequest(normalizeCutoutParams(node.data?.params), '__IMAGE_URL__')
+    const input: Record<string, unknown> = { ...req.input }
+    delete input.image_url
+    tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input, kind: 'cutout' })
+  }
+  // 背景生成: レイアウトの背景入力に行き着く生成器ごとに 1 件
+  const canvas = { nodes: nodes as unknown as Array<{ id: string; type?: string; data?: Record<string, unknown> }>, edges }
+  const generators = new Set(backgroundSourcesOf(canvas).map((s) => s.generatorNodeId).filter((g): g is string => !!g))
+  for (const genId of generators) {
+    const gen = nodes.find((n) => n.id === genId)
+    const p = (gen?.data?.params ?? {}) as Record<string, unknown>
+    if (p.executionScope !== 'job') {
+      warnings.push(`背景の Image Generation（${genId}）は「一括実行のスコープ: ジョブごと」にしてください（アイテムごとの背景生成は未対応のため対象外）`)
+      continue
+    }
+    const prompt = promptForGenerator(canvas, genId)
+    if (!prompt) {
+      warnings.push(`背景の Image Generation（${genId}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`)
+      continue
+    }
+    const model = typeof p.model === 'string' && p.model ? p.model : 'fal-ai/nano-banana-2'
+    tasks.push({ nodeId: genId, scope: 'job', endpoint: model, input: buildTextToImageInput(model, prompt, p), kind: 'imageGen' })
+  }
+  for (const node of nodes) {
+    if (node?.data?.type === 'imageGen' && node?.data?.params?.executionScope === 'job' && !generators.has(node.id)) {
+      warnings.push(`Image Generation（${node.id}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
     }
   }
   return { tasks, warnings }

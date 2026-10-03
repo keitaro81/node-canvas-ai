@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
+import { GPT_IMAGE_2_MODELS, NB_ASPECT_RATIOS, NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS, RECRAFT_MODELS } from '../../lib/ai/imageGenModels'
 import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
@@ -39,7 +40,6 @@ const INPAINT_MODELS = [
   { value: 'openai/gpt-image-2', label: 'GPT-Image-2' },
 ]
 
-const GPT_IMAGE_2_MODELS = new Set(['openai/gpt-image-2'])
 
 // openai/gpt-image-2 の image_size enum（fal.ai API 準拠）
 const GPT_IMAGE_2_SIZES = [
@@ -57,21 +57,8 @@ const GPT_IMAGE_2_EDIT_SIZES = [
   ...GPT_IMAGE_2_SIZES,
 ] as const
 
-const NB_RESOLUTIONS: Record<string, string[]> = {
-  'fal-ai/nano-banana-2':   ['0.5K', '1K', '2K', '4K'],
-  'fal-ai/nano-banana-pro': ['1K', '2K', '4K'],
-}
 
-const NB_ASPECT_RATIOS: Record<string, string[]> = {
-  'fal-ai/nano-banana-2':   ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16', '4:1', '1:4', '8:1', '1:8'],
-  'fal-ai/nano-banana-pro': ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'],
-}
-const NB_ASPECT_RATIOS_DEFAULT = NB_ASPECT_RATIOS['fal-ai/nano-banana-2']
 
-const RECRAFT_MODELS = new Set([
-  'fal-ai/recraft/v4/text-to-image',
-  'fal-ai/recraft/v4/pro/text-to-image',
-])
 
 const RECRAFT_IMAGE_SIZES = [
   { value: 'square_hd',      label: '1:1 HD' },

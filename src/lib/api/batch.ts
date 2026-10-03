@@ -2,6 +2,7 @@
 import { supabase } from '../supabase'
 import type { BatchItem, NodeData } from '../../types/nodes'
 import type { Edge, Node } from '@xyflow/react'
+import { toCanonicalRef } from './storage'
 
 const base = () => (import.meta.env.DEV ? '/dev-proxy/batch' : '/api/batch')
 
@@ -62,6 +63,10 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
     nodes: nodes.map((n) => {
       const d = (n.data ?? {}) as Partial<NodeData> & Record<string, unknown>
       const data: Record<string, unknown> = { type: d.type, label: d.label, params: d.params ?? {} }
+      if (d.type === 'imageDisplay' || d.type === 'referenceImage' || d.type === 'image') {
+        const url = typeof d.output === 'string' ? d.output : typeof d.imageUrl === 'string' ? d.imageUrl : null
+        if (url) data.output = toCanonicalRef(url) ?? url
+      }
       if (d.type === 'batchInput') {
         data.items = (Array.isArray(d.items) ? (d.items as BatchItem[]) : []).map((it) => ({ id: it.id, index: it.index, originalName: it.originalName, sku: it.sku, path: it.path, width: it.width, height: it.height, status: it.status }))
       }

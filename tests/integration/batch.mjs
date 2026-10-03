@@ -60,13 +60,28 @@ async function uploadOriginals(A, n) {
   }
   return items
 }
+// WITH_BG=1: Step 8 の背景生成（Product Layout の背景入力につないだ Image Generation・ジョブごと）を 1 件足す（fal: Nano Banana 2 ≈ $0.039 / ジョブ）
+const WITH_BG = process.env.WITH_BG === '1'
 const snapshotFor = () => ({
   nodes: [
     { id: 'bi', type: 'batchInputNode', data: { type: 'batchInput', params: {} } },
     { id: 'rb', type: 'removeBackgroundNode', data: { type: 'removeBackground', params: { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '1024x1024', alphaThreshold: 8, featherPx: 0 } } },
+    ...(WITH_BG ? [
+      { id: 'pl-sns', type: 'productLayoutNode', data: { type: 'productLayout', params: { variantName: 'sns_story', width: 1080, height: 1920, backgroundKind: 'image', backgroundFit: 'cover' } } },
+      { id: 'tp', type: 'textPromptNode', data: { type: 'textPrompt', params: { prompt: 'A clean product photography backdrop: soft natural light, warm light-beige seamless paper studio background, no objects, no people, no text' } } },
+      { id: 'bg', type: 'imageGenerationNode', data: { type: 'imageGen', params: { model: 'fal-ai/nano-banana-2', aspectRatio: '9:16', resolution: '1K', executionScope: 'job' } } },
+    ] : []),
   ],
-  edges: [{ source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' }],
+  edges: [
+    { source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' },
+    ...(WITH_BG ? [
+      { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl-sns', targetHandle: 'in-cutout-cutout' },
+      { source: 'tp', sourceHandle: 'out-text-text-out', target: 'bg', targetHandle: 'in-text' },
+      { source: 'bg', sourceHandle: 'out-image-image-out', target: 'pl-sns', targetHandle: 'in-image-background' },
+    ] : []),
+  ],
 })
+const JOB_TASKS = WITH_BG ? 1 : 0
 
 try {
   console.log(`target: ${API}  items: ${ITEMS}  mode: ${IS_DEV ? 'dev(照合)' : 'prod(Webhook)'}`)
@@ -75,7 +90,7 @@ try {
 
   // dryRun（上限の事前確認）
   const dry = await api(A.jwt, 'create', { items, workflowSnapshot: snapshotFor(), dryRun: true })
-  check(`dryRun 200: 残り ${dry.json?.limits?.remaining} 枚・タスク ${dry.json?.plan?.totalTasks}・見積 $${dry.json?.plan?.estimatedCostUsd}`, dry.status === 200 && dry.json?.plan?.totalTasks === ITEMS, JSON.stringify(dry.json).slice(0, 200))
+  check(`dryRun 200: 残り ${dry.json?.limits?.remaining} 枚・タスク ${dry.json?.plan?.totalTasks}（ジョブごと ${dry.json?.plan?.jobTasks}）・見積 $${dry.json?.plan?.estimatedCostUsd}`, dry.status === 200 && dry.json?.plan?.totalTasks === ITEMS + JOB_TASKS && dry.json?.plan?.jobTasks === JOB_TASKS, JSON.stringify(dry.json).slice(0, 200))
 
   // 51 枚は拒否
   const many = Array.from({ length: 51 }, (_, i) => ({ ...items[i % items.length], index: i + 1, originalName: `x${i}.jpg`, sku: `x${i}` }))
@@ -96,10 +111,10 @@ try {
   const jobId = cr.json.jobId; if (jobId) created.jobs.push(jobId)
   let rounds = 0, last = null
   for (; rounds < 40; rounds++) { const s = await api(A.jwt, 'submit', { jobId }); last = s.json; if (s.status !== 200) { console.log('  submit error', s.status, JSON.stringify(s.json).slice(0, 200)); break } if (last.done) break }
-  check(`submit 完了（${rounds + 1} 回・タスク ${last?.totalTasks}・投入 ${last?.jobStatus}・webhook=${last?.webhook}）`, !!last?.done && last.totalTasks === ITEMS, JSON.stringify(last).slice(0, 200))
+  check(`submit 完了（${rounds + 1} 回・タスク ${last?.totalTasks}・投入 ${last?.jobStatus}・webhook=${last?.webhook}）`, !!last?.done && last.totalTasks === ITEMS + JOB_TASKS, JSON.stringify(last).slice(0, 200))
   // 再投入しても二重に作らない
   const again = await api(A.jwt, 'submit', { jobId })
-  check(`submit を再実行してもタスクは増えない（${again.json?.totalTasks}）`, again.json?.totalTasks === ITEMS && again.json?.tasksCreated === 0 && again.json?.submitted === 0)
+  check(`submit を再実行してもタスクは増えない（${again.json?.totalTasks}）`, again.json?.totalTasks === ITEMS + JOB_TASKS && again.json?.tasksCreated === 0 && again.json?.submitted === 0)
 
   // 完了待ち（prod: Webhook / dev: 照合）
   let job = null
@@ -110,12 +125,17 @@ try {
     ;[job] = await userRest(A.jwt, `batch_jobs?select=status,completed_tasks,failed_tasks,task_count,actual_cost_usd&id=eq.${jobId}`)
     if (job && ['completed', 'partial_failed'].includes(job.status)) break
   }
-  check(`ジョブが完了（${job?.status}・完了 ${job?.completed_tasks}/${job?.task_count}・失敗 ${job?.failed_tasks}・実績 $${job?.actual_cost_usd}・${Math.round((Date.now() - t0) / 1000)}s）`, job?.status === 'completed' && job.completed_tasks === ITEMS, JSON.stringify(job))
+  check(`ジョブが完了（${job?.status}・完了 ${job?.completed_tasks}/${job?.task_count}・失敗 ${job?.failed_tasks}・実績 $${job?.actual_cost_usd}・${Math.round((Date.now() - t0) / 1000)}s）`, job?.status === 'completed' && job.completed_tasks === ITEMS + JOB_TASKS, JSON.stringify(job))
   const readyItems = await userRest(A.jwt, `batch_items?select=status&job_id=eq.${jobId}&status=eq.ready`)
   check(`アイテムがすべて準備完了（${readyItems.length}/${ITEMS}）`, readyItems.length === ITEMS)
   const results = await userRest(A.jwt, `batch_tasks?select=result_path,result_meta&job_id=eq.${jobId}&status=eq.completed`)
-  check(`結果ファイルがジョブ階層に保存（例: ${results[0]?.result_path?.split('/').slice(-2).join('/')}）`, results.length === ITEMS && results.every((t) => t.result_path?.startsWith(`${A.teamId}/${jobId}/`)))
+  check(`結果ファイルがジョブ階層に保存（例: ${results[0]?.result_path?.split('/').slice(-2).join('/')}）`, results.length === ITEMS + JOB_TASKS && results.every((t) => t.result_path?.startsWith(`${A.teamId}/${jobId}/`)))
 
+  if (WITH_BG) {
+    const bgTasks = await userRest(A.jwt, `batch_tasks?select=node_id,status,result_path,endpoint,cost_usd,result_meta&job_id=eq.${jobId}&item_id=is.null`)
+    check(`背景生成はジョブで 1 件だけ（${bgTasks.length} 件・${bgTasks[0]?.status}・${bgTasks[0]?.endpoint}・$${bgTasks[0]?.cost_usd}・${bgTasks[0]?.result_meta?.width}x${bgTasks[0]?.result_meta?.height}）→ ${bgTasks[0]?.result_path?.split('/').slice(-2).join('/')}`,
+      bgTasks.length === 1 && bgTasks[0]?.status === 'completed' && bgTasks[0]?.result_path?.includes(`/${jobId}/job/`))
+  }
   // 冪等: 照合を 2 回呼んでも件数不変
   const before = JSON.stringify(job)
   await api(A.jwt, 'reconcile', { jobId, minAgeSec: 0 }); await api(A.jwt, 'reconcile', { jobId, minAgeSec: 0 })
@@ -128,12 +148,12 @@ try {
   const [victim] = await (await rest(`batch_tasks?select=id,item_id&job_id=eq.${jobId}&status=eq.completed&limit=1`)).json()
   await rest(`batch_tasks?id=eq.${victim.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: 'simulated' }) })
   await rest(`batch_items?id=eq.${victim.item_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed' }) })
-  await rest(`batch_jobs?id=eq.${jobId}`, { method: 'PATCH', body: JSON.stringify({ status: 'partial_failed', completed_tasks: ITEMS - 1, failed_tasks: 1 }) })
+  await rest(`batch_jobs?id=eq.${jobId}`, { method: 'PATCH', body: JSON.stringify({ status: 'partial_failed', completed_tasks: ITEMS + JOB_TASKS - 1, failed_tasks: 1 }) })
   const retry = await api(A.jwt, 'retry', { jobId })
   check(`retry 200（失敗 1 件を未投入へ・アイテム ${retry.json?.resetItems} 件を待機へ・${retry.json?.status}）`, retry.status === 200 && retry.json?.retriedTasks === 1 && retry.json?.resetItems === 1 && retry.json?.status === 'processing', JSON.stringify(retry.json).slice(0, 160))
   let rs = null
   for (let i = 0; i < 40; i++) { rs = (await api(A.jwt, 'submit', { jobId })).json; if (rs?.done) break }
-  check(`再投入 完了（投入 ${rs?.submitted} 件・タスク総数は増えない ${rs?.totalTasks}）`, !!rs?.done && rs.totalTasks === ITEMS && rs.tasksCreated === 0)
+  check(`再投入 完了（投入 ${rs?.submitted} 件・タスク総数は増えない ${rs?.totalTasks}）`, !!rs?.done && rs.totalTasks === ITEMS + JOB_TASKS && rs.tasksCreated === 0)
   let job3 = null
   for (let i = 0; i < 60; i++) {
     await sleep(5000)
@@ -151,7 +171,7 @@ try {
   check(`rerun 200（対象 ${rerun.json?.rerunTasks} 件・${rerun.json?.status}）`, rerun.status === 200 && rerun.json?.rerunTasks === 2 && rerun.json?.status === 'processing', JSON.stringify(rerun.json).slice(0, 200))
   let rr = null
   for (let i = 0; i < 40; i++) { rr = (await api(A.jwt, 'submit', { jobId })).json; if (rr?.done) break }
-  check(`再投入 完了（投入 ${rr?.submitted} 件・タスク総数は増えない ${rr?.totalTasks}）`, !!rr?.done && rr.totalTasks === ITEMS && rr.tasksCreated === 0 && rr.submitted === 2)
+  check(`再投入 完了（投入 ${rr?.submitted} 件・タスク総数は増えない ${rr?.totalTasks}）`, !!rr?.done && rr.totalTasks === ITEMS + JOB_TASKS && rr.tasksCreated === 0 && rr.submitted === 2)
   let job4 = null
   for (let i = 0; i < 60; i++) {
     await sleep(5000)
@@ -161,7 +181,7 @@ try {
   }
   const afterTasks = await userRest(A.jwt, `batch_tasks?select=id,item_id,endpoint,completed_at,input,result_path&job_id=eq.${jobId}&order=created_at`)
   const changed = afterTasks.filter((t) => targets.includes(t.item_id))
-  const same = afterTasks.filter((t) => !targets.includes(t.item_id))
+  const same = afterTasks.filter((t) => t.item_id && !targets.includes(t.item_id))   // アイテムごとのタスクだけ（背景のジョブごとタスクは別）
   const beforeById = Object.fromEntries(beforeTasks.map((t) => [t.id, t]))
   check(`再実行後: 対象 2 件は Bria で完了し __params を持つ（${changed.map((t) => t.endpoint.split('/')[1]).join(',')}）`,
     job4?.status === 'completed' && changed.length === 2 && changed.every((t) => t.endpoint.startsWith('fal-ai/bria') && t.input?.__params?.engine === 'bria' && t.result_path && t.completed_at !== beforeById[t.id]?.completed_at), JSON.stringify(job4))
@@ -189,7 +209,7 @@ try {
   const dNodes = dSrc.json?.source?.canvas?.nodes ?? []
   const dLayouts = dNodes.filter((n) => n.data?.type === 'productLayout').length
   check(`元ワークフローの列: member は 404・owner は読める（C ${cSrc.status}・D ${dSrc.status}・Product Layout ${dLayouts}・列に無関係なノードは含まない=${!dNodes.some((n) => n.data?.type === 'text')}）`,
-    cSrc.status === 404 && dSrc.status === 200 && dSrc.json?.source?.id === privWf[0].id && dLayouts === 1 && !dNodes.some((n) => n.data?.type === 'text'), JSON.stringify(dSrc.json).slice(0, 200))
+    cSrc.status === 404 && dSrc.status === 200 && dSrc.json?.source?.id === privWf[0].id && dLayouts === 1 + JOB_TASKS && !dNodes.some((n) => n.data?.type === 'text'), JSON.stringify(dSrc.json).slice(0, 200))
   await rest(`workflows?id=eq.${privWf[0].id}`, { method: 'DELETE' }); await rest(`projects?id=eq.${privProj[0].id}`, { method: 'DELETE' })
 
   // 共有ワークフローのジョブは member にも見え、OK/NG を付けられる（編集=レイアウト保存は作成者だけ）

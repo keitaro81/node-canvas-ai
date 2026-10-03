@@ -1,0 +1,39 @@
+{
+  "format": "node-canvas-ai/postproduction-profile",
+  "version": 1,
+  "name": "サンプル: EC 白背景 + SNS 生成背景",
+  "exportedAt": "2026-10-03T00:00:00.000Z",
+  "input": { "skuPattern": "^([A-Za-z0-9-]+)_", "sortOrder": "filename" },
+  "cutout": { "engine": "birefnet", "birefnetModel": "General Use (Light)", "birefnetResolution": "2048x2048", "alphaThreshold": 8, "featherPx": 0 },
+  "backgrounds": [
+    {
+      "key": "bg_sns",
+      "model": "fal-ai/nano-banana-2",
+      "prompt": "A clean product photography backdrop for fashion e-commerce: soft natural window light, warm light-beige seamless paper studio background with subtle gradient, no objects, no people, no text, empty scene",
+      "aspectRatio": "9:16",
+      "resolution": "1K",
+      "seed": null
+    }
+  ],
+  "variants": [
+    {
+      "variantName": "ec_white", "width": 1200, "height": 1200, "maxScalePercent": 100,
+      "marginUnit": "percent", "marginTop": 8, "marginRight": 8, "marginBottom": 8, "marginLeft": 8,
+      "alignH": "center", "alignV": "center",
+      "backgroundKind": "color", "backgroundColor": "#FFFFFF", "backgroundFit": "cover",
+      "shadowKind": "none", "shadowOpacity": 0.25, "shadowBlur": 24, "shadowOffsetX": 0, "shadowOffsetY": 12,
+      "contactWidthRatio": 0.8, "contactHeightRatio": 0.06,
+      "background": null
+    },
+    {
+      "variantName": "sns_story", "width": 1080, "height": 1920, "maxScalePercent": 100,
+      "marginUnit": "percent", "marginTop": 18, "marginRight": 10, "marginBottom": 18, "marginLeft": 10,
+      "alignH": "center", "alignV": "center",
+      "backgroundKind": "image", "backgroundColor": "#FFFFFF", "backgroundFit": "cover",
+      "shadowKind": "contact", "shadowOpacity": 0.25, "shadowBlur": 24, "shadowOffsetX": 0, "shadowOffsetY": 12,
+      "contactWidthRatio": 0.8, "contactHeightRatio": 0.06,
+      "background": "bg_sns"
+    }
+  ],
+  "export": { "namePattern": "{sku}_{variant}_{index:02}", "format": "jpeg", "jpegQuality": 90, "maxFileKb": null, "zip": true, "zipFolders": "variant" }
+}
