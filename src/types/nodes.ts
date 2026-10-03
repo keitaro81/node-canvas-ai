@@ -276,6 +276,7 @@ export interface ExportParams {
   maxFileKb: number | null         // 指定時は品質を段階的に下げて収める（下限 70）
   zip: boolean                     // 既定 true
   zipFolders: ExportZipFolders     // 既定 variant
+  includeCutout: boolean           // 既定 true: 切り抜きの透過 PNG（元のサイズ）も cutout/ として書き出す
 }
 
 export interface ExportFileResult {

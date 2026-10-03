@@ -60,3 +60,16 @@ describe('その他', () => {
     expect(zipFileName(item, now)).toBe('AB-123_20260924.zip')
   })
 })
+
+describe('切り抜きの透過 PNG（includeCutout / forcePng）', () => {
+  it('forcePng の入力は JPEG 指定でも警告なしで PNG になる', () => {
+    const { entries, warnings } = planExportEntries([{ variant: 'cutout', transparent: true, forcePng: true }, { variant: 'ec_white', transparent: false }], DEFAULT_EXPORT_PARAMS, item, now)
+    expect(entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/AB-123_cutout_07.png', 'ec_white/AB-123_ec_white_07.jpg'])
+    expect(warnings).toEqual([])
+  })
+  it('includeCutout の既定は true。boolean 以外は既定に戻す', () => {
+    expect(normalizeExportParams({}).includeCutout).toBe(true)
+    expect(normalizeExportParams({ includeCutout: false }).includeCutout).toBe(false)
+    expect(normalizeExportParams({ includeCutout: 'yes' }).includeCutout).toBe(true)
+  })
+})

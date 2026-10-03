@@ -219,6 +219,13 @@ describe('フェーズ C(a): 連鎖と生成結果の列', () => {
     expect(withLayouts.map((c) => `${c.kind}:${c.name}:${c.transparent}`)).toEqual(['variant:ec_white:false', 'variant:sns:true', 'result:合成:false'])
     const noCutout = exportColumnsOf([], results, false)
     expect(noCutout.map((c) => `${c.kind}:${c.name}`)).toEqual(['result:合成'])
+    // 「切り抜きも書き出す」: レイアウトがあれば切り抜き列を先頭に足す（PNG 固定・警告なし）。レイアウトが無ければ元々切り抜きだけなので二重にしない。切り抜きノードが無ければ付かない
+    expect(exportColumnsOf(variantsFromSnapshot(snapshot, null), results, true, true).map((c) => `${c.name}${c.forcePng ? '*' : ''}`)).toEqual(['cutout*', 'ec_white', 'sns', '合成'])
+    expect(exportColumnsOf([], results, true, true).map((c) => c.name)).toEqual(['cutout', '合成'])
+    expect(exportColumnsOf(variantsFromSnapshot(snapshot, null), [], false, true)).toEqual([])
+    const withCutout = planJobExport([item({ sort_order: 1 })], exportColumnsOf(variantsFromSnapshot(snapshot, null), [], true, true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
+    expect(withCutout[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/ABC-1_cutout_01.png', 'ec_white/ABC-1_ec_white_01.jpg', 'sns/ABC-1_sns_01.png'])
+    expect(withCutout[0].warnings.some((w) => w.includes('cutout'))).toBe(false)
     const plan = planJobExport([item({ sort_order: 1 })], withLayouts, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
     expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_01.jpg', 'sns/ABC-1_sns_01.png', '合成/ABC-1_合成_01.jpg'])
   })

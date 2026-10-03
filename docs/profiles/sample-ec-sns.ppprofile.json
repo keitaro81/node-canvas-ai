@@ -35,5 +35,5 @@
       "background": "bg_sns"
     }
   ],
-  "export": { "namePattern": "{sku}_{variant}_{index:02}", "format": "jpeg", "jpegQuality": 90, "maxFileKb": null, "zip": true, "zipFolders": "variant" }
+  "export": { "namePattern": "{sku}_{variant}_{index:02}", "format": "jpeg", "jpegQuality": 90, "maxFileKb": null, "zip": true, "zipFolders": "variant", "includeCutout": true }
 }

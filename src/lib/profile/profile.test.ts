@@ -13,7 +13,7 @@ const sample: PostProductionProfile = {
     { ...DEFAULT_LAYOUT_PARAMS, variantName: 'ec_white', background: null },
     { ...DEFAULT_LAYOUT_PARAMS, variantName: 'sns_story', width: 1080, height: 1920, backgroundKind: 'image', backgroundFit: 'cover', shadowKind: 'contact', background: 'bg_1' },
   ],
-  export: { namePattern: '{sku}_{variant}_{index:02}', format: 'jpeg', jpegQuality: 90, maxFileKb: null, zip: true, zipFolders: 'variant' },
+  export: { namePattern: '{sku}_{variant}_{index:02}', format: 'jpeg', jpegQuality: 90, maxFileKb: null, zip: true, zipFolders: 'variant', includeCutout: true },
 }
 
 describe('プロファイル: 空のグラフに読み込む → 書き出すと同じ内容に戻る', () => {

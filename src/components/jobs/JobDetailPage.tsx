@@ -208,8 +208,13 @@ export function JobDetailPage() {
   const visibleItems = useMemo(() => filterItems(items, filter), [items, filter])
   const counts = useMemo(() => ({ all: items.length, failed: items.filter((i) => i.status === 'failed').length }), [items])
   const readyCount = useMemo(() => (ctx ? exportTargets(ctx, 'all').length : 0), [ctx])
-  const exportColumns = useMemo(() => (ctx ? exportColumnsFor(ctx) : []), [ctx])
   const exportTargetList = useMemo(() => (ctx && exportScope ? exportTargets(ctx, exportScope, selected) : []), [ctx, exportScope, selected])
+  // 書き出しダイアログの要約（設定の変更に追従: 切り抜きを含めるか・形式）
+  const summarizeExport = useCallback((p: ExportParams) => {
+    if (!ctx || !exportScope) return { columnNames: [] as string[], fileCount: 0, estimateBytes: 0 }
+    const targets = exportTargets(ctx, exportScope, selected)
+    return { columnNames: exportColumnsFor(ctx, p.includeCutout).map((c) => c.name), fileCount: exportFileCount(ctx, targets, p.includeCutout), estimateBytes: estimateExportBytes(ctx, exportScope, p, selected) }
+  }, [ctx, exportScope, selected])
   // 生成結果の列を表示中: 結果画像の大きさ（枠の比率）
   const resultSizes = useMemo(() => {
     if (!isResultKey(activeKey)) return null
@@ -472,8 +477,8 @@ export function JobDetailPage() {
       <RerunDialog open={rerunOpen} count={selectedItems.length} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
       <ExportDialog
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
-        targetCount={exportTargetList.length} fileCount={ctx ? exportFileCount(ctx, exportTargetList) : 0} variantNames={exportColumns.map((c) => c.name)}
-        sampleSku={items[0]?.sku ?? null} estimateBytes={ctx && exportScope ? estimateExportBytes(ctx, exportScope, exportParams, selected) : 0}
+        targetCount={exportTargetList.length} cutoutOptional={!!cutoutNode && variants.length > 0} summarize={summarizeExport}
+        sampleSku={items[0]?.sku ?? null}
         state={exportState} onStart={(params) => void startExport(params)} onCancel={() => { exportCancel.current = true }}
         onClose={() => { if (exportState.phase !== 'running') { setExportScope(null); setExportState({ phase: 'idle' }) } }}
       />
