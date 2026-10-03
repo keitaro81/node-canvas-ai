@@ -7,12 +7,14 @@ import { StatusBar } from '../layout/StatusBar'
 import { Header } from '../layout/Header'
 import { CapsuleView } from '../capsule/CapsuleView'
 import { BatchSubmitDialog } from '../jobs/BatchSubmitDialog'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useAutoSave } from '../../hooks/useAutoSave'
+import { useEditLock } from '../../hooks/useEditLock'
+import { SaveBlockedDialog } from './SaveBlockedDialog'
 import { useTheme } from '../../hooks/useTheme'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { getWorkflowUpdatedAt } from '../../lib/api/workflows'
+import { getWorkflowStamp } from '../../lib/api/workflows'
 import { showToast } from '../../hooks/useToast'
 
 function LoadingScreen() {
@@ -34,7 +36,7 @@ export function CanvasPage() {
   const navigate = useNavigate()
   const { theme, toggle: toggleTheme } = useTheme()
   const { loadWorkflows, loadWorkflow } = useWorkflowStore()
-  const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
+  const canEditNow = useWorkflowStore(selectCanEditNow)
   const appMode = useCanvasStore((s) => s.appMode)
   const setAppMode = useCanvasStore((s) => s.setAppMode)
   const isMobile = useIsMobile()
@@ -42,18 +44,19 @@ export function CanvasPage() {
   const [initError, setInitError] = useState<string | null>(null)
 
   useAutoSave()
+  useEditLock(workflowId)
 
-  // 他の画面（Jobs のレイアウト設定など）で保存されたら、タブに戻ったときに読み直す。未保存の変更があれば知らせるだけ
+  // 他の画面（Jobs のレイアウト設定など）や他の人が保存したら、タブに戻ったときに読み直す（版で判定）。未保存の変更があれば知らせるだけ
   useEffect(() => {
     if (!workflowId) return
     const check = async () => {
       if (document.visibilityState !== 'visible') return
-      const { hasUnsavedChanges, isSaving, isLoadingWorkflow, lastSavedAt, currentWorkflowId } = useWorkflowStore.getState()
-      if (isSaving || isLoadingWorkflow || currentWorkflowId !== workflowId || !lastSavedAt) return
-      const updatedAt = await getWorkflowUpdatedAt(workflowId)
-      if (!updatedAt || new Date(updatedAt).getTime() <= lastSavedAt.getTime()) return
-      if (hasUnsavedChanges) { showToast('このワークフローは他の画面で更新されています。ここで保存すると上書きされます', 'warning'); return }
-      // レイアウトノード（バリアント）が変わったときだけ知らせる（生成結果の書込などでも updated_at は進むため）
+      const { hasUnsavedChanges, isSaving, isLoadingWorkflow, currentWorkflowId, currentWorkflowCanvasVersion } = useWorkflowStore.getState()
+      if (isSaving || isLoadingWorkflow || currentWorkflowId !== workflowId) return
+      const stamp = await getWorkflowStamp(workflowId)
+      if (!stamp || stamp.canvasVersion <= currentWorkflowCanvasVersion) return
+      if (hasUnsavedChanges) { showToast('このワークフローは他の画面で更新されています。ここで保存すると衝突の確認が出ます', 'warning'); return }
+      // レイアウトノード（バリアント）が変わったときだけ知らせる（生成結果の書込などでも版は進むため）
       const sig = () => JSON.stringify(useCanvasStore.getState().nodes.filter((n) => (n.data as { type?: string }).type === 'productLayout').map((n) => [n.id, (n.data as { params?: unknown }).params]))
       const before = sig()
       await loadWorkflow(workflowId)
@@ -133,9 +136,9 @@ export function CanvasPage() {
         >
           <main className="flex-1 min-w-0 h-full relative">
             <Canvas />
-            {isOwned && <FloatingToolbar />}
+            {canEditNow && <FloatingToolbar />}
             {/* TODO: RightPanel（ノード選択時の詳細パネル）は一旦非表示。必要に応じて復活させる */}
-            {/* {isOwned && <RightPanel />} */}
+            {/* {canEditNow && <RightPanel />} */}
           </main>
         </div>
         {(appMode === 'capsule' || isMobile) && <CapsuleView />}
@@ -144,6 +147,8 @@ export function CanvasPage() {
       {!isMobile && <StatusBar />}
       {/* 一括実行の確認 → 投入（Batch Input ノードの「一括実行…」から開く） */}
       <BatchSubmitDialog />
+      {/* 保存できなかったとき（衝突・ロック切れ・権限）の選択 */}
+      <SaveBlockedDialog />
     </div>
   )
 }

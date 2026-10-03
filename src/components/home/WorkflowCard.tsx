@@ -159,7 +159,18 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
           </div>
         )}
 
-        {/* Visibility badge */}
+        {/* Visibility badge（＋チームの編集を許可 0017） */}
+        <div className="absolute top-2 right-2 flex items-center gap-1">
+        {(workflow as { team_edit?: boolean }).team_edit && visibility !== 'private' && (
+          <div
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+            style={{ background: 'rgba(245,158,11,0.2)', color: '#FBBF24', backdropFilter: 'blur(4px)' }}
+            title="同じチームのメンバーも編集できます（同時に編集できるのは 1 人）"
+          >
+            <PencilSimple size={10} weight="fill" />
+            編集可
+          </div>
+        )}
         {(() => {
           const badge = {
             private: { label: 'Private', Icon: Lock, bg: 'rgba(0,0,0,0.4)', color: 'rgba(255,255,255,0.5)' },
@@ -169,7 +180,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
           const BadgeIcon = badge.Icon
           return (
             <div
-              className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
               style={{ background: badge.bg, color: badge.color, backdropFilter: 'blur(4px)' }}
             >
               <BadgeIcon size={10} weight={visibility === 'private' ? 'regular' : 'fill'} />
@@ -177,6 +188,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
             </div>
           )
         })()}
+        </div>
 
         {/* App mode not configured badge — モバイルのみ表示 */}
         {isDisabled && (

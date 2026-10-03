@@ -245,10 +245,11 @@ export function estimateZipBytes(count: number, width: number, height: number, f
   return Math.round(count * width * height * perPx)
 }
 
-/** レイアウト編集の保存先。作成者以外は閲覧のみ。元ワークフローが自分のものなら書き戻し、他人のもの（共有ワークフローから投入）なら閲覧のみ、元が無ければジョブの写しへ */
+/** レイアウト編集の保存先。元ワークフローがあれば「ワークフローを編集できる人」（所有者、または「チームの編集を許可」された同じチームのメンバー）が書き戻せる。
+ *  元が無い（削除済み・記録なし）ジョブは作成者だけがジョブの写しに保存。それ以外は閲覧のみ */
 export type LayoutSaveTarget = 'workflow' | 'job-snapshot' | 'readonly'
-export function layoutSaveTargetFor(isCreator: boolean, source: { ownerId: string | null } | null, userId: string | null): LayoutSaveTarget {
-  if (!isCreator) return 'readonly'
-  if (!source) return 'job-snapshot'
-  return !!userId && source.ownerId === userId ? 'workflow' : 'readonly'
+export function layoutSaveTargetFor(isCreator: boolean, source: { ownerId: string | null; canEdit?: boolean } | null, userId: string | null): LayoutSaveTarget {
+  if (!source) return isCreator ? 'job-snapshot' : 'readonly'
+  if (!!userId && source.ownerId === userId) return 'workflow'
+  return source.canEdit ? 'workflow' : 'readonly'
 }

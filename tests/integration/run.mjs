@@ -250,6 +250,86 @@ async function main() {
     const rv = await (await rest(`batch_items?select=review,reviewed_by&id=eq.${itemId}`)).json()
     check('review=ok・reviewed_by=本人 が記録される', rv[0]?.review === 'ok' && rv[0]?.reviewed_by === aId, JSON.stringify(rv[0]))
   }
+
+  // ───────────────────────────────────────────────
+  // Group G: フェーズ B — 「チームの編集を許可」と編集ロック（0017）
+  // ───────────────────────────────────────────────
+  console.log('Group G: チーム編集と編集ロック（0017）')
+  const probeG = await rest('workflow_edit_locks?select=workflow_id&limit=1')
+  if (probeG.status >= 400) {
+    console.log('  ⚠️ SKIP: migration 0017 未適用（workflow_edit_locks が無い）')
+  } else {
+    const emM = `${TAG}-g@example.com`   // Group F が -m を使うので別名
+    const mId = await createUser(emM, pw); created.users.push(mId)
+    await addMember(teamA, mId, 'member')                 // A と同じチームのメンバー。B は別チーム
+    const jwtM = await jwtFor(emM, pw)
+    const jwtOwner = await jwtFor(emA, pw)
+    const uRest = (path, jwt, init = {}) => fetch(`${URL_BASE}/rest/v1/${path}`, { ...init, headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(init.headers || {}) } })
+    const rpcU = async (name, jwt, body) => { const r = await fetch(`${URL_BASE}/rest/v1/rpc/${name}`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return r.json().catch(() => null) }
+    const rowsOf = async (r) => { if (!r.ok) return null; try { const j = await r.json(); return Array.isArray(j) ? j : [] } catch { return [] } }
+    const patch = (jwt, body, extra = '') => uRest(`workflows?id=eq.${wfG}${extra}`, jwt, { method: 'PATCH', body: JSON.stringify(body) })
+    const canvasG = (n) => ({ nodes: [{ id: 'n1', data: { type: 'text', params: { text: `v${n}` } } }], edges: [] })
+    const projG = await (await rest('projects', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name: `${TAG} G project`, user_id: aId }) })).json()
+    created.projects.push(projG[0].id)
+    const wfRow = await (await rest('workflows', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ project_id: projG[0].id, name: `${TAG} G wf`, canvas_data: canvasG(0), visibility: 'team', team_id: teamA }) })).json()
+    const wfG = wfRow[0].id; created.workflows.push(wfG)
+
+    // 許可 OFF（既定）: メンバーは保存も許可の変更もできない（RLS で 0 行）
+    const g1 = await rowsOf(await patch(jwtM, { canvas_data: canvasG(1) }))
+    const g2 = await rowsOf(await patch(jwtM, { team_edit: true }))
+    const ce0 = await rpcU('can_edit_workflow', jwtM, { p_workflow_id: wfG })
+    check(`許可 OFF: メンバーは保存も許可の変更もできない（更新 ${g1?.length} / ${g2?.length} 行・can_edit=${ce0}）`, g1?.length === 0 && g2?.length === 0 && ce0 === false)
+    // 所有者が ON → 同じチームは編集可、別チームは不可
+    const g3 = await rowsOf(await patch(jwtOwner, { team_edit: true }))
+    const ce1 = await rpcU('can_edit_workflow', jwtM, { p_workflow_id: wfG })
+    const ceB = await rpcU('can_edit_workflow', jwtB, { p_workflow_id: wfG })
+    check(`所有者は ON にできる（team_edit=${g3?.[0]?.team_edit}）。同じチームのメンバーは編集可・別チームは不可（${ce1} / ${ceB}）`, g3?.[0]?.team_edit === true && ce1 === true && ceB === false)
+    // ロック無しの保存は拒否（メンバーも所有者も）
+    const g4 = await patch(jwtM, { canvas_data: canvasG(2) }); const g4t = await g4.text()
+    const g5 = await patch(jwtOwner, { canvas_data: canvasG(2) }); const g5t = await g5.text()
+    check(`ロック無しでは保存できない（メンバー ${g4.status}・所有者 ${g5.status}・workflow_edit_lock_required）`, g4.status >= 400 && g4t.includes('workflow_edit_lock_required') && g5.status >= 400 && g5t.includes('workflow_edit_lock_required'))
+    // メンバーがロックを取って保存 → 版が進む
+    const l1 = await rpcU('acquire_workflow_edit_lock', jwtM, { p_workflow_id: wfG, p_session_id: 'm1' })
+    const g6 = await rowsOf(await patch(jwtM, { canvas_data: canvasG(3) }))
+    check(`メンバーはロックを取れ（ok=${l1?.ok}）、持っている間は保存できる（canvas_version=${g6?.[0]?.canvas_version}）`, l1?.ok === true && g6?.[0]?.canvas_version === 1)
+    // 設定・名前は変えられない（トリガ）
+    const g7 = await patch(jwtM, { name: 'renamed by member' }); const g7t = await g7.text()
+    const g8 = await patch(jwtM, { team_edit: false }); const g8t = await g8.text()
+    check(`メンバーは名前・共有設定を変えられない（${g7.status} / ${g8.status}・shared_edit_settings_forbidden）`, g7.status >= 400 && g7t.includes('shared_edit_settings_forbidden') && g8.status >= 400 && g8t.includes('shared_edit_settings_forbidden'))
+    // 所有者でも、メンバーが持っている間は取れない・保存できない。heartbeat は奪わない。別チームは forbidden
+    const l2 = await rpcU('acquire_workflow_edit_lock', jwtOwner, { p_workflow_id: wfG, p_session_id: 'a1' })
+    const l2h = await rpcU('acquire_workflow_edit_lock', jwtOwner, { p_workflow_id: wfG, p_session_id: 'a1', p_heartbeat: true })
+    const g9 = await patch(jwtOwner, { canvas_data: canvasG(4) })
+    const lB = await rpcU('acquire_workflow_edit_lock', jwtB, { p_workflow_id: wfG, p_session_id: 'b1' })
+    check(`メンバーが編集中は所有者も取れない・保存できない（${l2?.reason} / ${l2h?.reason} / 保存 ${g9.status}・holder=${l2?.holder_email}）。別チームは ${lB?.reason}`,
+      l2?.ok === false && l2?.reason === 'held' && l2?.holder_email === emM && l2h?.ok === false && g9.status >= 400 && lB?.reason === 'forbidden')
+    // ロック行は同じチームに見え、別チームには見えない
+    const lmRows = await rowsOf(await uRest(`workflow_edit_locks?select=user_email&workflow_id=eq.${wfG}`, jwtOwner))
+    const lbRows = await rowsOf(await uRest(`workflow_edit_locks?select=user_email&workflow_id=eq.${wfG}`, jwtB))
+    check(`ロック行は同じチームに見え（${lmRows?.[0]?.user_email}）、別チームには見えない（${lbRows?.length} 行）`, lmRows?.[0]?.user_email === emM && lbRows?.length === 0)
+    // 同じ人の別タブは引き継ぐ。古いタブの heartbeat は held / same_user
+    const l3 = await rpcU('acquire_workflow_edit_lock', jwtM, { p_workflow_id: wfG, p_session_id: 'm2' })
+    const l3h = await rpcU('acquire_workflow_edit_lock', jwtM, { p_workflow_id: wfG, p_session_id: 'm1', p_heartbeat: true })
+    check(`同じ人の別タブは引き継ぐ（took_over=${l3?.took_over}）。古いタブの heartbeat は ${l3h?.reason}/same_user=${l3h?.same_user}`, l3?.ok === true && l3?.took_over === true && l3h?.ok === false && l3h?.reason === 'held' && l3h?.same_user === true)
+    // 90 秒更新が無いロックは引き継げる
+    await rest(`workflow_edit_locks?workflow_id=eq.${wfG}`, { method: 'PATCH', body: JSON.stringify({ heartbeat_at: new Date(Date.now() - 120_000).toISOString() }) })
+    const l4 = await rpcU('acquire_workflow_edit_lock', jwtOwner, { p_workflow_id: wfG, p_session_id: 'a1' })
+    check(`90 秒更新が無いロックは引き継げる（ok=${l4?.ok}・took_over=${l4?.took_over}）`, l4?.ok === true && l4?.took_over === true)
+    // 版を確かめる保存: 古い版では 0 行、今の版なら保存されて版が進む
+    const cur = (await (await rest(`workflows?select=canvas_version&id=eq.${wfG}`)).json())[0]?.canvas_version
+    const g10 = await rowsOf(await patch(jwtOwner, { canvas_data: canvasG(5) }, `&canvas_version=eq.${cur - 1}`))
+    const g11 = await rowsOf(await patch(jwtOwner, { canvas_data: canvasG(5) }, `&canvas_version=eq.${cur}`))
+    check(`版を確かめる保存: 古い版は 0 行、今の版は保存されて版が進む（${cur} → ${g11?.[0]?.canvas_version}）`, g10?.length === 0 && g11?.[0]?.canvas_version === cur + 1)
+    // 解放 → 行が消える
+    const rel = await rpcU('release_workflow_edit_lock', jwtOwner, { p_workflow_id: wfG, p_session_id: 'a1' })
+    const leftLocks = await (await rest(`workflow_edit_locks?select=workflow_id&workflow_id=eq.${wfG}`)).json()
+    check(`解放できる（${rel}・残 ${leftLocks.length} 行）`, rel === true && leftLocks.length === 0)
+    // 所有者が OFF に戻す → メンバーは再び保存不可。所有者はロック無しで保存できる
+    await patch(jwtOwner, { team_edit: false })
+    const g12 = await rowsOf(await patch(jwtM, { canvas_data: canvasG(6) }))
+    const g13 = await rowsOf(await patch(jwtOwner, { canvas_data: canvasG(6) }))
+    check(`許可を OFF に戻すとメンバーは保存できず（${g12?.length} 行）、所有者はロック無しで保存できる（version=${g13?.[0]?.canvas_version}）`, g12?.length === 0 && g13?.[0]?.canvas_version === cur + 2)
+  }
 }
 
 async function cleanup() {

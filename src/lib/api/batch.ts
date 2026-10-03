@@ -41,7 +41,7 @@ export const batchDelete = (jobId: string) => call<{ jobId: string; deletedFiles
 export const batchRetry = (jobId: string) => call<{ jobId: string; retriedTasks: number; resetItems: number; status: string }>('retry', { jobId })
 export const batchRerun = (body: { jobId: string; nodeId: string; itemIds: string[]; params: unknown }) => call<{ jobId: string; rerunTasks: number; skipped: Array<{ itemId: string; reason: string }>; status: string }>('rerun', body)
 /** ジョブの元ワークフローの列（閲覧用）。直接読めないワークフロー（他人の private）でも、ジョブが見えれば取れる */
-export interface JobSource { id: string; projectId: string; name: string; updatedAt: string; canvas: WorkflowSnapshot }
+export interface JobSource { id: string; projectId: string; name: string; updatedAt: string; canvas: WorkflowSnapshot; teamEdit?: boolean; visibility?: string | null; canvasVersion?: number }
 export const batchSource = (jobId: string) => call<{ jobId: string; source: JobSource | null }>('source', { jobId })
 
 /** 投入を「残りなし」になるまで繰り返す（各呼び出しはチャンク単位・冪等）。 */

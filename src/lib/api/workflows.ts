@@ -1,7 +1,8 @@
 import { supabase } from '../supabase'
 import { toCanonicalRef } from './storage'
 import { signWorkflowThumbnails } from './signMedia'
-import type { Database } from '../../types/database'
+import type { Database, Json } from '../../types/database'
+import { notifyCanvasVersion } from '../workflow/canvasVersion'
 
 type WorkflowRow = Database['public']['Tables']['workflows']['Row']
 type WorkflowInsert = Database['public']['Tables']['workflows']['Insert']
@@ -37,6 +38,47 @@ export async function getWorkflowUpdatedAt(id: string): Promise<string | null> {
   const { data, error } = await supabase.from('workflows').select('updated_at').eq('id', id).maybeSingle()
   if (error || !data) return null
   return (data as { updated_at: string }).updated_at
+}
+
+/** 版と更新時刻だけを読む（他の画面・他の人の保存を検知する用途。RLS で読めない場合は null） */
+export interface WorkflowStamp { updatedAt: string; canvasVersion: number }
+export async function getWorkflowStamp(id: string): Promise<WorkflowStamp | null> {
+  const { data, error } = await supabase.from('workflows').select('updated_at, canvas_version').eq('id', id).maybeSingle()
+  if (error || !data) return null
+  const d = data as { updated_at: string; canvas_version?: number | null }
+  return { updatedAt: d.updated_at, canvasVersion: d.canvas_version ?? 0 }
+}
+
+/** 版を確かめながら canvas_data を保存する（読み込んだ版のままなら保存。誰かが先に保存していれば null＝衝突）。
+ *  0017 のトリガが updated_at と canvas_version を進める。ロックが要るワークフローでロックが無ければ例外（workflow_edit_lock_required） */
+export async function updateWorkflowCanvasChecked(id: string, canvasData: Json, expectedVersion: number): Promise<WorkflowRow | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const table = supabase.from('workflows') as any
+  const { data, error } = await table
+    .update({ canvas_data: canvasData, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('canvas_version', expectedVersion)
+    .select()
+    .maybeSingle()
+  if (error) throw error
+  const row = (data ?? null) as WorkflowRow | null
+  if (row) notifyCanvasVersion(id, (row as { canvas_version?: number }).canvas_version ?? expectedVersion + 1)
+  return row
+}
+
+/** チームの編集を許可（所有者だけ。0017） */
+export async function setWorkflowTeamEdit(id: string, enabled: boolean): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const table = supabase.from('workflows') as any
+  const { error } = await table.update({ team_edit: enabled, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw error
+}
+
+/** 自分がこのワークフローを編集できるか（所有者 / チーム編集が許可された同じチームのメンバー）。関数が無い環境では false */
+export async function canEditWorkflow(id: string): Promise<boolean> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc('can_edit_workflow', { p_workflow_id: id })
+  return !error && data === true
 }
 
 export async function createWorkflow(data: WorkflowInsert): Promise<WorkflowRow> {
@@ -142,26 +184,26 @@ export async function patchWorkflowNodeOutput(
   nodeId: string,
   dataUpdate: Record<string, unknown>
 ): Promise<void> {
-  const workflow = await getWorkflow(workflowId)
-  const canvasData = workflow.canvas_data as {
-    nodes: Array<{ id: string; data: Record<string, unknown> }>
-  } | null
-  if (!canvasData?.nodes) return
-
   // 署名URLを保存しないよう、URL文字列フィールドを canonical へ正規化（書込口）
   const canonicalUpdate: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(dataUpdate)) {
     canonicalUpdate[k] = typeof v === 'string' ? (toCanonicalRef(v) ?? v) : v
   }
-  const nodes = canvasData.nodes.map((n) =>
-    n.id === nodeId ? { ...n, data: { ...n.data, ...canonicalUpdate } } : n
-  )
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const table = supabase.from('workflows') as any
-  const { error } = await table
-    .update({ canvas_data: { ...canvasData, nodes }, updated_at: new Date().toISOString() })
-    .eq('id', workflowId)
-  if (error) throw error
+  // 読み取り→書き込みの間に他の保存（自動保存・他の編集者）が入っても上書きしないよう、版を確かめながら書く（ぶつかったら読み直して最大 3 回）
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const workflow = await getWorkflow(workflowId)
+    const canvasData = workflow.canvas_data as {
+      nodes: Array<{ id: string; data: Record<string, unknown> }>
+    } | null
+    if (!canvasData?.nodes) return
+    const nodes = canvasData.nodes.map((n) =>
+      n.id === nodeId ? { ...n, data: { ...n.data, ...canonicalUpdate } } : n
+    )
+    const version = (workflow as { canvas_version?: number | null }).canvas_version ?? 0
+    const saved = await updateWorkflowCanvasChecked(workflowId, { ...canvasData, nodes } as unknown as Json, version)
+    if (saved) return
+  }
+  throw new Error('patchWorkflowNodeOutput: 他の保存と重なったため書き込めませんでした')
 }
 
 export async function toggleWorkflowPublic(id: string, isPublic: boolean): Promise<void> {

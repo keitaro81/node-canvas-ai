@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 import { useBatchStore } from '../../stores/batchStore'
 import { useAuthStore } from '../../stores/authStore'
-import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, reviewItem, saveWorkflowCanvas, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
+import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, reviewItem, saveWorkflowCanvasChecked, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../lib/api/batchJobs'
 import { batchRerun, submitJobFully } from '../../lib/api/batch'
 import { signBatchPath } from '../../lib/cutout/store'
 import { jobProgress } from '../../lib/batch/jobsQuery'
@@ -23,6 +23,8 @@ import { ReviewGrid } from './review/ReviewGrid'
 import { ReviewToolbar } from './review/ReviewToolbar'
 import { ReviewLightbox } from './review/ReviewLightbox'
 import { LayoutSettingsDrawer, type LayoutChangePlan, type LayoutSaveTarget } from './review/LayoutSettingsDrawer'
+import { acquireEditLock, releaseEditLock } from '../../lib/api/workflowLocks'
+import { editSessionId, holderLabel, lockRequiredFor } from '../../lib/workflow/editLock'
 import { RerunDialog } from './review/RerunDialog'
 import { ExportDialog, type ExportDialogState } from './review/ExportDialog'
 import { BG_ORDER } from './review/reviewStyles'
@@ -143,7 +145,8 @@ export function JobDetailPage() {
   const isCreator = !!job && !!userId && job.created_by === userId
   const target: LayoutSaveTarget = layoutSaveTargetFor(isCreator, source, userId)
   // 作成者なのに閲覧のみ＝共有ワークフロー（他のメンバーのもの）から投入したジョブ。変更は所有者がキャンバスで行う
-  const readOnlyNotice = isCreator && target === 'readonly' ? '元のワークフローは他のメンバーのものなので、ここでは変更できません。変更はワークフローの所有者がキャンバスで行い、このジョブの列に反映されます。' : null
+  // 元ワークフローがあるのに閲覧のみ＝編集権が無い（所有者でも「チームの編集を許可」されたメンバーでもない）
+  const readOnlyNotice = source && target === 'readonly' ? '編集できるのはワークフローの所有者（「チームの編集を許可」がオンなら同じチームのメンバーも）だけです。ここでは設定の確認のみ。' : null
   const variants = useMemo(() => {
     if (!job) return []
     if (source) {
@@ -216,7 +219,18 @@ export function JobDetailPage() {
     try {
       const jobAdded = addedVariantsOf(job.layout_overrides)
       if (target === 'workflow' && source) {
-        // 書き戻しはワークフロー全体が必要。最新を取り直してから差分を当てる（後勝ちの幅を狭める）
+        // チーム編集のワークフローは保存にロックが要る（キャンバスを編集中の人がいれば保存しない）。書き戻しの間だけ取り、終わったら返す
+        const needLock = lockRequiredFor({ team_edit: source.teamEdit, visibility: source.visibility })
+        const sid = editSessionId(typeof sessionStorage !== 'undefined' ? sessionStorage : null, () => crypto.randomUUID())
+        if (needLock) {
+          const r = await acquireEditLock(source.id, sid)
+          if (!r.ok) {
+            showToast(r.reason === 'held' ? `${holderLabel({ holderEmail: r.holder_email ?? null })} がキャンバスを編集中のため、いま保存できません` : 'このワークフローを編集する権限がありません', 'warning')
+            return
+          }
+        }
+        try {
+        // 書き戻しはワークフロー全体が必要。最新を取り直してから差分を当て、読み込んだ版のまま保存する（他の保存と重なれば保存しない）
         const fresh = await fetchWorkflowFull(source.id)
         if (!fresh) throw new Error('元のワークフローを読み込めませんでした（編集権限がありません）')
         let canvas: CanvasLike = fresh.canvas as CanvasLike
@@ -231,10 +245,18 @@ export function JobDetailPage() {
           else added = added.filter((a) => a.key !== key)
         }
         for (const a of plan.added) canvas = addLayoutNodeToCanvas(canvas, a.params).canvas
-        await saveWorkflowCanvas(source.id, canvas)
+        const saved = await saveWorkflowCanvasChecked(source.id, canvas, fresh.canvasVersion)
+        if (!saved) {
+          showToast('他の保存と重なったため保存しませんでした。列を読み直したので、もう一度お試しください', 'warning')
+          await reloadSource()
+          return
+        }
         const overrides: Record<string, unknown> = added.length ? { [ADDED_VARIANTS_KEY]: added } : {}
         if (JSON.stringify(overrides) !== JSON.stringify(job.layout_overrides)) await setJobLayoutOverrides(job.id, overrides)
         showToast('ワークフローのノードを更新し、全アイテムに再適用しました', 'success')
+        } finally {
+          if (needLock) void releaseEditLock(source.id, sid)
+        }
       } else {
         const overrides: Record<string, unknown> = { ...job.layout_overrides }
         delete overrides[ADDED_VARIANTS_KEY]
@@ -256,7 +278,7 @@ export function JobDetailPage() {
     } finally {
       setSavingLayout(false)
     }
-  }, [job, source, target, loadAll])
+  }, [job, source, target, loadAll, reloadSource])
   const resetJobOverrides = useCallback(async () => {
     if (!job) return
     setSavingLayout(true)
@@ -354,7 +376,7 @@ export function JobDetailPage() {
         )}
         {source && variants.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : isCreator ? '（他のメンバーのワークフローなので、変更は所有者がキャンバスで行います）' : '（編集はジョブの作成者のみ）'}。
+            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : '（編集できるのはワークフローの所有者と、編集を許可されたチームのメンバーだけ）'}。
           </div>
         )}
         <ReviewGrid
