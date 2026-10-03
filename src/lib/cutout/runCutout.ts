@@ -6,7 +6,7 @@ import { fal } from '../ai/fal-client'
 import type { CutoutEngine, CutoutParams, CutoutRef } from '../../types/nodes'
 import { alphaFromLuminance, alphaFromRgba, processAlpha, resizeAlpha, type AlphaMap } from './alpha'
 import { decodeBlob, decodeMaskPng, encodeGrayPng, fetchBlob, renderTransparentPng, type DecodedImage } from './decode'
-import { buildEngineRequest, CUTOUT_ENGINES, pickEngineResult, type EngineResultFile } from './engines'
+import { buildEngineRequest, CUTOUT_ENGINES, pickEngineCutoutImage, pickEngineResult, type EngineResultFile } from './engines'
 import { uploadBatchObject } from './store'
 
 /** ノード上のプレビュー（長辺 px。仕様 4-9「一覧にはサムネイル(長辺400px程度)だけ」） */
@@ -25,6 +25,7 @@ export interface BuildCutoutInput {
   params: CutoutParams
   dir: string              // 保存先ディレクトリ（batch バケット内 <team_id>/...）
   sourceRef: string
+  cutoutFile?: { url: string } | null   // 透過の切り抜き画像（後段の Image Generation 用。あれば <ts>-cutout.png として保存）
   onProgress?: (message: string) => void
 }
 
@@ -33,7 +34,7 @@ export interface BuildCutoutInput {
  * 元画像の RGB には触れない（原則2）。
  */
 export async function buildCutoutFromEngineResult(input: BuildCutoutInput): Promise<CutoutBuildResult> {
-  const { engine, original, resultFile, params, dir, sourceRef, onProgress } = input
+  const { engine, original, resultFile, params, dir, sourceRef, cutoutFile, onProgress } = input
   onProgress?.('結果を取得中…')
   const result = await decodeBlob(await fetchBlob(resultFile.url))
   const alphaAtResult = resultFile.kind === 'mask'
@@ -45,12 +46,18 @@ export async function buildCutoutFromEngineResult(input: BuildCutoutInput): Prom
   const ts = Date.now()
   const maskPath = `${dir}/${ts}-mask.png`
   const previewPath = `${dir}/${ts}-preview.png`
+  const cutoutPath = cutoutFile ? `${dir}/${ts}-cutout.png` : null
   const { alpha, bbox } = processAlpha(rawAlpha, params)
-  const [maskBlob, previewBlob] = await Promise.all([
+  const [maskBlob, previewBlob, cutoutBlob] = await Promise.all([
     encodeGrayPng(rawAlpha),
     renderTransparentPng(original, alpha, PREVIEW_MAX_EDGE),
+    cutoutFile ? fetchBlob(cutoutFile.url) : Promise.resolve(null),
   ])
-  await Promise.all([uploadBatchObject(maskPath, maskBlob), uploadBatchObject(previewPath, previewBlob)])
+  await Promise.all([
+    uploadBatchObject(maskPath, maskBlob),
+    uploadBatchObject(previewPath, previewBlob),
+    ...(cutoutPath && cutoutBlob ? [uploadBatchObject(cutoutPath, cutoutBlob, cutoutBlob.type || 'image/png')] : []),
+  ])
 
   const ref: CutoutRef = {
     sourceRef,
@@ -58,6 +65,7 @@ export async function buildCutoutFromEngineResult(input: BuildCutoutInput): Prom
     height: original.height,
     maskPath,
     previewPath,
+    cutoutPath,
     bbox,
     engine,
     params: { ...params },
@@ -71,22 +79,26 @@ export interface RunCutoutInput {
   imageUrl: string         // fal から到達できる URL（署名 URL）
   sourceRef: string        // 元画像の canonical 参照
   params: CutoutParams
+  dualOutput?: boolean     // 後段に Image Generation がある: マスクに加えて透過の切り抜き画像も受け取り保存する（一括実行の __dual と同じ）
   onProgress?: (message: string) => void
 }
 
 /** 対話実行: 元画像を読み込み → fal（proxy 経由）→ 共通処理。 */
 export async function runCutoutInteractive(input: RunCutoutInput): Promise<CutoutBuildResult> {
-  const { dir, imageUrl, sourceRef, params, onProgress } = input
+  const { dir, imageUrl, sourceRef, params, dualOutput, onProgress } = input
   onProgress?.('元画像を読み込み中…')
   const original = await decodeBlob(await fetchBlob(imageUrl))
 
   const req = buildEngineRequest(params, imageUrl)
+  // 切り抜き画像も要るときは BiRefNet にマスクだけでなく前景画像も返させる（fal の呼び出し回数は変わらない）
+  if (dualOutput && params.engine === 'birefnet') req.input.mask_only = false
   onProgress?.(`${CUTOUT_ENGINES[params.engine].label} で処理中…`)
   const result = await fal.subscribe(req.endpoint, { input: req.input, logs: false })
   const output = (result as unknown as { data?: unknown }).data
   const resultFile = pickEngineResult(params.engine, output)
+  const cutoutFile = dualOutput ? pickEngineCutoutImage(params.engine, output) : null
 
-  return buildCutoutFromEngineResult({ engine: params.engine, original, resultFile, params, dir, sourceRef, onProgress })
+  return buildCutoutFromEngineResult({ engine: params.engine, original, resultFile, params, dir, sourceRef, cutoutFile, onProgress })
 }
 
 /** 保存済みの生マスクにパラメータを再適用し、プレビューを作り直す（fal は呼ばない）。 */

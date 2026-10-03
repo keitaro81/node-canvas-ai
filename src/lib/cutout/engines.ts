@@ -123,6 +123,13 @@ export interface EngineResultFile {
 
 type FalImageFile = { url?: string; width?: number; height?: number }
 
+/** fal の出力 JSON から、透過の切り抜き画像（後段の Image Generation の入力）を選ぶ。BiRefNet は mask_only=false のときだけ image が返る。無ければ null */
+export function pickEngineCutoutImage(engine: CutoutEngine, output: unknown): { url: string; width?: number; height?: number } | null {
+  const o = (output && typeof output === 'object' ? output : {}) as { image?: FalImageFile; mask_image?: FalImageFile }
+  if (engine === 'birefnet' && !o.mask_image?.url) return null   // image がマスクそのもの（mask_only）
+  return o.image?.url ? { url: o.image.url, width: o.image.width, height: o.image.height } : null
+}
+
 /** fal の出力 JSON から、切り抜きに使うファイルを選ぶ。 */
 export function pickEngineResult(engine: CutoutEngine, output: unknown): EngineResultFile {
   const o = (output && typeof output === 'object' ? output : {}) as { image?: FalImageFile; mask_image?: FalImageFile }

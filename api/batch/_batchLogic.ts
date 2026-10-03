@@ -9,7 +9,7 @@ import { estimatePlannedTaskCost, estimateTaskCost } from './_pricing'
 import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_falWebhook'
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 import { backgroundSourcesOf, promptForGenerator } from '../../src/lib/batch/background'
-import { buildTextToImageInput } from '../../src/lib/ai/imageGenModels'
+import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../../src/lib/ai/imageGenModels'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -57,62 +57,165 @@ export interface SnapshotNode { id: string; type?: string; data?: any }
 export interface SnapshotEdge { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
 export interface WorkflowSnapshot { nodes?: SnapshotNode[]; edges?: SnapshotEdge[] }
 
+export type PlannedKind = 'cutout' | 'imageGen' | 'imageEdit'
 export interface PlannedTask {
   nodeId: string
   scope: 'item' | 'job'
   endpoint: string
-  input: Record<string, unknown>   // アイテムごとのタスクは image_url を投入時に足す
-  kind: 'cutout' | 'imageGen'
+  input: Record<string, unknown>   // アイテムごとのタスクは image_url / image_urls を投入時に足す
+  kind: PlannedKind
+  stage: number                    // アイテムごと: 1 = 元の写真を入力、2 = 1 段目の結果を入力。ジョブごとは 1
+  dependsOn: string | null         // 2 段目が待つ前段のノード id
+  label: string                    // ノード名（見積の内訳・結果タブ）
+  dualOutput: boolean              // 切り抜き: マスクと透過画像の両方を受け取る（後段が切り抜き画像を使う）
 }
+export const MAX_ITEM_STAGES = 2
+
+const DEFAULT_LABELS: Record<string, string> = { removeBackground: 'Remove Background', imageGen: 'Image Generation' }
 
 /**
- * 写しから AI 処理ノードを抽出する（仕様 4-2）。
- * - Remove Background（Batch Input に直結しているもの）→ アイテムごとのタスク
- * - Product Layout の背景入力につながる Image Generation（executionScope='job'）→ ジョブごとのタスク 1 件（Step 8。50 枚でも生成は 1 回）
- *   背景につながっていないジョブごとの生成、アイテムごとの背景生成、プロンプト無しは対象外（警告）
+ * 写しから AI 処理ノードを抽出する（仕様 4-2・フェーズ C: 1 経路につき AI 処理 2 段まで）。
+ * - アイテムごと: Batch Input の写真に行き着く Remove Background / Image Generation（編集。画像入力あり）。
+ *   1 段目 = 写真を直接受け取る、2 段目 = 1 段目の結果を受け取る（結果ノード経由を含む）。3 段目以降は対象外（警告）
+ * - ジョブごと: Product Layout の背景入力につながる Image Generation（executionScope='job'）1 件（Step 8）
  */
 export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[] } {
   const nodes = Array.isArray(snapshot?.nodes) ? snapshot!.nodes! : []
   const edges = Array.isArray(snapshot?.edges) ? snapshot!.edges! : []
-  const batchInputIds = new Set(nodes.filter((n) => n?.data?.type === 'batchInput').map((n) => n.id))
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const typeOf = (id: string | undefined) => (id ? (byId.get(id)?.data?.type as string | undefined) : undefined)
+  const labelOf = (n: SnapshotNode | undefined) => {
+    const l = n?.data?.label
+    return typeof l === 'string' && l.trim() ? l.trim() : (DEFAULT_LABELS[typeOf(n?.id) ?? ''] ?? n?.id ?? '')
+  }
   const tasks: PlannedTask[] = []
   const warnings: string[] = []
-  for (const node of nodes) {
-    if (node?.data?.type !== 'removeBackground') continue
-    const feed = edges.find((e) => e.target === node.id && e.targetHandle === 'in-image-image')
-    if (!feed || !batchInputIds.has(feed.source)) {
-      warnings.push(`Remove Background（${node.id}）は Batch Input に接続されていないため一括実行の対象外です`)
+
+  // 画像の出どころ（結果ノードは透過して生成器へ）
+  const producerOf = (sourceId: string): { kind: 'batchInput' | 'ai' | 'other'; nodeId: string } => {
+    const t = typeOf(sourceId)
+    if (t === 'batchInput') return { kind: 'batchInput', nodeId: sourceId }
+    if (t === 'removeBackground' || t === 'imageGen') return { kind: 'ai', nodeId: sourceId }
+    if (t === 'imageDisplay') {
+      const feed = edges.find((e) => e.target === sourceId && typeOf(e.source) === 'imageGen')
+      return feed ? { kind: 'ai', nodeId: feed.source } : { kind: 'other', nodeId: sourceId }
+    }
+    return { kind: 'other', nodeId: sourceId }
+  }
+  // AI ノードの主入力（写真）の辺。Image Generation は in-image-*（Product Layout の背景入力 in-image-background は別物）
+  const imageInputEdges = (node: SnapshotNode): SnapshotEdge[] => {
+    if (node.data?.type === 'removeBackground') return edges.filter((e) => e.target === node.id && e.targetHandle === 'in-image-image')
+    return edges.filter((e) => e.target === node.id && (e.targetHandle ?? '').startsWith('in-image'))
+  }
+  const isItemAi = (n: SnapshotNode) => n?.data?.type === 'removeBackground' || (n?.data?.type === 'imageGen' && n?.data?.params?.executionScope !== 'job')
+
+  // 段の割り当て（写真 → 1 段目 → 2 段目）。メモ化して循環も止める
+  const stageMemo = new Map<string, { stage: number | null; dependsOn: string | null }>()
+  const stageOf = (nodeId: string, depth = 0): { stage: number | null; dependsOn: string | null } => {
+    const cached = stageMemo.get(nodeId)
+    if (cached) return cached
+    const node = byId.get(nodeId)
+    const none: { stage: number | null; dependsOn: string | null } = { stage: null, dependsOn: null }
+    if (!node || !isItemAi(node) || depth > MAX_ITEM_STAGES + 1) { stageMemo.set(nodeId, none); return none }
+    const ins = imageInputEdges(node)
+    if (!ins.length) { stageMemo.set(nodeId, none); return none }
+    const p = producerOf(ins[0].source)
+    let result: { stage: number | null; dependsOn: string | null } = none
+    if (p.kind === 'batchInput') result = { stage: 1, dependsOn: null }
+    else if (p.kind === 'ai') {
+      const up = stageOf(p.nodeId, depth + 1)
+      if (up.stage !== null) result = { stage: up.stage + 1, dependsOn: p.nodeId }
+    }
+    stageMemo.set(nodeId, result)
+    return result
+  }
+
+  const itemNodes = nodes.filter(isItemAi)
+  for (const node of itemNodes) {
+    const label = labelOf(node)
+    const ins = imageInputEdges(node)
+    const { stage, dependsOn } = stageOf(node.id)
+    if (stage === null) {
+      if (node.data?.type === 'removeBackground') warnings.push(`Remove Background（${label}）は Batch Input に接続されていないため一括実行の対象外です`)
       continue
     }
-    const req = buildEngineRequest(normalizeCutoutParams(node.data?.params), '__IMAGE_URL__')
-    const input: Record<string, unknown> = { ...req.input }
-    delete input.image_url
-    tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input, kind: 'cutout' })
+    if (stage > MAX_ITEM_STAGES) { warnings.push(`AI 処理は 1 経路につき ${MAX_ITEM_STAGES} 段までです（${label} は ${stage} 段目のため対象外）`); continue }
+    if (ins.length > 1) warnings.push(`${label} の画像入力は最初の 1 つだけを使います（複数の画像入力は未対応）`)
+    if (node.data?.type === 'removeBackground') {
+      const req = buildEngineRequest(normalizeCutoutParams(node.data?.params), '__IMAGE_URL__')
+      const input: Record<string, unknown> = { ...req.input }
+      delete input.image_url
+      tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input, kind: 'cutout', stage, dependsOn, label, dualOutput: false })
+    } else {
+      const p = (node.data?.params ?? {}) as Record<string, unknown>
+      const prompt = promptForGenerator({ nodes: nodes as unknown as Array<{ id: string; type?: string; data?: Record<string, unknown> }>, edges }, node.id)
+      if (!prompt) { warnings.push(`Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`); continue }
+      const model = editModelOf(p)
+      const req = buildImageEditRequest(model, prompt, p)
+      tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input: req.input, kind: 'imageEdit', stage, dependsOn, label, dualOutput: false })
+    }
   }
-  // 背景生成: レイアウトの背景入力に行き着く生成器ごとに 1 件
+  // 2 段目の生成が切り抜きを受け取るなら、その切り抜きはマスクと透過画像の両方を受け取る（fal 1 回で両方返る）
+  for (const t of tasks) {
+    if (t.kind !== 'imageEdit' || !t.dependsOn) continue
+    const dep = tasks.find((x) => x.nodeId === t.dependsOn)
+    if (dep && dep.kind === 'cutout') { dep.dualOutput = true; if (dep.endpoint.startsWith('fal-ai/birefnet')) dep.input.mask_only = false }
+  }
+  // 段の順に並べる（1 段目 → 2 段目）
+  tasks.sort((x, y) => x.stage - y.stage)
+
+  // 背景生成: レイアウトの背景入力に行き着く生成器ごとに 1 件（ジョブごと）
   const canvas = { nodes: nodes as unknown as Array<{ id: string; type?: string; data?: Record<string, unknown> }>, edges }
   const generators = new Set(backgroundSourcesOf(canvas).map((s) => s.generatorNodeId).filter((g): g is string => !!g))
   for (const genId of generators) {
     const gen = nodes.find((n) => n.id === genId)
     const p = (gen?.data?.params ?? {}) as Record<string, unknown>
+    const label = labelOf(gen)
     if (p.executionScope !== 'job') {
-      warnings.push(`背景の Image Generation（${genId}）は「一括実行のスコープ: ジョブごと」にしてください（アイテムごとの背景生成は未対応のため対象外）`)
+      warnings.push(`背景の Image Generation（${label}）は「一括実行のスコープ: ジョブごと」にしてください（アイテムごとの背景生成は未対応のため対象外）`)
       continue
     }
     const prompt = promptForGenerator(canvas, genId)
     if (!prompt) {
-      warnings.push(`背景の Image Generation（${genId}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`)
+      warnings.push(`背景の Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`)
       continue
     }
     const model = typeof p.model === 'string' && p.model ? p.model : 'fal-ai/nano-banana-2'
-    tasks.push({ nodeId: genId, scope: 'job', endpoint: model, input: buildTextToImageInput(model, prompt, p), kind: 'imageGen' })
+    tasks.push({ nodeId: genId, scope: 'job', endpoint: model, input: buildTextToImageInput(model, prompt, p), kind: 'imageGen', stage: 1, dependsOn: null, label, dualOutput: false })
   }
   for (const node of nodes) {
     if (node?.data?.type === 'imageGen' && node?.data?.params?.executionScope === 'job' && !generators.has(node.id)) {
-      warnings.push(`Image Generation（${node.id}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
+      warnings.push(`Image Generation（${labelOf(node)}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
     }
   }
   return { tasks, warnings }
+}
+
+/** タスクが待つ前段のノード id（input.__depends_on） */
+export function dependencyOf(task: { input?: Record<string, unknown> | null }): string | null {
+  const d = task.input?.__depends_on
+  return typeof d === 'string' && d ? d : null
+}
+
+/** 未投入タスクのうち、いま投入できるもの / 前段の失敗で投入できないもの / 前段待ちのもの に分ける（純関数） */
+export function selectSubmittable<T extends { id: string; item_id: string | null; node_id: string; status: string; input?: Record<string, unknown> | null }>(pending: T[], all: T[]): { ready: T[]; blockedByFailure: T[]; waiting: T[] } {
+  const ready: T[] = [], blockedByFailure: T[] = [], waiting: T[] = []
+  for (const t of pending) {
+    const dep = dependencyOf(t)
+    if (!dep) { ready.push(t); continue }
+    const depTask = all.find((x) => x.item_id === t.item_id && x.node_id === dep)
+    if (!depTask || depTask.status === 'failed' || depTask.status === 'cancelled') blockedByFailure.push(t)
+    else if (depTask.status === 'completed') ready.push(t)
+    else waiting.push(t)
+  }
+  return { ready, blockedByFailure, waiting }
+}
+
+/** 切り抜きの fal 応答から透過画像（後段の生成に渡す）を選ぶ。無ければ null */
+export function pickCutoutImage(endpoint: string, payload: unknown): { url: string; width?: number; height?: number } | null {
+  const p = (payload && typeof payload === 'object' ? payload : {}) as { image?: { url?: string; width?: number; height?: number } }
+  if (!engineOfEndpoint(endpoint)) return null
+  return p.image?.url ? { url: p.image.url, width: p.image.width, height: p.image.height } : null
 }
 
 // ───────────────────────── 上限（4-7・純関数） ─────────────────────────
@@ -238,9 +341,17 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const jobTasks = plan.tasks.filter((t) => t.scope === 'job')
   const estimatedCostUsd = Math.round((items.length * itemTasks.reduce((s, t) => s + estimatePlannedTaskCost(t.endpoint), 0) + jobTasks.reduce((s, t) => s + estimatePlannedTaskCost(t.endpoint), 0)) * 10000) / 10000
   const limits = { dailyLimit, usedToday, remaining: Math.max(0, dailyLimit - usedToday), activeJobs: activeJobs ?? 0, maxActiveJobs: MAX_ACTIVE_JOBS, maxItemsPerJob: MAX_ITEMS_PER_JOB }
+  const breakdown = plan.tasks.map((t) => {
+    const unitUsd = estimatePlannedTaskCost(t.endpoint)
+    const count = t.scope === 'item' ? items.length : 1
+    return { nodeId: t.nodeId, label: t.label, kind: t.kind, scope: t.scope, stage: t.stage, count, unitUsd, totalUsd: Math.round(unitUsd * count * 10000) / 10000, endpoint: t.endpoint }
+  })
+  const perItemGenerations = breakdown.filter((b) => b.kind === 'imageEdit').reduce((n, b) => n + b.count, 0)
+  const maxStage = Math.max(1, ...plan.tasks.map((t) => t.stage))
   const planInfo = {
     itemTasks: itemTasks.length, jobTasks: jobTasks.length, totalTasks: items.length * itemTasks.length + jobTasks.length,
-    estimatedCostUsd, estimatedSeconds: Math.ceil(items.length * 2 + jobTasks.length * 10), showCost: !!team?.show_cost, warnings: plan.warnings,
+    estimatedCostUsd, estimatedSeconds: Math.ceil(items.length * 2 * maxStage + jobTasks.length * 10), showCost: !!team?.show_cost, warnings: plan.warnings,
+    breakdown, perItemGenerations, maxStage,
   }
   if (body?.dryRun) return ok({ limits, plan: planInfo })
 
@@ -323,10 +434,10 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
       for (const it of items) {
         if (!it.source_path || it.status === 'failed') continue
         if (existing.has(`${t.nodeId}|${it.id}`)) continue
-        newRows.push({ job_id: job.id, item_id: it.id, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind }, status: 'pending' })
+        newRows.push({ job_id: job.id, item_id: it.id, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: t.stage, __depends_on: t.dependsOn, __dual: t.dualOutput, __label: t.label }, status: 'pending' })
       }
     } else if (!existing.has(`${t.nodeId}|`)) {
-      newRows.push({ job_id: job.id, item_id: null, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind }, status: 'pending' })
+      newRows.push({ job_id: job.id, item_id: null, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: 1, __depends_on: null, __dual: false, __label: t.label }, status: 'pending' })
     }
   }
   let tasksCreated = 0
@@ -336,18 +447,72 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
     tasksCreated = (ins ?? []).length
   }
 
-  // 3) 未投入タスクを fal キューへ（チャンク）
-  const { data: pendingData } = await admin.from('batch_tasks').select('*').eq('job_id', job.id).eq('status', 'pending').order('created_at').limit(chunk)
+  // 3) 投入できるタスクを fal キューへ（チャンク）。前段待ちのタスクは前段の完了時（Webhook / 照合）に投入する
   const webhook = webhookUrlFor(opts, job, !!body.disableWebhook)
-  let submitted = 0, failedSubmits = 0
-  await mapLimit((pendingData ?? []) as any[], SUBMIT_CONCURRENCY, async (task) => {
+  const run = await submitPendingTasks(admin, opts, job, items, chunk, !!body.disableWebhook)
+
+  // 4) ジョブの記帳
+  const { data: allTasks } = await admin.from('batch_tasks').select('id, item_id, node_id, status, input').eq('job_id', job.id)
+  const all = (allTasks ?? []) as any[]
+  const statuses = all.map((t) => t.status as string)
+  const { ready, waiting } = selectSubmittable(all.filter((t) => t.status === 'pending'), all)
+  const pendingTasks = ready.length
+  const waitingTasks = waiting.length
+  const pendingCopies = items.filter((i) => !i.source_path && i.status !== 'failed').length
+  const done = pendingCopies === 0 && pendingTasks === 0 && statuses.length > 0
+  const patch: Record<string, unknown> = { task_count: statuses.length, updated_at: new Date().toISOString() }
+  if (done && job.status === 'uploading') patch.status = 'submitted'
+  await admin.from('batch_jobs').update(patch).eq('id', job.id)
+  const { data: fresh } = await admin.from('batch_jobs').select('status').eq('id', job.id).maybeSingle()
+
+  return ok({
+    jobId: job.id, copied, copyFailures, tasksCreated, submitted: run.submitted, failedSubmits: run.failedSubmits, pendingCopies, pendingTasks, waitingTasks,
+    totalTasks: statuses.length, done, jobStatus: fresh?.status ?? job.status, webhook: !!webhook, warnings: plan.warnings,
+  })
+}
+
+interface SubmitRun { submitted: number; failedSubmits: number; propagatedFailures: number; waiting: number }
+
+/**
+ * 未投入タスクの投入（batch-submit・前段完了時・照合の 3 経路で共通）。
+ * 前段待ちは投入せず、前段が失敗していれば「前段が失敗」として失敗にする。入力画像は 1 段目 = 元の写真、2 段目 = 前段の結果
+ * （切り抜き → 生成 は透過画像、生成 → 切り抜き は生成結果）。投入権は attempts の CAS で取る（冪等）。Edge の応答期限に収めるため並列
+ */
+async function submitPendingTasks(admin: Admin, opts: BatchOpts, job: { id: string; team_id: string; webhook_secret: string }, items: any[], chunk: number, disableWebhook: boolean,
+  only?: { itemId: string | null; dependsOn: string }): Promise<SubmitRun> {
+  const { data: allData } = await admin.from('batch_tasks').select('*').eq('job_id', job.id).order('created_at')
+  const all = (allData ?? []) as any[]
+  let pending = all.filter((t) => t.status === 'pending')
+  if (only) pending = pending.filter((t) => t.item_id === only.itemId && dependencyOf(t) === only.dependsOn)
+  const { ready, blockedByFailure } = selectSubmittable(pending, all)
+  const result: SubmitRun = { submitted: 0, failedSubmits: 0, propagatedFailures: 0, waiting: 0 }
+  for (const t of blockedByFailure) {
+    const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: t.id, p_outcome: 'failed', p_error: '前段の処理が失敗したため実行できません' })
+    if (applied) result.propagatedFailures++
+  }
+  const webhook = webhookUrlFor(opts, job, disableWebhook)
+  const itemsById = new Map(items.map((i) => [i.id, i]))
+  const needItems = ready.some((t) => t.item_id && !dependencyOf(t)) && items.length === 0
+  if (needItems) {
+    const { data: its } = await admin.from('batch_items').select('*').eq('job_id', job.id)
+    for (const i of (its ?? []) as any[]) itemsById.set(i.id, i)
+  }
+  await mapLimit(ready.slice(0, chunk), SUBMIT_CONCURRENCY, async (task) => {
     const input = falInputOf(task)
     if (task.item_id) {
-      const it = items.find((i) => i.id === task.item_id)
-      if (!it?.source_path) return
-      const signed = await signOriginal(admin, it.source_path)
+      const dep = dependencyOf(task)
+      let path: string | null = null
+      if (!dep) path = itemsById.get(task.item_id)?.source_path ?? null
+      else {
+        const depTask = all.find((x) => x.item_id === task.item_id && x.node_id === dep)
+        const meta = (depTask?.result_meta ?? {}) as { cutout_path?: string | null }
+        path = (task.input?.__kind === 'imageEdit' ? (meta.cutout_path ?? depTask?.result_path) : depTask?.result_path) ?? null
+      }
+      if (!path) return
+      const signed = await signOriginal(admin, path)
       if (!signed) return
-      input.image_url = signed
+      if (task.input?.__kind === 'imageEdit') input.image_urls = [signed]
+      else input.image_url = signed
     }
     // 投入権を取る（attempts の CAS）。再開・失敗分の再実行が別のブラウザから同時に走っても同じタスクを二重に投入しない
     const attempts = (task.attempts ?? 0) + 1
@@ -357,32 +522,37 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
     if ('requestId' in r) {
       await admin.from('batch_tasks').update({ status: 'submitted', fal_request_id: r.requestId, submitted_at: new Date().toISOString(), error: null }).eq('id', task.id)
       if (task.item_id) await admin.from('batch_items').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', task.item_id).eq('status', 'pending')
-      submitted++
+      result.submitted++
     } else {
-      failedSubmits++
+      result.failedSubmits++
       if (attempts >= MAX_ATTEMPTS) {
-        await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: r.error })
+        const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: r.error })
+        if (applied) await propagateFailure(admin, task)
       } else {
         await admin.from('batch_tasks').update({ error: r.error }).eq('id', task.id)
       }
     }
   })
+  result.waiting = pending.length - ready.length - blockedByFailure.length
+  return result
+}
 
-  // 4) ジョブの記帳
-  const { data: allTasks } = await admin.from('batch_tasks').select('status').eq('job_id', job.id)
-  const statuses = ((allTasks ?? []) as Array<{ status: string }>).map((t) => t.status)
-  const pendingTasks = statuses.filter((s) => s === 'pending').length
-  const pendingCopies = items.filter((i) => !i.source_path && i.status !== 'failed').length
-  const done = pendingCopies === 0 && pendingTasks === 0 && statuses.length > 0
-  const patch: Record<string, unknown> = { task_count: statuses.length, updated_at: new Date().toISOString() }
-  if (done && job.status === 'uploading') patch.status = 'submitted'
-  await admin.from('batch_jobs').update(patch).eq('id', job.id)
-  const { data: fresh } = await admin.from('batch_jobs').select('status').eq('id', job.id).maybeSingle()
+/** 前段の完了を受けて、同じ写真の後段を投入する（Webhook / 照合から） */
+async function submitDependents(admin: Admin, opts: BatchOpts, task: { job_id: string; item_id: string | null; node_id: string }, disableWebhook: boolean): Promise<void> {
+  const { data: job } = await admin.from('batch_jobs').select('id, team_id, webhook_secret, status').eq('id', task.job_id).maybeSingle()
+  if (!job || job.status === 'cancelled') return
+  await submitPendingTasks(admin, opts, job, [], 25, disableWebhook, { itemId: task.item_id, dependsOn: task.node_id })
+}
 
-  return ok({
-    jobId: job.id, copied, copyFailures, tasksCreated, submitted, failedSubmits, pendingCopies, pendingTasks,
-    totalTasks: statuses.length, done, jobStatus: fresh?.status ?? job.status, webhook: !!webhook, warnings: plan.warnings,
-  })
+/** 前段が（再試行も含めて）失敗したら、同じ写真の後段を「前段が失敗」として失敗にする */
+async function propagateFailure(admin: Admin, task: { job_id: string; item_id: string | null; node_id: string }): Promise<void> {
+  const { data: deps } = await admin.from('batch_tasks').select('id, input').eq('job_id', task.job_id).eq('status', 'pending')
+  for (const d of (deps ?? []) as any[]) {
+    if (dependencyOf(d) !== task.node_id) continue
+    const { data: row } = await admin.from('batch_tasks').select('item_id').eq('id', d.id).maybeSingle()
+    if (row?.item_id !== task.item_id) continue
+    await admin.rpc('apply_batch_task_result', { p_task_id: d.id, p_outcome: 'failed', p_error: '前段の処理が失敗したため実行できません' })
+  }
 }
 
 /** タスクの input から fal に送る分だけを取り出す（`__kind` / `__params` などの内部用キーは送らない） */
@@ -435,9 +605,24 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
     const buf = await res.arrayBuffer()
     const { error: upErr } = await admin.storage.from(BATCH_BUCKET).upload(dest, buf, { contentType, upsert: true })
     if (upErr) return { action: 'result_store_failed', applied: false }
-    const meta = { kind: file.kind, width: file.width ?? null, height: file.height ?? null, contentType, bytes: buf.byteLength, inferenceTime: outcome.inferenceTime ?? null, falRequestId: task.fal_request_id }
+    const meta: Record<string, unknown> = { kind: file.kind, width: file.width ?? null, height: file.height ?? null, contentType, bytes: buf.byteLength, inferenceTime: outcome.inferenceTime ?? null, falRequestId: task.fal_request_id }
+    // 後段の生成が切り抜き画像を使う場合は、透過画像も保存する（Bria は結果そのものが透過画像）
+    if (task.input?.__dual && task.input?.__kind === 'cutout') {
+      const cut = pickCutoutImage(task.endpoint, outcome.payload)
+      if (cut && cut.url === file.url) meta.cutout_path = dest
+      else if (cut) {
+        const cres = await fetch(cut.url).catch(() => null)
+        if (cres && cres.ok) {
+          const cdest = `${task.team_id}/${task.job_id}/${task.item_id ?? 'job'}/${task.node_id}-cutout.png`
+          const cbuf = await cres.arrayBuffer()
+          const { error: cErr } = await admin.storage.from(BATCH_BUCKET).upload(cdest, cbuf, { contentType: cres.headers.get('content-type') ?? 'image/png', upsert: true })
+          if (!cErr) meta.cutout_path = cdest
+        }
+      }
+    }
     const cost = estimateTaskCost(task.endpoint, outcome.inferenceTime ?? null)
     const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'completed', p_result_path: dest, p_result_meta: meta, p_cost_usd: cost })
+    if (applied) await submitDependents(admin, opts, task, disableWebhook)
     return { action: 'completed', applied: !!applied }
   }
 
@@ -460,9 +645,11 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
       return { action: 'resubmitted', applied: true }
     }
     const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: `${outcome.error} / 再投入失敗: ${r.error}` })
+    if (applied) await propagateFailure(admin, task)
     return { action: 'failed', applied: !!applied }
   }
   const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: outcome.error })
+  if (applied) await propagateFailure(admin, task)
   return { action: 'failed', applied: !!applied }
 }
 
@@ -523,8 +710,10 @@ export async function batchReconcile(admin: Admin, userId: string, opts: BatchOp
   if (body?.jobId) q = q.eq('job_id', body.jobId)
   const { data: tasks } = await q
   const counts = { checked: 0, completed: 0, failed: 0, resubmitted: 0, pending: 0, skipped: 0 }
+  const touchedJobs = new Set<string>()
   for (const task of (tasks ?? []) as any[]) {
     counts.checked++
+    touchedJobs.add(task.job_id)
     if (!task.fal_request_id) { counts.skipped++; continue }
     const ageSec = (Date.now() - new Date(task.submitted_at).getTime()) / 1000
     const st = await falStatus(opts.falKey, task.endpoint, task.fal_request_id)
@@ -545,6 +734,12 @@ export async function batchReconcile(admin: Admin, userId: string, opts: BatchOp
     else if (r?.action === 'resubmitted') counts.resubmitted++
     else if (r?.action.startsWith('failed')) counts.failed++
     else counts.skipped++
+  }
+  // 前段待ちの後段を取りこぼさない（Webhook が届かなかった場合の保険）
+  for (const jobId of touchedJobs) {
+    const { data: job } = await admin.from('batch_jobs').select('id, team_id, webhook_secret, status').eq('id', jobId).maybeSingle()
+    if (!job || job.status === 'cancelled') continue
+    await submitPendingTasks(admin, opts, job, [], 25, false)
   }
   return ok(counts)
 }
@@ -621,6 +816,12 @@ export function planRerun(
   return plan
 }
 
+/** 再実行する切り抜きの後段（__depends_on がそのノード）のタスク。結果が古くなるので一緒に未投入へ戻す（前段完了時に submitDependents が投入する） */
+export function dependentTaskIds(tasks: Array<{ id: string; item_id: string | null; input?: Record<string, unknown> | null }>, nodeId: string, itemIds: string[]): string[] {
+  const set = new Set(itemIds)
+  return tasks.filter((t) => !!t.item_id && set.has(t.item_id) && dependencyOf(t) === nodeId).map((t) => t.id)
+}
+
 export interface RerunBody { jobId?: string; nodeId?: string; itemIds?: string[]; params?: unknown }
 
 /**
@@ -645,9 +846,14 @@ export async function batchRerunItems(admin: Admin, userId: string, _opts: Batch
   delete input.image_url
   input.__kind = 'cutout'
   input.__params = params
+  input.__stage = snapNode.stage
+  input.__depends_on = snapNode.dependsOn
+  input.__dual = snapNode.dualOutput
+  input.__label = snapNode.label
+  if (snapNode.dualOutput && req.endpoint.startsWith('fal-ai/birefnet')) input.mask_only = false
 
   const { data: items } = await admin.from('batch_items').select('id').eq('job_id', job.id)
-  const { data: tasks } = await admin.from('batch_tasks').select('id, item_id, node_id, status').eq('job_id', job.id)
+  const { data: tasks } = await admin.from('batch_tasks').select('id, item_id, node_id, status, input').eq('job_id', job.id)
   const plan = planRerun((tasks ?? []) as any[], ((items ?? []) as any[]).map((i) => i.id), body.nodeId, itemIds)
   if (!plan.taskIds.length) return ok({ jobId: job.id, rerunTasks: 0, skipped: plan.skipped, status: job.status })
   if (job.status === 'completed' || job.status === 'partial_failed') {
@@ -659,6 +865,13 @@ export async function batchRerunItems(admin: Admin, userId: string, _opts: Batch
     status: 'pending', attempts: 0, error: null, fal_request_id: null, submitted_at: null, completed_at: null,
     endpoint: req.endpoint, input, result_path: null, result_meta: null,
   }).in('id', plan.taskIds)
+  // 後段（切り抜きを入力にする生成）も結果が古くなるので未投入に戻す。切り抜きが終われば submitDependents が投入する
+  const depIds = dependentTaskIds((tasks ?? []) as any[], body.nodeId, plan.itemIds)
+  if (depIds.length) {
+    await admin.from('batch_tasks').update({
+      status: 'pending', attempts: 0, error: null, fal_request_id: null, submitted_at: null, completed_at: null, result_path: null, result_meta: null,
+    }).in('id', depIds)
+  }
   // 結果が差し替わるので確認結果は未確認に戻す
   await admin.from('batch_items').update({ status: 'pending', review: 'unreviewed', reviewed_by: null, updated_at: now }).in('id', plan.itemIds)
   const { data: allTasks } = await admin.from('batch_tasks').select('status').eq('job_id', job.id)

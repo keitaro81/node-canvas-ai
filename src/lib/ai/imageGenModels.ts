@@ -48,3 +48,33 @@ export function buildTextToImageInput(model: string, prompt: string, p: TextToIm
   if (seed !== null) input.seed = seed
   return input
 }
+
+export const EDIT_CAPABLE_MODELS = new Set(['fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2'])
+
+/** 編集（画像入力あり）に使うモデル。ノードの editModel を優先し、無ければ model が編集対応ならそれ、どちらでもなければ Nano Banana 2 */
+export function editModelOf(p: { editModel?: unknown; model?: unknown }): string {
+  if (typeof p.editModel === 'string' && EDIT_CAPABLE_MODELS.has(p.editModel)) return p.editModel
+  if (typeof p.model === 'string' && EDIT_CAPABLE_MODELS.has(p.model)) return p.model
+  return 'fal-ai/nano-banana-2'
+}
+
+/** 画像を入力にした編集の fal エンドポイントと入力（image_urls は呼び出し側が足す）。ImageGenerationNode の編集モードと同じ規則 */
+export function buildImageEditRequest(model: string, prompt: string, p: TextToImageParams & { gptImageSize?: unknown }): { endpoint: string; input: Record<string, unknown> } {
+  const seedStr = typeof p.seed === 'string' ? p.seed.trim() : typeof p.seed === 'number' ? String(p.seed) : ''
+  const seed = seedStr && Number.isFinite(Number(seedStr)) ? Number(seedStr) : null
+  if (GPT_IMAGE_2_MODELS.has(model)) {
+    const raw = typeof p.gptImageSize === 'string' ? p.gptImageSize : ''
+    return { endpoint: 'openai/gpt-image-2/edit', input: { prompt, image_size: raw || 'square_hd' } }
+  }
+  const aspectRatio = typeof p.aspectRatio === 'string' && p.aspectRatio ? p.aspectRatio : '1:1'
+  const resolution = typeof p.resolution === 'string' && p.resolution ? p.resolution : '1K'
+  const resolutions = NB_RESOLUTIONS[model]
+  const aspects = NB_ASPECT_RATIOS[model]
+  const input: Record<string, unknown> = {
+    prompt,
+    aspect_ratio: aspects && aspectRatio !== 'auto' && !aspects.includes(aspectRatio) ? '1:1' : aspectRatio,
+    resolution: resolutions && !resolutions.includes(resolution) ? (resolutions[0] ?? '1K') : resolution,
+  }
+  if (seed !== null) input.seed = seed
+  return { endpoint: `${model}/edit`, input }
+}

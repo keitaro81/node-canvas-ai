@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
-import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData, CameraListNodeData } from '../../types/nodes'
+import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData, CameraListNodeData, CutoutRef } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import { saveGeneration, checkQuota } from '../../lib/api/generations'
@@ -12,9 +12,42 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadImageFromUrl } from '../../lib/api/storage'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
+import { signBatchPath } from '../../lib/cutout/store'
+import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
 
 function getImageUrlFromNode(node: AppNode): string | null {
   return getImageUrlFromNodeData(node.data)
+}
+
+/** 上流の Remove Background（切り抜き）の出力。接続されていれば参照スロットに切り抜き画像を使う（合成。フェーズ C(a)） */
+function cutoutRefOf(node: AppNode | null | undefined): CutoutRef | null {
+  if (node?.type !== 'removeBackgroundNode') return null
+  return ((node.data as unknown as { output?: CutoutRef | null }).output ?? null)
+}
+
+/** 上流の Remove Background ノードの透過の切り抜き画像を署名 URL にする（ノード id → URL）。無ければ分かりやすいエラー */
+async function resolveUpstreamCutoutUrls(nodes: AppNode[], edges: Edge[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (const e of edges) {
+    const src = nodes.find((n) => n.id === e.source)
+    if (src?.type !== 'removeBackgroundNode' || out.has(src.id)) continue
+    const ref = cutoutRefOf(src)
+    const label = ((src.data as unknown as { label?: string }).label || 'Remove Background')
+    if (!ref) throw new Error(`${label} を先に実行してください（切り抜き画像を入力にします）`)
+    if (!ref.cutoutPath) throw new Error(`${label} の切り抜き画像がありません。Image Generation をつないだ状態で ${label} を再実行してください`)
+    const url = await signBatchPath(ref.cutoutPath)
+    if (!url) throw new Error(`${label} の切り抜き画像を取得できません（チームの権限を確認してください）`)
+    out.set(src.id, url)
+  }
+  return out
+}
+
+/** 参照スロットの切り抜きプレビュー（Remove Background の previewPath を署名して表示） */
+function CutoutSlotThumb({ path }: { path: string }) {
+  const url = useBatchSignedUrl(path)
+  return url
+    ? <img src={url} className="w-full h-full object-contain" alt="" style={{ background: '#808080' }} />
+    : <span style={{ color: 'var(--border-active)', fontSize: 16 }}>·</span>
 }
 
 const T2I_MODELS = [
@@ -417,6 +450,15 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           e.targetHandle === 'in-image-reference')
     )
 
+    // 切り抜き（Remove Background）が上流なら、その透過の切り抜き画像を署名して入力にする（合成。フェーズ C(a)）
+    let cutoutUrls: Map<string, string>
+    try {
+      cutoutUrls = await resolveUpstreamCutoutUrls(allNodes, inImageEdges)
+    } catch (e) {
+      updateNode(id, { status: 'error', params: { ...nodeData.params, error: e instanceof Error ? e.message : String(e) } })
+      return
+    }
+
     // スロット順に画像URLを収集するヘルパー
     const collectFixedImages = () =>
       REF_HANDLE_IDS.flatMap((hid, i) => {
@@ -429,7 +471,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         )
         if (!edge) return []
         const n = allNodes.find((n) => n.id === edge.source)
-        const url = n ? getImageUrlFromNode(n) : null
+        const url = n ? (cutoutUrls.get(n.id) ?? getImageUrlFromNode(n)) : null
         return url ? [url] : []
       })
 
@@ -846,7 +888,9 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     (e.targetHandle === 'in-image-1' || e.targetHandle === 'in-image-reference'))
               )
               const srcNode = edge ? storeNodes.find((n) => n.id === edge.source) : null
-              const imgUrl = srcNode ? getImageUrlFromNodeData(srcNode.data) : null
+              const cutoutRef = cutoutRefOf(srcNode)
+              const imgUrl = srcNode && !cutoutRef ? getImageUrlFromNodeData(srcNode.data) : null
+              const filled = !!imgUrl || !!cutoutRef
               return (
                 <div key={i} className="flex items-center gap-2" style={{ height: REF_SLOT_H }}>
                   <div
@@ -858,14 +902,16 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                       border: '1px solid var(--border)',
                     }}
                   >
-                    {imgUrl ? (
+                    {cutoutRef ? (
+                      <CutoutSlotThumb path={cutoutRef.previewPath} />
+                    ) : imgUrl ? (
                       <img src={imgUrl} className="w-full h-full object-cover" alt="" />
                     ) : (
                       <span style={{ color: 'var(--border-active)', fontSize: 16 }}>·</span>
                     )}
                   </div>
-                  <span className="flex-1 text-[11px]" style={{ color: imgUrl ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-                    参照 {i + 1}
+                  <span className="flex-1 text-[11px]" style={{ color: filled ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                    参照 {i + 1}{cutoutRef ? '（切り抜き）' : ''}
                   </span>
                   {imgUrl && srcNode && getMaskUrlFromNodeData(srcNode.data) && (
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#22C55E' }} title="マスクあり" />

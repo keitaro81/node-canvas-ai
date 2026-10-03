@@ -17,6 +17,7 @@ export const ENDPOINT_PRICING: Record<string, EndpointPricing> = {
   // 背景生成（Step 8）で使う画像生成の概算
   'fal-ai/nano-banana-2': { perRequestUsd: 0.039 },
   'fal-ai/nano-banana-pro': { perRequestUsd: 0.15 },
+  'openai/gpt-image-2': { perRequestUsd: 0.05 },           // 概算（品質・サイズで変動。fal の料金ページで更新すること）
   'fal-ai/flux-2': { perRequestUsd: 0.03 },
   'black-forest-labs/flux-schnell': { perRequestUsd: 0.003 },
   'black-forest-labs/flux-dev': { perRequestUsd: 0.025 },

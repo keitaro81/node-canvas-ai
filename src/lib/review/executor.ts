@@ -2,7 +2,7 @@
 // 今回はブラウザ実行のみ: Worker 実装（既定）と、OffscreenCanvas が無い環境向けのメインスレッド実装。
 // 将来のサーバー実行は、この LayoutExecutor を実装してサーバーが書いた出力を返すだけでよい。
 import type { WorkerRequest, WorkerResponse } from './renderWorker'
-import { loadItemAssets, renderItemFull, renderItemThumbs, type CutoutSpec, type FullResult, type FullVariantSpec, type ItemAssetsInput, type ThumbResult, type VariantSpec } from './renderCore'
+import { loadItemAssets, renderImageFull, renderImageThumb, renderItemFull, renderItemThumbs, type CutoutSpec, type FullResult, type FullVariantSpec, type ImageFullRequest, type ImageThumbRequest, type ItemAssetsInput, type ThumbResult, type VariantSpec } from './renderCore'
 
 export interface ThumbsRequest { assets: ItemAssetsInput; cutout: CutoutSpec; variants: VariantSpec[]; thumbMaxEdge: number; includeCutout: boolean }
 export interface FullRequest { assets: ItemAssetsInput; cutout: CutoutSpec; variants: FullVariantSpec[] }
@@ -13,6 +13,10 @@ export interface LayoutExecutor {
   renderThumbs(req: ThumbsRequest, onThumb: (t: ThumbResult) => void): Promise<void>
   /** フル解像度（拡大表示・書き出し）。できた順に onResult */
   renderFull(req: FullRequest, onResult: (r: FullResult) => void): Promise<void>
+  /** 生成結果（画像ファイル 1 枚）のサムネイル（フェーズ C(a) の結果列） */
+  renderImageThumb(req: ImageThumbRequest, onThumb: (t: ThumbResult) => void): Promise<void>
+  /** 生成結果のフル解像度（任意で形式変換） */
+  renderImageFull(req: ImageFullRequest, onResult: (r: FullResult) => void): Promise<void>
   /** 進行中を打ち切る（待ち行列も空にする） */
   cancelAll(): void
   dispose(): void
@@ -62,7 +66,7 @@ class WorkerLayoutExecutor implements LayoutExecutor {
     return w
   }
 
-  private send(msg: Omit<WorkerRequest, 'reqId'> & { type: 'thumbs' | 'full' }, onItem: Pending['onItem']): Promise<void> {
+  private send(msg: Omit<WorkerRequest, 'reqId'> & { type: 'thumbs' | 'full' | 'image' | 'imageFull' }, onItem: Pending['onItem']): Promise<void> {
     const gen = this.generation
     return this.serial.run(() => new Promise<void>((resolve, reject) => {
       if (gen !== this.generation) { reject(new CancelledError()); return }
@@ -77,6 +81,12 @@ class WorkerLayoutExecutor implements LayoutExecutor {
   }
   renderFull(req: FullRequest, onResult: (r: FullResult) => void): Promise<void> {
     return this.send({ type: 'full', ...req }, (r) => onResult(r as FullResult))
+  }
+  renderImageThumb(req: ImageThumbRequest, onThumb: (t: ThumbResult) => void): Promise<void> {
+    return this.send({ type: 'image', ...req }, (r) => onThumb(r as ThumbResult))
+  }
+  renderImageFull(req: ImageFullRequest, onResult: (r: FullResult) => void): Promise<void> {
+    return this.send({ type: 'imageFull', ...req }, (r) => onResult(r as FullResult))
   }
   cancelAll(): void {
     this.generation++
@@ -107,6 +117,20 @@ class MainThreadLayoutExecutor implements LayoutExecutor {
       if (gen !== this.generation) throw new CancelledError()
       const assets = await loadItemAssets(req.assets)
       await renderItemFull(assets, req.cutout, req.variants, onResult, () => gen !== this.generation)
+    })
+  }
+  renderImageThumb(req: ImageThumbRequest, onThumb: (t: ThumbResult) => void): Promise<void> {
+    const gen = this.generation
+    return this.serial.run(async () => {
+      if (gen !== this.generation) throw new CancelledError()
+      onThumb(await renderImageThumb(req))
+    })
+  }
+  renderImageFull(req: ImageFullRequest, onResult: (r: FullResult) => void): Promise<void> {
+    const gen = this.generation
+    return this.serial.run(async () => {
+      if (gen !== this.generation) throw new CancelledError()
+      onResult(await renderImageFull(req))
     })
   }
   cancelAll(): void { this.generation++ }

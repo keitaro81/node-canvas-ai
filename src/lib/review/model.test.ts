@@ -4,6 +4,7 @@ import {
   addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveFocus, newVariantKey, planJobExport,
   removeLayoutNodeFromCanvas, resultKindOf, thumbFileName, updateLayoutNodeParams, variantsFromSnapshot,
   layoutSaveTargetFor,
+  chainedSourceRef, exportColumnsOf, isResultKey, itemAiStageOf, resultColumnsOf, resultIdentityString, resultKeyOf, resultNodeIdOf, taskDependencyOf,
 } from './model'
 import { layoutIdentityString } from '../layout/identity'
 import type { BatchItemRow, BatchTaskRow } from '../../types/batch'
@@ -120,13 +121,13 @@ describe('review model', () => {
   it('レイアウトノードが無いジョブは切り抜きを透過 PNG として書き出す', () => {
     const ev = exportVariantsOf([])
     expect(ev.map((v) => `${v.key}:${v.name}:${v.params.backgroundKind}`)).toEqual([`${CUTOUT_VARIANT_KEY}:cutout:transparent`])
-    const plan = planJobExport([item({ sort_order: 2 })], ev, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
+    const plan = planJobExport([item({ sort_order: 2 })], exportColumnsOf([], [], true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
     expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/ABC-1_cutout_02.png'])
     expect(exportVariantsOf(variantsFromSnapshot(snapshot, null)).length).toBe(2)
   })
   it('書き出し計画は透過バリアントを PNG にし、連番はアイテムの並び順', () => {
     const variants = variantsFromSnapshot(snapshot, null)
-    const plan = planJobExport([item({ sort_order: 7 })], variants, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
+    const plan = planJobExport([item({ sort_order: 7 })], exportColumnsOf(variants, [], true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
     expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_07.jpg', 'sns/ABC-1_sns_07.png'])
     expect(estimateZipBytes(150, 1200, 1200, 'jpeg')).toBe(54_000_000)
   })
@@ -151,5 +152,84 @@ describe('layoutSaveTargetFor（レイアウト編集の保存先）', () => {
   it('元ワークフローが無い（削除済み・読めない）ジョブは作成者だけが写しに保存', () => {
     expect(layoutSaveTargetFor(true, null, me)).toBe('job-snapshot')
     expect(layoutSaveTargetFor(false, null, me)).toBe('readonly')
+  })
+})
+
+describe('フェーズ C(a): 連鎖と生成結果の列', () => {
+  // レタッチ（生成）→ 結果ノード → 切り抜き → レイアウト / 切り抜き → 合成（生成）
+  const chain = {
+    nodes: [
+      { id: 'bi', data: { type: 'batchInput', params: {} } },
+      { id: 'tp', data: { type: 'textPrompt', params: { prompt: 'p' } } },
+      { id: 'retouch', data: { type: 'imageGen', label: 'レタッチ', params: {} } },
+      { id: 'disp', data: { type: 'imageDisplay', params: {} } },
+      { id: 'rb', data: { type: 'removeBackground', params: { engine: 'birefnet' } } },
+      { id: 'compose', data: { type: 'imageGen', label: '合成', params: {} } },
+      { id: 'third', data: { type: 'imageGen', label: '三段目', params: {} } },
+      { id: 'rb-loose', data: { type: 'removeBackground', params: { engine: 'bria' } } },
+      { id: 'pl', data: { type: 'productLayout', params: { variantName: 'ec' } } },
+    ],
+    edges: [
+      { source: 'bi', sourceHandle: 'out-image-image', target: 'retouch', targetHandle: 'in-image' },
+      { source: 'tp', sourceHandle: 'out-text-text-out', target: 'retouch', targetHandle: 'in-text' },
+      { source: 'retouch', sourceHandle: 'out-image-image-out', target: 'disp', targetHandle: 'in-image-image-in' },
+      { source: 'disp', sourceHandle: 'out-image-image-out', target: 'rb', targetHandle: 'in-image-image' },
+      { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'compose', targetHandle: 'in-image' },
+      { source: 'compose', sourceHandle: 'out-image-image-out', target: 'third', targetHandle: 'in-image' },
+      { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl', targetHandle: 'in-cutout-cutout' },
+    ],
+  }
+  it('段の割り当てはサーバーの planTasks と同じ（結果ノードは透過、3 段目は対象外）', () => {
+    expect(itemAiStageOf(chain, 'retouch')).toEqual({ stage: 1, dependsOn: null })
+    expect(itemAiStageOf(chain, 'rb')).toEqual({ stage: 2, dependsOn: 'retouch' })
+    expect(itemAiStageOf(chain, 'compose')).toBeNull()      // 3 段目
+    expect(itemAiStageOf(chain, 'third')).toBeNull()
+    expect(itemAiStageOf(chain, 'rb-loose')).toBeNull()     // 未接続
+    expect(itemAiStageOf(chain, 'pl')).toBeNull()
+  })
+  it('切り抜きノードは Batch Input に 2 段以内で行き着くもの（直結でなくてもよい）', () => {
+    const cut = cutoutNodesFromSnapshot(chain)
+    expect(cut.map((c) => `${c.nodeId}:${c.stage}:${c.dependsOn}`)).toEqual(['rb:2:retouch'])
+    expect(cutoutSourceNodeId(chain)).toBe('rb')
+    expect(cutoutNodesFromSnapshot(snapshot).map((c) => `${c.nodeId}:${c.stage}`)).toEqual(['rb:1'])
+  })
+  it('生成結果の列はタスク行（__kind imageEdit）からノードごとに作り、段の順・同名は (2)', () => {
+    const t = (id: string, item: string | null, node: string, input: Record<string, unknown>) => ({ id, item_id: item, node_id: node, input })
+    const cols = resultColumnsOf([
+      t('a', 'i1', 'rb', { __kind: 'cutout', __stage: 1 }),
+      t('b', 'i1', 'compose', { __kind: 'imageEdit', __stage: 2, __label: '合成' }),
+      t('c', 'i2', 'compose', { __kind: 'imageEdit', __stage: 2, __label: '合成' }),
+      t('d', 'i1', 'retouch', { __kind: 'imageEdit', __stage: 1 }),
+      t('e', 'i1', 'other', { __kind: 'imageEdit', __stage: 1, __label: 'レタッチ' }),
+      t('f', null, 'bg', { __kind: 'imageGen', __stage: 1 }),
+    ], chain)
+    expect(cols.map((c) => `${c.nodeId}:${c.name}:${c.stage}`)).toEqual(['other:レタッチ:1', 'retouch:レタッチ (2):1', 'compose:合成:2'])
+    expect(cols[0].key).toBe(resultKeyOf('other'))
+    expect(isResultKey(cols[0].key)).toBe(true)
+    expect(resultNodeIdOf(cols[0].key)).toBe('other')
+    expect(isResultKey(CUTOUT_VARIANT_KEY)).toBe(false)
+    expect(resultColumnsOf([t('x', 'i1', 'rb', {})])).toEqual([])   // 旧ジョブ（__kind 無し）
+    expect(thumbFileName(resultKeyOf('node-1'), 'abcdef123456789', false)).toBe('thumb-result-node-1-abcdef123456.jpg')
+  })
+  it('書き出しの列: 切り抜きがあればレイアウト列（無ければ切り抜き PNG）、生成結果はノード名のフォルダ', () => {
+    const results = resultColumnsOf([{ item_id: 'i1', node_id: 'compose', input: { __kind: 'imageEdit', __stage: 2, __label: '合成' } }], chain)
+    const withLayouts = exportColumnsOf(variantsFromSnapshot(snapshot, null), results, true)
+    expect(withLayouts.map((c) => `${c.kind}:${c.name}:${c.transparent}`)).toEqual(['variant:ec_white:false', 'variant:sns:true', 'result:合成:false'])
+    const noCutout = exportColumnsOf([], results, false)
+    expect(noCutout.map((c) => `${c.kind}:${c.name}`)).toEqual(['result:合成'])
+    const plan = planJobExport([item({ sort_order: 1 })], withLayouts, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
+    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_01.jpg', 'sns/ABC-1_sns_01.png', '合成/ABC-1_合成_01.jpg'])
+  })
+  it('前段の結果を元画像にした切り抜きは、識別値の元画像参照が 結果パス#版 になる（再実行で差し替わると描き直す）', () => {
+    const dep = task({ id: 'dep', node_id: 'retouch', result_path: 't/j/i1/retouch-result.png', completed_at: '2026-10-01T00:00:00Z', result_meta: { kind: 'image' } })
+    expect(chainedSourceRef(dep)).toBe('t/j/i1/retouch-result.png#2026-10-01T00:00:00Z')
+    const a = layoutIdentityString(identityFor({ item: item(), task: task(), cutout: { alphaThreshold: 8, featherPx: 0 }, params: exportVariantsOf([])[0].params }))
+    const b = layoutIdentityString(identityFor({ item: item(), task: task(), cutout: { alphaThreshold: 8, featherPx: 0 }, params: exportVariantsOf([])[0].params, sourceRef: chainedSourceRef(dep) }))
+    expect(a).not.toBe(b)
+    expect(taskDependencyOf(task({ input: { __depends_on: 'retouch' } }))).toBe('retouch')
+    expect(taskDependencyOf(task())).toBeNull()
+    // 生成結果サムネイルの識別値は 結果パス + 版
+    expect(resultIdentityString(dep)).toBe(JSON.stringify({ v: 1, kind: 'result', path: 't/j/i1/retouch-result.png', version: '2026-10-01T00:00:00Z' }))
+    expect(resultIdentityString({ ...dep, completed_at: '2026-10-02T00:00:00Z' })).not.toBe(resultIdentityString(dep))
   })
 })

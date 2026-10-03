@@ -31,7 +31,12 @@ export function layoutIdentityString(input: LayoutIdentityInput): string {
 }
 
 export async function layoutHash(input: LayoutIdentityInput): Promise<string> {
-  const bytes = new TextEncoder().encode(layoutIdentityString(input))
+  return sha256Hex(layoutIdentityString(input))
+}
+
+/** 任意の文字列の SHA-256（16 進）。生成結果サムネイルの識別値などに使う */
+export async function sha256Hex(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text)
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
 }

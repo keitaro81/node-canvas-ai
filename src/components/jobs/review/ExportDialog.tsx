@@ -19,6 +19,7 @@ interface Props {
   scope: 'selected' | 'all'
   initialParams: ExportParams
   targetCount: number
+  fileCount?: number                     // 実際に書き出すファイル数（列ごとに揃っていない写真があるとき用。省略時は 枚数 × 列数）
   variantNames: string[]
   sampleSku: string | null
   estimateBytes: number
@@ -36,7 +37,7 @@ export function ExportDialog(props: Props) {
   return <ExportDialogInner {...props} />
 }
 
-function ExportDialogInner({ scope, initialParams, targetCount, variantNames, sampleSku, estimateBytes, state, onStart, onCancel, onClose }: Props) {
+function ExportDialogInner({ scope, initialParams, targetCount, fileCount, variantNames, sampleSku, estimateBytes, state, onStart, onCancel, onClose }: Props) {
   const [params, setParams] = useState<ExportParams>(() => normalizeExportParams(initialParams))   // 開くたびにマウント
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && state.phase !== 'running') onClose() }
@@ -49,13 +50,13 @@ function ExportDialogInner({ scope, initialParams, targetCount, variantNames, sa
     return `${folderFor(params.zipFolders, v, sampleSku ?? 'SKU')}${base}.${EXT_OF[params.format]}`
   }, [params, variantNames, sampleSku])
   const running = state.phase === 'running'
-  const total = targetCount * variantNames.length
+  const total = fileCount ?? targetCount * variantNames.length
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !running) onClose() }}>
       <div role="dialog" aria-modal="true" className="w-[480px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
         <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{scope === 'selected' ? 'チェックした写真を書き出し' : 'すべて書き出し'}</h2>
         <p className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-          対象 {targetCount} 枚 × {variantNames.length} バリアント = {total} ファイル。フル解像度で描画して ZIP にまとめます（概算 {mb(estimateBytes)}）。
+          対象 {targetCount} 枚 × {variantNames.length} 列（{variantNames.join('・')}）= {total} ファイル。フル解像度で描画して ZIP にまとめます（概算 {mb(estimateBytes)}）。
         </p>
         {estimateBytes > ZIP_WARN_BYTES && state.phase === 'idle' && (
           <div className="mt-2 rounded-lg px-3 py-2 text-[11px] flex items-start gap-1" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>

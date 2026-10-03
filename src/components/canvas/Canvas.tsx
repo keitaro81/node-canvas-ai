@@ -331,7 +331,9 @@ function parsePortType(handleId: string | null): string {
   return handleId.split('-')[1] ?? 'text'
 }
 
-function isCompatiblePorts(sourceType: string, targetType: string): boolean {
+function isCompatiblePorts(sourceType: string, targetType: string, targetNodeType?: string): boolean {
+  // 切り抜き → 画像 は Image Generation の画像入力だけ（canvasStore.isCompatibleFor と同じ規則）
+  if (sourceType === 'cutout' && targetType === 'image') return targetNodeType === 'imageGenerationNode'
   return PORT_COMPATIBLE[sourceType]?.includes(targetType) ?? false
 }
 
@@ -736,16 +738,17 @@ export function Canvas() {
             const hid = el.getAttribute('data-handleid')
             return parsePortType(hid) === srcPortType
           })
+          const targetNodeType = useCanvasStore.getState().nodes.find((n) => n.id === targetNodeId)?.type
           const fallbackHandle = exactHandle ? null : handles.find((el) => {
             const hid = el.getAttribute('data-handleid')
-            return isCompatiblePorts(srcPortType, parsePortType(hid))
+            return isCompatiblePorts(srcPortType, parsePortType(hid), targetNodeType)
           })
           const matchedHandle = exactHandle ?? fallbackHandle
           if (matchedHandle) {
             let targetHandleId: string | null = matchedHandle.getAttribute('data-handleid')
 
-            // imageGenerationNode / exportNode への画像接続: 既存スロットを置き換えず末尾の空きスロットに追加
-            if (srcPortType === 'image') {
+            // imageGenerationNode / exportNode への画像接続: 既存スロットを置き換えず末尾の空きスロットに追加（切り抜き → Image Generation も同様）
+            if (srcPortType === 'image' || srcPortType === 'cutout') {
               const { nodes: sNodes, edges: sEdges } = useCanvasStore.getState()
               const targetType = sNodes.find((n) => n.id === targetNodeId)?.type
               if (targetType === 'imageGenerationNode' || targetType === 'exportNode') {

@@ -1,10 +1,12 @@
 // ReviewGrid の描画ワーカー（module worker）。メインスレッドはフル解像度の画素に触れない（仕様 4-9）。
 // メッセージ: thumbs（1 アイテムの全バリアントのサムネイル）/ full（フル解像度・任意で形式変換）/ cancel
-import { loadItemAssets, renderItemFull, renderItemThumbs, type CutoutSpec, type FullResult, type FullVariantSpec, type ItemAssetsInput, type ThumbResult, type VariantSpec } from './renderCore'
+import { loadItemAssets, renderImageFull, renderImageThumb, renderItemFull, renderItemThumbs, type CutoutSpec, type EncodeSpec, type FullResult, type FullVariantSpec, type ItemAssetsInput, type ThumbResult, type VariantSpec } from './renderCore'
 
 export type WorkerRequest =
   | { type: 'thumbs'; reqId: number; assets: ItemAssetsInput; cutout: CutoutSpec; variants: VariantSpec[]; thumbMaxEdge: number; includeCutout: boolean }
   | { type: 'full'; reqId: number; assets: ItemAssetsInput; cutout: CutoutSpec; variants: FullVariantSpec[] }
+  | { type: 'image'; reqId: number; key: string; url: string; thumbMaxEdge: number }           // 生成結果のサムネイル
+  | { type: 'imageFull'; reqId: number; key: string; url: string; encode?: EncodeSpec | null }  // 生成結果のフル解像度（任意で形式変換）
   | { type: 'cancel'; reqId: number }
 
 export type WorkerResponse =
@@ -22,6 +24,16 @@ scope.onmessage = async (e) => {
   const { reqId } = msg
   const isCancelled = () => cancelled.has(reqId)
   try {
+    if (msg.type === 'image') {
+      scope.postMessage({ type: 'thumb', reqId, result: await renderImageThumb(msg) })
+      scope.postMessage({ type: 'done', reqId })
+      return
+    }
+    if (msg.type === 'imageFull') {
+      scope.postMessage({ type: 'full', reqId, result: await renderImageFull(msg) })
+      scope.postMessage({ type: 'done', reqId })
+      return
+    }
     const assets = await loadItemAssets(msg.assets)
     if (msg.type === 'thumbs') {
       await renderItemThumbs(assets, msg.cutout, msg.variants, { thumbMaxEdge: msg.thumbMaxEdge, includeCutout: msg.includeCutout, isCancelled }, (result) => scope.postMessage({ type: 'thumb', reqId, result }))

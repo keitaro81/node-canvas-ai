@@ -3,14 +3,13 @@ import { createPortal } from 'react-dom'
 import { ArrowsLeftRight, CaretLeft, CaretRight, CircleNotch, X } from '@phosphor-icons/react'
 import type { BatchItemRow } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
-import { CUTOUT_VARIANT_KEY, type ReviewVariant } from '../../../lib/review/model'
 import type { FullResult } from '../../../lib/review/renderCore'
 import { ACCENT, BG_LABEL, BG_ORDER, BG_STYLE } from './reviewStyles'
 
 interface Props {
   item: BatchItemRow
   variantKey: string
-  variants: ReviewVariant[]
+  columns: Array<{ key: string; name: string }>   // 列（切り抜き・バリアント・生成結果）。タブと同じ並び
   thumb: ThumbState | undefined
   bg: ReviewBg
   onBg: (bg: ReviewBg) => void
@@ -28,14 +27,14 @@ interface Props {
 
 /** 拡大表示（仕様 5 章）: フル解像度をその場で描き、元画像と比較する。キー: ←→ 写真、↑↓ 列、Space チェック、C 比較、B 背景、Esc 閉じる */
 export function ReviewLightbox(p: Props) {
-  const { item, variantKey, variants, thumb, bg, onBg, originalUrl, renderFull, onClose, onPrev, onNext, onVariant, checked, onToggleCheck, hasPrev, hasNext } = p
+  const { item, variantKey, columns, thumb, bg, onBg, originalUrl, renderFull, onClose, onPrev, onNext, onVariant, checked, onToggleCheck, hasPrev, hasNext } = p
   const reqKey = `${item.id}|${variantKey}`
   // フル解像度の描画結果（表示中の 1 枚だけ保持。切替・閉じるで解放）。読み込み中は reqKey と一致しない
   const [full, setFull] = useState<{ key: string; url: string; warnings: string[] } | null>(null)
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
   const [compare, setCompare] = useState(false)
   const urlRef = useRef<string | null>(null)
-  const cols = useMemo(() => [{ key: CUTOUT_VARIANT_KEY, name: '切り抜き' }, ...variants.map((v) => ({ key: v.key, name: v.name }))], [variants])
+  const cols = useMemo(() => columns.map((c) => ({ key: c.key, name: c.name })), [columns])
   const colIdx = cols.findIndex((c) => c.key === variantKey)
   const fullUrl = full?.key === reqKey ? full.url : null
   const warnings = full?.key === reqKey ? full.warnings : []

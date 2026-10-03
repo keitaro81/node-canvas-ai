@@ -14,9 +14,9 @@ import type { CutoutParams, ExportParams } from '../../types/nodes'
 import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchTaskRow } from '../../types/batch'
 import { useReviewStore, type ReviewContext } from '../../lib/review/reviewStore'
 import {
-  ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, exportVariantsOf, filterItems, moveFocus,
-  removeLayoutNodeFromCanvas, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike, layoutSaveTargetFor } from '../../lib/review/model'
-import { estimateExportBytes, exportJobZip, exportTargets, type ExportScope } from '../../lib/review/exportJob'
+  ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, filterItems, isResultKey, moveFocus,
+  removeLayoutNodeFromCanvas, resultColumnsOf, resultNodeIdOf, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike, layoutSaveTargetFor } from '../../lib/review/model'
+import { estimateExportBytes, exportColumnsFor, exportFileCount, exportJobZip, exportTargets, type ExportScope } from '../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
 import { ReviewGrid } from './review/ReviewGrid'
@@ -193,27 +193,45 @@ export function JobDetailPage() {
     return () => { cancelled = true }
   }, [job, source, tasks, variants])
   const hasJobOverrides = !!job && Object.keys(job.layout_overrides).length > 0
+  // 一括実行の切り抜きノード（写真に 2 段以内で行き着く Remove Background。レタッチ → 切り抜き の連鎖も含む）
   const cutoutNode = useMemo(() => (job ? cutoutNodesFromSnapshot(job.workflow_snapshot)[0] ?? null : null), [job])
+  // 生成結果の列（写真ごとの Image Generation ノード。タスク行から作る。フェーズ C(a)）
+  const results = useMemo(() => resultColumnsOf(tasks, job?.workflow_snapshot), [tasks, job])
   const exportParams = useMemo<ExportParams>(() => exportParamsFromSnapshot(job?.workflow_snapshot), [job])
   const ctx = useMemo<ReviewContext | null>(() => (job && teamId ? {
-    teamId, jobId: job.id, items, tasks, variants, cutoutNodeId: cutoutNode?.nodeId ?? null,
+    teamId, jobId: job.id, items, tasks, variants, results, cutoutNodeId: cutoutNode?.nodeId ?? null,
     cutoutParams: cutoutNode?.params ?? ({ engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, previewBg: 'checker' } as CutoutParams),
     knownThumbs, backgroundUrls,
-  } : null), [job, teamId, items, tasks, variants, cutoutNode, knownThumbs, backgroundUrls])
+  } : null), [job, teamId, items, tasks, variants, results, cutoutNode, knownThumbs, backgroundUrls])
   useEffect(() => { if (ctx) void useReviewStore.getState().sync(ctx) }, [ctx])
 
   const visibleItems = useMemo(() => filterItems(items, filter), [items, filter])
   const counts = useMemo(() => ({ all: items.length, failed: items.filter((i) => i.status === 'failed').length }), [items])
   const readyCount = useMemo(() => (ctx ? exportTargets(ctx, 'all').length : 0), [ctx])
+  const exportColumns = useMemo(() => (ctx ? exportColumnsFor(ctx) : []), [ctx])
+  const exportTargetList = useMemo(() => (ctx && exportScope ? exportTargets(ctx, exportScope, selected) : []), [ctx, exportScope, selected])
+  // 生成結果の列を表示中: 結果画像の大きさ（枠の比率）
+  const resultSizes = useMemo(() => {
+    if (!isResultKey(activeKey)) return null
+    const nodeId = resultNodeIdOf(activeKey)
+    const m: Record<string, { w: number; h: number }> = {}
+    for (const t of tasks) if (t.node_id === nodeId && t.item_id && t.result_meta?.width && t.result_meta?.height) m[t.item_id] = { w: t.result_meta.width, h: t.result_meta.height }
+    return m
+  }, [activeKey, tasks])
   const nameOf = useCallback((id: string | null) => (id && memberNames[id]) || (id ? `${id.slice(0, 8)}…` : '不明'), [memberNames])
   // チェック中の写真（削除済みの id は数えない）
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected])
-  // 列のタブ（切り抜き + バリアント）。表示中の列が無くなったら切り抜きへ
+  // 列のタブ（切り抜き + バリアント + 生成結果）。切り抜きノードが無いジョブはレイアウト系の列を持たない。表示中の列が無くなったら先頭へ
   const tabs = useMemo(() => [
-    { key: CUTOUT_VARIANT_KEY, name: '切り抜き', size: '元のサイズ' },
-    ...variants.map((v) => ({ key: v.key, name: v.name, size: `${v.params.width}×${v.params.height}` })),
-  ], [variants])
-  useEffect(() => { if (activeKey !== CUTOUT_VARIANT_KEY && !variants.some((v) => v.key === activeKey)) setActiveKey(CUTOUT_VARIANT_KEY) }, [variants, activeKey, setActiveKey])
+    ...(cutoutNode ? [
+      { key: CUTOUT_VARIANT_KEY, name: '切り抜き', size: '元のサイズ' },
+      ...variants.map((v) => ({ key: v.key, name: v.name, size: `${v.params.width}×${v.params.height}` })),
+    ] : []),
+    ...results.map((r) => ({ key: r.key, name: r.name, size: '生成結果' })),
+  ], [cutoutNode, variants, results])
+  useEffect(() => {
+    if (tabs.length && !tabs.some((t) => t.key === activeKey)) setActiveKey(tabs[0].key)
+  }, [tabs, activeKey, setActiveKey])
 
   // ── キーボード（カードグリッド）: 矢印で移動、Space でチェック、Enter で拡大、B で背景 ──
   useEffect(() => {
@@ -404,7 +422,12 @@ export function JobDetailPage() {
       />
 
       <div className="flex-1 overflow-auto px-8 py-4">
-        {variants.length === 0 && (
+        {!cutoutNode && results.length > 0 && (
+          <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+            このジョブには切り抜き（Remove Background）が無いため、生成結果の列だけを表示しています。
+          </div>
+        )}
+        {cutoutNode && variants.length === 0 && (
           <div className="mb-3 rounded-lg px-3 py-2 text-[12px]" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
             {source ? `ワークフロー「${source.name}」に Product Layout ノードが無いため、` : '投入時のワークフローに Product Layout ノードが無いため、'}切り抜き列だけを表示しています。「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合の書き出しは切り抜きの透過 PNG）。
           </div>
@@ -426,15 +449,16 @@ export function JobDetailPage() {
           focusId={focusId} onFocus={setFocusId}
           onOpen={(itemId) => setLightbox({ itemId, variantKey: activeKey })}
           onColumns={setColumns}
+          resultSizes={resultSizes}
         />
         <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-          タブで列（切り抜き・各バリアント）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック、B で背景切替。チェックした写真は「再度切り抜く」「書き出し」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
+          タブで列（切り抜き・各バリアント{results.length ? '・生成結果' : ''}）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック、B で背景切替。チェックした写真は「再度切り抜く」「書き出し」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
         </p>
       </div>
 
       {lightbox && lbItem && (
         <ReviewLightbox
-          item={lbItem} variantKey={lightbox.variantKey} variants={variants} thumb={thumbs[thumbKey(lbItem.id, lightbox.variantKey)]}
+          item={lbItem} variantKey={lightbox.variantKey} columns={tabs} thumb={thumbs[thumbKey(lbItem.id, lightbox.variantKey)]}
           bg={bg} onBg={setBg} originalUrl={originalUrl} renderFull={renderFull}
           onClose={() => setLightbox(null)}
           onPrev={() => { const n = visibleItems[lbIdx - 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
@@ -448,7 +472,7 @@ export function JobDetailPage() {
       <RerunDialog open={rerunOpen} count={selectedItems.length} initial={cutoutNode?.params ?? ctx?.cutoutParams ?? ({} as CutoutParams)} busy={rerunBusy} onClose={() => setRerunOpen(false)} onConfirm={(params) => void runRerun(params)} />
       <ExportDialog
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
-        targetCount={ctx && exportScope ? exportTargets(ctx, exportScope, selected).length : 0} variantNames={exportVariantsOf(variants).map((v) => v.name)}
+        targetCount={exportTargetList.length} fileCount={ctx ? exportFileCount(ctx, exportTargetList) : 0} variantNames={exportColumns.map((c) => c.name)}
         sampleSku={items[0]?.sku ?? null} estimateBytes={ctx && exportScope ? estimateExportBytes(ctx, exportScope, exportParams, selected) : 0}
         state={exportState} onStart={(params) => void startExport(params)} onCancel={() => { exportCancel.current = true }}
         onClose={() => { if (exportState.phase !== 'running') { setExportScope(null); setExportState({ phase: 'idle' }) } }}
