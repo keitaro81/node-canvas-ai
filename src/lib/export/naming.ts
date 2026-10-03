@@ -8,6 +8,7 @@ export const DEFAULT_EXPORT_PARAMS: ExportParams = {
   maxFileKb: null,
   zip: true,
   zipFolders: 'variant',
+  includeCutout: true,
 }
 
 export const EXPORT_MIN_QUALITY = 70
@@ -26,6 +27,7 @@ export function normalizeExportParams(p: unknown): ExportParams {
     maxFileKb: kb,
     zip: typeof s.zip === 'boolean' ? s.zip : d.zip,
     zipFolders,
+    includeCutout: typeof s.includeCutout === 'boolean' ? s.includeCutout : d.includeCutout,
   }
 }
 
@@ -67,6 +69,7 @@ export function applyNamePattern(pattern: string, ctx: NameContext): string {
 export interface PlannedInput {
   variant: string
   transparent: boolean             // 背景が透過のバリアント（JPEG 指定なら PNG に切り替える）
+  forcePng?: boolean               // 常に PNG（切り抜きの透過画像）。警告は出さない
 }
 
 export interface PlannedEntry {
@@ -95,7 +98,8 @@ export function planExportEntries(inputs: PlannedInput[], params: ExportParams, 
   const entries = inputs.map((inp) => {
     const w: string[] = []
     let format = params.format
-    if (inp.transparent && format === 'jpeg') {
+    if (inp.forcePng) format = 'png'
+    else if (inp.transparent && format === 'jpeg') {
       format = 'png'
       w.push(`「${inp.variant}」は背景が透過のため JPEG ではなく PNG で書き出します`)
     }

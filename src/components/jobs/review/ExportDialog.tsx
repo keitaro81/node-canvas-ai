@@ -14,15 +14,16 @@ export interface ExportDialogState {
   error?: string
 }
 
+export interface ExportSummary { columnNames: string[]; fileCount: number; estimateBytes: number }
+
 interface Props {
   open: boolean
   scope: 'selected' | 'all'
   initialParams: ExportParams
   targetCount: number
-  fileCount?: number                     // 実際に書き出すファイル数（列ごとに揃っていない写真があるとき用。省略時は 枚数 × 列数）
-  variantNames: string[]
+  cutoutOptional: boolean                // 切り抜き列を付け外しできる（切り抜きノードがあり、レイアウトもあるジョブ）
+  summarize: (params: ExportParams) => ExportSummary   // 設定に応じた列名・ファイル数・概算サイズ
   sampleSku: string | null
-  estimateBytes: number
   state: ExportDialogState
   onStart: (params: ExportParams) => void
   onCancel: () => void
@@ -37,26 +38,28 @@ export function ExportDialog(props: Props) {
   return <ExportDialogInner {...props} />
 }
 
-function ExportDialogInner({ scope, initialParams, targetCount, fileCount, variantNames, sampleSku, estimateBytes, state, onStart, onCancel, onClose }: Props) {
+function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, summarize, sampleSku, state, onStart, onCancel, onClose }: Props) {
   const [params, setParams] = useState<ExportParams>(() => normalizeExportParams(initialParams))   // 開くたびにマウント
+  const summary = useMemo(() => summarize(params), [summarize, params])
+  const { columnNames, estimateBytes } = summary
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && state.phase !== 'running') onClose() }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [state.phase, onClose])
   const preview = useMemo(() => {
-    const v = variantNames[0] ?? 'variant'
+    const v = columnNames.find((n) => n !== 'cutout') ?? columnNames[0] ?? 'variant'
     const base = applyNamePattern(params.namePattern, { sku: sampleSku ?? 'SKU', original: 'original', index: 1, variant: v, now: new Date() })
     return `${folderFor(params.zipFolders, v, sampleSku ?? 'SKU')}${base}.${EXT_OF[params.format]}`
-  }, [params, variantNames, sampleSku])
+  }, [params, columnNames, sampleSku])
   const running = state.phase === 'running'
-  const total = fileCount ?? targetCount * variantNames.length
+  const total = summary.fileCount
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !running) onClose() }}>
       <div role="dialog" aria-modal="true" className="w-[480px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
         <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{scope === 'selected' ? 'チェックした写真を書き出し' : 'すべて書き出し'}</h2>
         <p className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-          対象 {targetCount} 枚 × {variantNames.length} 列（{variantNames.join('・')}）= {total} ファイル。フル解像度で描画して ZIP にまとめます（概算 {mb(estimateBytes)}）。
+          対象 {targetCount} 枚 × {columnNames.length} 列（{columnNames.join('・')}）= {total} ファイル。フル解像度で描画して ZIP にまとめます（概算 {mb(estimateBytes)}）。
         </p>
         {estimateBytes > ZIP_WARN_BYTES && state.phase === 'idle' && (
           <div className="mt-2 rounded-lg px-3 py-2 text-[11px] flex items-start gap-1" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
@@ -76,6 +79,12 @@ function ExportDialogInner({ scope, initialParams, targetCount, fileCount, varia
               <Field label="最大 KB（任意）"><Num value={params.maxFileKb} min={50} max={100000} onChange={(v) => setParams((p) => ({ ...p, maxFileKb: v }))} placeholder="指定なし" /></Field>
             </div>
             <Field label="ZIP 内のフォルダ分け"><Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', 'SKU 別'], ['none', 'なし']]} onChange={(v) => setParams((p) => ({ ...p, zipFolders: v }))} /></Field>
+            {cutoutOptional && (
+              <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: 'var(--text-primary)' }}>
+                <input type="checkbox" checked={params.includeCutout} onChange={(e) => setParams((p) => ({ ...p, includeCutout: e.target.checked }))} className="w-4 h-4" />
+                切り抜きの透過 PNG も書き出す（cutout/ フォルダ・元のサイズ）
+              </label>
+            )}
             <div className="flex justify-end gap-2 mt-2">
               <button onClick={onClose} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>キャンセル</button>
               <button onClick={() => onStart(normalizeExportParams({ ...params, zip: true }))} disabled={total === 0} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>書き出す</button>

@@ -20,8 +20,8 @@ export type ExportScope = 'selected' | 'all'
 /** 書き出せる写真: レイアウトが描ける（切り抜き完了）か、完了した生成結果が 1 つ以上ある */
 export interface ExportTarget { item: BatchItemRow; renderable: ItemRenderable | null; results: Array<{ column: ReviewResultColumn; task: DoneTask }> }
 
-export function exportColumnsFor(ctx: ReviewContext): ExportColumn[] {
-  return exportColumnsOf(ctx.variants, ctx.results, !!ctx.cutoutNodeId)
+export function exportColumnsFor(ctx: ReviewContext, includeCutout = false): ExportColumn[] {
+  return exportColumnsOf(ctx.variants, ctx.results, !!ctx.cutoutNodeId, includeCutout)
 }
 
 export function exportTargets(ctx: ReviewContext, scope: ExportScope, selected?: ReadonlySet<string>): ExportTarget[] {
@@ -36,8 +36,8 @@ export function exportTargets(ctx: ReviewContext, scope: ExportScope, selected?:
 }
 
 /** 書き出すファイル数（写真ごとに、描けるレイアウト列 + 完了した結果列） */
-export function exportFileCount(ctx: ReviewContext, targets: ExportTarget[]): number {
-  const layoutCols = exportColumnsFor(ctx).filter((c) => c.kind === 'variant').length
+export function exportFileCount(ctx: ReviewContext, targets: ExportTarget[], includeCutout = false): number {
+  const layoutCols = exportColumnsFor(ctx, includeCutout).filter((c) => c.kind === 'variant').length
   return targets.reduce((s, t) => s + (t.renderable ? layoutCols : 0) + t.results.length, 0)
 }
 
@@ -54,10 +54,10 @@ export async function exportJobZip(opts: {
   const { ctx, params, executor } = opts
   const now = new Date()
   const targets = exportTargets(ctx, opts.scope, opts.selected)
-  const columns = exportColumnsFor(ctx)
+  const columns = exportColumnsFor(ctx, params.includeCutout)
   const layoutColumns = columns.filter((c) => c.kind === 'variant')
   const plan = planJobExport(targets.map((t) => t.item), columns, params, now)
-  const total = exportFileCount(ctx, targets)
+  const total = exportFileCount(ctx, targets, params.includeCutout)
   const warnings: string[] = []
   const zip = new ZipWriter()
   const writes: Promise<void>[] = []
@@ -132,7 +132,7 @@ export function estimateExportBytes(ctx: ReviewContext, scope: ExportScope, para
   const first = ctx.items.find((i) => i.width && i.height)
   const w0 = first?.width ?? 1200, h0 = first?.height ?? 1200
   let bytes = 0
-  for (const c of exportColumnsFor(ctx)) {
+  for (const c of exportColumnsFor(ctx, params.includeCutout)) {
     if (c.kind === 'variant') {
       const v = c.variant!
       // 切り抜き列は元画像サイズの透過 PNG

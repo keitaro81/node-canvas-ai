@@ -5,31 +5,43 @@ import { BaseNode } from './BaseNode'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { signMediaRequest, toCanonicalRef } from '../../lib/api/storage'
-import type { NodeData, BatchItemInfo, ExportFileResult, ExportFormat, ExportParams, ExportResult, ExportZipFolders } from '../../types/nodes'
+import type { NodeData, BatchItemInfo, CutoutRef, ExportFileResult, ExportFormat, ExportParams, ExportResult, ExportZipFolders } from '../../types/nodes'
 import { EXT_OF, normalizeExportParams, planExportEntries, zipFileName } from '../../lib/export/naming'
 import { bitmapHasTransparency, encodeWithCap, loadBitmap } from '../../lib/export/encode'
 import { buildZip, downloadBlob } from '../../lib/export/zip'
+import { renderCutoutPngForExport } from '../../lib/export/cutoutFile'
 import { normalizeLayoutParams } from '../../lib/layout/computeLayout'
+import { PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
 import { resolveFetchableUrl } from '../../lib/cutout/store'
-import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
+import { REMOVE_BACKGROUND_INPUT_HANDLE, imageUrlFromNodeData } from '../../lib/cutout/upstream'
 import { Field, Num, Sel, TextField } from './pp/controls'
 import { PP_ACCENT } from './pp/styles'
 
 export const EXPORT_MAX_IMAGE_SLOTS = 10
 export const EXPORT_ITEM_HANDLE = 'in-item-item'
 
-interface SlotInput { slot: number; url: string | null; variant: string; transparent: boolean | null; sourceLabel: string }
+interface SlotInput {
+  slot: number
+  kind: 'image' | 'cutout'           // cutout = 切り抜きの透過 PNG（Product Layout につながる Remove Background から）
+  url: string | null
+  variant: string
+  transparent: boolean | null
+  forcePng?: boolean
+  sourceLabel: string
+  cutout?: CutoutRef | null          // kind cutout: Remove Background の出力（未実行なら null）
+  liveOriginalUrl?: string | null    // kind cutout: 元画像ノードが今持っている URL（署名の取り直しに使う）
+}
 
 /** 上流ノードの種類に応じて、書き出しに必要な情報（URL・バリアント名・透過か）を取り出す。 */
 function describeSource(node: AppNode | undefined, slot: number): SlotInput {
   const d = node?.data as NodeData | undefined
-  if (!d) return { slot, url: null, variant: 'image', transparent: null, sourceLabel: '' }
+  if (!d) return { slot, kind: 'image', url: null, variant: 'image', transparent: null, sourceLabel: '' }
   if (d.type === 'productLayout') {
     const p = normalizeLayoutParams(d.params)
-    return { slot, url: imageUrlFromNodeData(d as Record<string, unknown>), variant: p.variantName, transparent: p.backgroundKind === 'transparent', sourceLabel: d.label }
+    return { slot, kind: 'image', url: imageUrlFromNodeData(d as Record<string, unknown>), variant: p.variantName, transparent: p.backgroundKind === 'transparent', sourceLabel: d.label }
   }
   const label = (typeof d.label === 'string' && d.label.trim()) ? d.label.trim() : 'image'
-  return { slot, url: imageUrlFromNodeData(d as Record<string, unknown>), variant: label, transparent: null, sourceLabel: d.label }
+  return { slot, kind: 'image', url: imageUrlFromNodeData(d as Record<string, unknown>), variant: label, transparent: null, sourceLabel: d.label }
 }
 
 /** 画像入力の上流をたどって BatchInput のアイテム情報を探す（アイテム情報が未接続のときの補助）。 */
@@ -100,8 +112,33 @@ function ExportNodeInner(props: NodeProps) {
   const itemInfo: BatchItemInfo = connectedInfo ?? upstreamInfo ?? DEFAULT_ITEM
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
 
+  // 切り抜きの透過 PNG: 接続中の Product Layout が受けている Remove Background ごとに 1 件（先頭に並べる）
+  const cutoutInputs: SlotInput[] = useMemo(() => {
+    if (!params.includeCutout) return []
+    const seen = new Set<string>()
+    const out: SlotInput[] = []
+    for (const e of slotEdges) {
+      const layout = nodes.find((n) => n.id === e.source)
+      if ((layout?.data as NodeData | undefined)?.type !== 'productLayout') continue
+      const ce = edges.find((x) => x.target === layout!.id && x.targetHandle === PRODUCT_LAYOUT_INPUT_CUTOUT)
+      const rb = ce ? nodes.find((n) => n.id === ce.source) : undefined
+      if (!rb || seen.has(rb.id)) continue
+      seen.add(rb.id)
+      const ie = edges.find((x) => x.target === rb.id && x.targetHandle === REMOVE_BACKGROUND_INPUT_HANDLE)
+      out.push({
+        slot: -1 - out.length, kind: 'cutout', url: null, variant: 'cutout', transparent: true, forcePng: true,
+        sourceLabel: (rb.data as NodeData).label,
+        cutout: cutoutRefFromNodeData(rb.data as Record<string, unknown>),
+        liveOriginalUrl: imageUrlFromNodeData(nodes.find((n) => n.id === ie?.source)?.data as Record<string, unknown> | undefined),
+      })
+    }
+    return out
+  }, [params.includeCutout, slotEdges, nodes, edges])
+  const allInputs = useMemo(() => [...cutoutInputs, ...inputs], [cutoutInputs, inputs])
+
   const now = useMemo(() => new Date(), [])
-  const plan = useMemo(() => planExportEntries(inputs.map((i) => ({ variant: i.variant, transparent: !!i.transparent })), params, itemInfo, now), [inputs, params, itemInfo, now])
+  const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng }))
+  const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now), [allInputs, params, itemInfo, now])
 
   const setParams = useCallback((patch: Partial<ExportParams>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
@@ -111,15 +148,28 @@ function ExportNodeInner(props: NodeProps) {
     updateNode(id, { status: 'generating', error: null })
     const startedAt = new Date()
     try {
-      const planNow = planExportEntries(inputs.map((i) => ({ variant: i.variant, transparent: !!i.transparent })), params, itemInfo, startedAt)
+      const planNow = planExportEntries(toPlanned(allInputs), params, itemInfo, startedAt)
       const files: ExportFileResult[] = []
       const zipFiles: Array<{ path: string; data: Uint8Array }> = []
       const warnings = [...planNow.warnings]
-      for (let i = 0; i < inputs.length; i++) {
-        const inp = inputs[i]
+      const maxBytes = params.maxFileKb ? params.maxFileKb * 1024 : null
+      for (let i = 0; i < allInputs.length; i++) {
+        const inp = allInputs[i]
         const entry = planNow.entries[i]
+        if (inp.kind === 'cutout') {
+          // 切り抜きの透過 PNG: マスクと元画像からフル解像度で描く（Remove Background の「透過 PNG」と同じ）
+          if (!inp.cutout) { warnings.push(`切り抜き（${inp.sourceLabel}）が未実行のため透過 PNG は書き出せません`); continue }
+          setProgress(`${i + 1} / ${allInputs.length}: 切り抜きを描画中…`)
+          const png = await renderCutoutPngForExport({ ref: inp.cutout, workflowId: currentWorkflowId, liveUrl: inp.liveOriginalUrl })
+          const path = `${entry.folder}${entry.base}.png`
+          const w = maxBytes && png.size > maxBytes ? [`PNG は品質調整ができないため上限 ${Math.round(maxBytes / 1024)}KB を超えています（${Math.round(png.size / 1024)}KB）`] : []
+          files.push({ path, bytes: png.size, format: 'png', quality: null, warnings: w })
+          if (params.zip) zipFiles.push({ path, data: new Uint8Array(await png.arrayBuffer()) })
+          else { downloadBlob(png, path); await sleep(400) }
+          continue
+        }
         if (!inp.url) { warnings.push(`入力 ${inp.slot + 1}（${inp.variant}）に画像がありません`); continue }
-        setProgress(`${i + 1} / ${inputs.length}: 取得中…`)
+        setProgress(`${i + 1} / ${allInputs.length}: 取得中…`)
         const blob = await fetchImage(inp.url, currentWorkflowId)
         const bmp = await loadBitmap(blob)
         let format: ExportFormat = entry.format
@@ -128,8 +178,8 @@ function ExportNodeInner(props: NodeProps) {
           format = 'png'
           w.push(`「${inp.variant}」は透過画素があるため PNG で書き出します`)
         }
-        setProgress(`${i + 1} / ${inputs.length}: 変換中…`)
-        const enc = await encodeWithCap(bmp, format, params.jpegQuality, params.maxFileKb ? params.maxFileKb * 1024 : null)
+        setProgress(`${i + 1} / ${allInputs.length}: 変換中…`)
+        const enc = await encodeWithCap(bmp, format, params.jpegQuality, maxBytes)
         bmp.close()
         const path = `${entry.folder}${entry.base}.${EXT_OF[format]}`
         files.push({ path, bytes: enc.blob.size, format, quality: enc.quality, warnings: [...w, ...enc.warnings] })
@@ -150,7 +200,7 @@ function ExportNodeInner(props: NodeProps) {
       setBusy(false)
       setProgress('')
     }
-  }, [id, inputs, busy, params, itemInfo, currentWorkflowId, updateNode])
+  }, [id, inputs, allInputs, busy, params, itemInfo, currentWorkflowId, updateNode])
 
   const error = typeof nodeData.error === 'string' ? nodeData.error : null
   const showQuality = params.format !== 'png'
@@ -193,10 +243,16 @@ function ExportNodeInner(props: NodeProps) {
               <Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', 'SKU 別'], ['none', 'なし']]} onChange={(v) => setParams({ zipFolders: v })} />
             </Field>
           )}
+          <Field label="切り抜き" className="col-span-2">
+            <div className="flex items-center gap-2 h-8">
+              <input type="checkbox" className="nodrag" checked={params.includeCutout} onChange={(e) => setParams({ includeCutout: e.target.checked })} />
+              <span className="text-[12px] text-[var(--text-primary)]">切り抜きの透過 PNG も書き出す（cutout/・元のサイズ）</span>
+            </div>
+          </Field>
         </div>
 
         {/* ファイル名のプレビュー */}
-        <Field label={`書き出すファイル（${inputs.length} 件）`}>
+        <Field label={`書き出すファイル（${allInputs.length} 件）`}>
           <div className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-mono leading-relaxed" style={{ background: 'var(--bg-canvas)' }}>
             {inputs.length === 0 && <div className="text-[var(--text-tertiary)] font-sans">Product Layout の出力を「画像」に接続してください</div>}
             {plan.entries.map((e, i) => (

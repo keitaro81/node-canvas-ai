@@ -294,13 +294,21 @@ export interface ExportColumn {
   key: string
   name: string
   transparent: boolean             // 透過が決まっている列（JPEG 指定なら PNG へ）。結果列は描画時に判定するので false
+  forcePng?: boolean               // 切り抜き列: 常に PNG（警告なし）
   variant?: ReviewVariant
   result?: ReviewResultColumn
 }
-export function exportColumnsOf(variants: ReviewVariant[], results: ReviewResultColumn[], hasCutout: boolean): ExportColumn[] {
-  const layout: ExportColumn[] = hasCutout
-    ? exportVariantsOf(variants).map((v) => ({ kind: 'variant', key: v.key, name: v.name, transparent: v.params.backgroundKind === 'transparent', variant: v }))
-    : []
+/** 切り抜き列（透過 PNG・元のサイズ）。レイアウトが無いジョブの唯一の列、または「切り抜きも書き出す」で先頭に加える */
+export function cutoutExportColumn(): ExportColumn {
+  const v = exportVariantsOf([])[0]
+  return { kind: 'variant', key: v.key, name: v.name, transparent: true, forcePng: true, variant: v }
+}
+export function exportColumnsOf(variants: ReviewVariant[], results: ReviewResultColumn[], hasCutout: boolean, includeCutout = false): ExportColumn[] {
+  const layout: ExportColumn[] = !hasCutout
+    ? []
+    : variants.length
+      ? [...(includeCutout ? [cutoutExportColumn()] : []), ...variants.map((v): ExportColumn => ({ kind: 'variant', key: v.key, name: v.name, transparent: v.params.backgroundKind === 'transparent', variant: v }))]
+      : [cutoutExportColumn()]
   const res: ExportColumn[] = results.map((r) => ({ kind: 'result', key: r.key, name: r.name, transparent: false, result: r }))
   return [...layout, ...res]
 }
@@ -332,8 +340,8 @@ export function moveFocus(index: number | null, key: string, count: number, colu
 export interface ExportPlanItem { item: BatchItemRow; entries: PlannedEntry[]; warnings: string[] }
 
 /** ジョブの書き出し計画（アイテムごとに命名規則を適用。連番はアイテムの並び順。列 = レイアウト + 生成結果） */
-export function planJobExport(items: BatchItemRow[], columns: Array<Pick<ExportColumn, 'name' | 'transparent'>>, params: ExportParams, now: Date): ExportPlanItem[] {
-  const inputs = columns.map((c) => ({ variant: c.name, transparent: c.transparent }))
+export function planJobExport(items: BatchItemRow[], columns: Array<Pick<ExportColumn, 'name' | 'transparent' | 'forcePng'>>, params: ExportParams, now: Date): ExportPlanItem[] {
+  const inputs = columns.map((c) => ({ variant: c.name, transparent: c.transparent, forcePng: c.forcePng }))
   return items.map((item) => {
     const { entries, warnings } = planExportEntries(inputs, params, itemInfoOfRow(item), now)
     return { item, entries, warnings }
