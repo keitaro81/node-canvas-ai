@@ -46,6 +46,8 @@ export interface Database {
           viewport: Json | null
           is_template: boolean
           is_public: boolean
+          team_edit: boolean
+          canvas_version: number
           thumbnail_url: string | null
           created_at: string
           updated_at: string
@@ -58,6 +60,8 @@ export interface Database {
           viewport?: Json | null
           is_template?: boolean
           is_public?: boolean
+          team_edit?: boolean
+          canvas_version?: number
           thumbnail_url?: string | null
           created_at?: string
           updated_at?: string
@@ -70,8 +74,33 @@ export interface Database {
           viewport?: Json | null
           is_template?: boolean
           is_public?: boolean
+          team_edit?: boolean
+          canvas_version?: number
           thumbnail_url?: string | null
           updated_at?: string
+        }
+      }
+      workflow_edit_locks: {
+        Row: {
+          workflow_id: string
+          user_id: string
+          user_email: string | null
+          session_id: string
+          acquired_at: string
+          heartbeat_at: string
+        }
+        Insert: {
+          workflow_id: string
+          user_id: string
+          user_email?: string | null
+          session_id: string
+          acquired_at?: string
+          heartbeat_at?: string
+        }
+        Update: {
+          user_email?: string | null
+          session_id?: string
+          heartbeat_at?: string
         }
       }
       generations: {
@@ -209,6 +238,18 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      can_edit_workflow: {
+        Args: { p_workflow_id: string }
+        Returns: boolean
+      }
+      acquire_workflow_edit_lock: {
+        Args: { p_workflow_id: string; p_session_id: string; p_heartbeat?: boolean }
+        Returns: Json
+      }
+      release_workflow_edit_lock: {
+        Args: { p_workflow_id: string; p_session_id: string }
+        Returns: boolean
+      }
       increment_usage_counter: {
         Args: {
           p_team_id: string

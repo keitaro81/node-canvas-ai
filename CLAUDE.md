@@ -17,7 +17,7 @@ Flora AIにインスパイアされた、ノードベースのAI画像・動画�
 - 開発サーバー起動: `npm run dev`
 - ビルド: `npm run build`
 - リント: `npm run lint`
-- 型チェック: `npx tsc --noEmit`
+- 型チェック: `npx tsc -b --noEmit`（ルートの tsconfig は references だけなので `npx tsc --noEmit` は何も検査しない。`npm run build` も `tsc -b` を通る）
 
 ## AI API アーキテクチャ（重要）
 

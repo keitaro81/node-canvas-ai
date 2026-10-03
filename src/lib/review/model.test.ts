@@ -131,19 +131,22 @@ describe('review model', () => {
 
 describe('layoutSaveTargetFor（レイアウト編集の保存先）', () => {
   const me = 'user-a'
-  it('作成者以外は元ワークフローの有無にかかわらず閲覧のみ', () => {
-    expect(layoutSaveTargetFor(false, { ownerId: me }, me)).toBe('readonly')
-    expect(layoutSaveTargetFor(false, null, me)).toBe('readonly')
-  })
-  it('作成者で元ワークフローが自分のものなら書き戻し', () => {
+  it('元ワークフローが自分のものなら作成者でなくても書き戻し', () => {
     expect(layoutSaveTargetFor(true, { ownerId: me }, me)).toBe('workflow')
+    expect(layoutSaveTargetFor(false, { ownerId: me }, me)).toBe('workflow')
   })
-  it('作成者でも元ワークフローが他人のもの（共有から投入）や所有者不明なら閲覧のみ', () => {
+  it('「チームの編集を許可」で編集権があれば、作成者でなくても書き戻し', () => {
+    expect(layoutSaveTargetFor(false, { ownerId: null, canEdit: true }, me)).toBe('workflow')
+    expect(layoutSaveTargetFor(true, { ownerId: 'user-b', canEdit: true }, me)).toBe('workflow')
+  })
+  it('編集権が無ければ作成者でも閲覧のみ（他人の共有ワークフローから投入したジョブ）', () => {
     expect(layoutSaveTargetFor(true, { ownerId: 'user-b' }, me)).toBe('readonly')
-    expect(layoutSaveTargetFor(true, { ownerId: null }, me)).toBe('readonly')
+    expect(layoutSaveTargetFor(true, { ownerId: null, canEdit: false }, me)).toBe('readonly')
+    expect(layoutSaveTargetFor(false, { ownerId: 'user-b' }, me)).toBe('readonly')
     expect(layoutSaveTargetFor(true, { ownerId: me }, null)).toBe('readonly')
   })
-  it('元ワークフローが無い（削除済み・読めない）ジョブは写しに保存', () => {
+  it('元ワークフローが無い（削除済み・読めない）ジョブは作成者だけが写しに保存', () => {
     expect(layoutSaveTargetFor(true, null, me)).toBe('job-snapshot')
+    expect(layoutSaveTargetFor(false, null, me)).toBe('readonly')
   })
 })

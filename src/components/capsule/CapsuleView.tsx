@@ -3,7 +3,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { createPortal } from 'react-dom'
 import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
@@ -2381,7 +2381,7 @@ export function CapsuleView() {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
-  const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
+  const isOwned = useWorkflowStore(selectCanEditNow)   // いま編集できるか（所有者 / ロックを持つ編集者）
   const isMobile = useIsMobile()
 
   const [activePreviewIndex, setActivePreviewIndex] = useState(0)

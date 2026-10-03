@@ -1,6 +1,7 @@
 // ジョブ管理（仕様 4-11）の読み取り・確認結果・Realtime。読み取りは RLS（所属チーム）で Supabase から直接引く。
 // 書き込みは Edge（src/lib/api/batch.ts）経由。ここで直接書くのは確認結果の RPC だけ（仕様 4-3 アクセス制御）。
 import { batchSource } from './batch'
+import { lockRequiredFor } from '../workflow/editLock'
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { supabase } from '../supabase'
 import { jstDayBounds, jstDayRangeUtc } from '../batch/dates'
@@ -10,7 +11,7 @@ import {
   type BatchItemRow, type BatchJobDetail, type BatchJobRow, type BatchOutputRow, type BatchReview, type BatchTaskRow, type ReviewCounts,
 } from '../../types/batch'
 import { aggregateReviewCounts } from '../batch/jobsQuery'
-import { updateWorkflow } from './workflows'
+import { canEditWorkflow, updateWorkflowCanvasChecked } from './workflows'
 import type { Json } from '../../types/database'
 
 // 手書きの Database 型は batch_* を持たない（列指定 select が never に潰れる）ため、既存の teams.ts と同じく untyped で引き、結果側で型を付ける
@@ -101,6 +102,13 @@ export interface WorkflowSource {
   id: string; projectId: string; name: string; canvas: Record<string, unknown>; updatedAt: string; full: boolean
   /** ワークフローの所有者（projects.user_id）。プロジェクト行は本人にしか読めないので、他人のものは null */
   ownerId: string | null
+  /** 「チームの編集を許可」（0017）と表示範囲。両方そろうと保存にロックが要る */
+  teamEdit: boolean
+  visibility: string | null
+  /** 自分がこのワークフローを編集できるか（所有者、または許可された同じチームのメンバー） */
+  canEdit: boolean
+  /** canvas_data の版（版を確かめながら保存する） */
+  canvasVersion: number
 }
 
 /** 本日の利用枚数・進行中ジョブ数・上限（チーム全体。見えないジョブも数える。0016 の RPC。無ければ null） */
@@ -114,11 +122,16 @@ export async function fetchTeamBatchLimits(): Promise<TeamBatchLimits | null> {
 
 /** ワークフロー全体（canvas_data ごと）。表示と書き戻しに使う。RLS で読めなければ null（406 は出ない） */
 export async function fetchWorkflowFull(workflowId: string): Promise<WorkflowSource | null> {
-  const { data, error } = await sb.from('workflows').select('id, project_id, name, canvas_data, updated_at, projects(user_id)').eq('id', workflowId).maybeSingle()
+  const { data, error } = await sb.from('workflows').select('*, projects(user_id)').eq('id', workflowId).maybeSingle()
   if (error || !data) return null
-  const w = data as unknown as { id: string; project_id: string; name: string; canvas_data: unknown; updated_at: string; projects?: { user_id?: string | null } | null }
+  const w = data as { id: string; project_id: string; name: string; canvas_data: unknown; updated_at: string; team_edit?: boolean | null; visibility?: string | null; canvas_version?: number | null; projects?: { user_id?: string | null } | null }
   const canvas = w.canvas_data && typeof w.canvas_data === 'object' && !Array.isArray(w.canvas_data) ? (w.canvas_data as Record<string, unknown>) : {}
-  return { id: w.id, projectId: w.project_id, name: w.name, canvas, updatedAt: w.updated_at, full: true, ownerId: w.projects?.user_id ?? null }
+  const ownerId = w.projects?.user_id ?? null
+  const teamEdit = w.team_edit === true
+  const visibility = w.visibility ?? null
+  // 所有者（プロジェクト行が読めた）ならそのまま編集可。チーム編集のワークフローはサーバーに判定を聞く
+  const canEdit = ownerId !== null || (lockRequiredFor({ team_edit: teamEdit, visibility }) ? await canEditWorkflow(workflowId) : false)
+  return { id: w.id, projectId: w.project_id, name: w.name, canvas, updatedAt: w.updated_at, full: true, ownerId, teamEdit, visibility, canEdit, canvasVersion: w.canvas_version ?? 0 }
 }
 
 /** ジョブの元ワークフロー。自分のもの/共有済みなら直接読む（所有者なら書き戻し可）。
@@ -129,15 +142,16 @@ export async function fetchJobWorkflowSource(jobId: string, workflowId: string):
   try {
     const r = await batchSource(jobId)
     if (!r.source) return null
-    return { id: r.source.id, projectId: r.source.projectId, name: r.source.name, canvas: r.source.canvas as unknown as Record<string, unknown>, updatedAt: r.source.updatedAt, full: false, ownerId: null }
+    return { id: r.source.id, projectId: r.source.projectId, name: r.source.name, canvas: r.source.canvas as unknown as Record<string, unknown>, updatedAt: r.source.updatedAt, full: false, ownerId: null, teamEdit: r.source.teamEdit === true, visibility: r.source.visibility ?? null, canEdit: false, canvasVersion: r.source.canvasVersion ?? 0 }
   } catch {
     return null
   }
 }
 
-/** 投入元ワークフローの canvas_data を保存する（本人のワークフローだけ RLS で通る） */
-export async function saveWorkflowCanvas(workflowId: string, canvas: Record<string, unknown>): Promise<void> {
-  await updateWorkflow(workflowId, { canvas_data: canvas as unknown as Json })
+/** 投入元ワークフローの canvas_data を、読み込んだ版のまま保存する（編集できる人だけ RLS で通る。先に誰かが保存していれば false） */
+export async function saveWorkflowCanvasChecked(workflowId: string, canvas: Record<string, unknown>, expectedVersion: number): Promise<boolean> {
+  const saved = await updateWorkflowCanvasChecked(workflowId, canvas as unknown as Json, expectedVersion)
+  return saved !== null
 }
 
 /** ジョブのタスク（結果ファイルのパスと付帯情報） */

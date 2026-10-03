@@ -719,7 +719,7 @@ export async function batchSource(admin: Admin, userId: string, _opts: BatchOpts
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, workflow_id').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
   if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (!job.workflow_id) return ok({ jobId: job.id, source: null })
-  const { data: wf } = await admin.from('workflows').select('id, project_id, name, canvas_data, updated_at').eq('id', job.workflow_id).maybeSingle()
+  const { data: wf } = await admin.from('workflows').select('*').eq('id', job.workflow_id).maybeSingle()
   if (!wf) return ok({ jobId: job.id, source: null })
   const canvas: WorkflowSnapshot = wf.canvas_data && typeof wf.canvas_data === 'object' && !Array.isArray(wf.canvas_data) ? wf.canvas_data : {}
   const nodes = (Array.isArray(canvas.nodes) ? canvas.nodes : [])
@@ -728,5 +728,5 @@ export async function batchSource(admin: Admin, userId: string, _opts: BatchOpts
   const edges = (Array.isArray(canvas.edges) ? canvas.edges : [])
     .filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string')
     .map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null }))
-  return ok({ jobId: job.id, source: { id: wf.id, projectId: wf.project_id, name: wf.name, updatedAt: wf.updated_at, canvas: { nodes, edges } } })
+  return ok({ jobId: job.id, source: { id: wf.id, projectId: wf.project_id, name: wf.name, updatedAt: wf.updated_at, teamEdit: wf.team_edit === true, visibility: wf.visibility ?? null, canvasVersion: typeof wf.canvas_version === 'number' ? wf.canvas_version : 0, canvas: { nodes, edges } } })
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useCanvasStore, type AppNode } from '../stores/canvasStore'
-import { useWorkflowStore } from '../stores/workflowStore'
+import { useWorkflowStore, selectCanEditNow } from '../stores/workflowStore'
 import type { Edge } from '@xyflow/react'
 
 const DEBOUNCE_MS = 3000
@@ -74,8 +74,9 @@ export function useAutoSave() {
       prevEdges = edges
       if (!changed) return
 
-      const { currentWorkflowId, isSaving, isLoadingWorkflow, currentWorkflowIsOwned } = useWorkflowStore.getState()
-      if (!currentWorkflowId || isSaving || isLoadingWorkflow || !currentWorkflowIsOwned) return
+      const wf = useWorkflowStore.getState()
+      // 編集できるとき（編集権があり、ロックが要るならこのタブが持っている）だけ保存する
+      if (!wf.currentWorkflowId || wf.isSaving || wf.isLoadingWorkflow || !selectCanEditNow(wf)) return
 
       useWorkflowStore.getState().markUnsavedChanges()
 

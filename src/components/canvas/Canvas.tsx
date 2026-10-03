@@ -20,7 +20,7 @@ import '@xyflow/react/dist/style.css'
 
 import { useCanvasStore, undoCanvas, redoCanvas, pushSnapshot, type AppNode, type PartialCanvasState } from '../../stores/canvasStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { ContextMenu } from './ContextMenu'
 import { TextNode } from '../nodes/TextNode'
 import { ImageNode } from '../nodes/ImageNode'
@@ -405,7 +405,7 @@ export function Canvas() {
 
   const isLoadingWorkflow = useWorkflowStore((s) => s.isLoadingWorkflow)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
-  const isOwned = useWorkflowStore((s) => s.currentWorkflowIsOwned)
+  const isOwned = useWorkflowStore(selectCanEditNow)   // いま編集できるか（所有者 / ロックを持つ編集者）
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [selectionNodes, setSelectionNodes] = useState<AppNode[]>([])
   const selectionRef = useRef<AppNode[]>([])
