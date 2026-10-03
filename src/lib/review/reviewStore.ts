@@ -8,7 +8,7 @@ import { layoutHash, layoutIdentityString, type LayoutIdentityInput } from '../l
 import { signBatchPaths, uploadBatchObject } from '../cutout/store'
 import { recordThumb } from '../api/batchJobs'
 import { CancelledError, createLayoutExecutor, type LayoutExecutor } from './executor'
-import { CUTOUT_PREVIEW_PARAMS, CUTOUT_VARIANT_KEY, THUMB_MAX_EDGE, cutoutParamsOf, identityFor, resultKindOf, thumbFileName, thumbKey, type GridSelection, type ReviewFilter, type ReviewVariant } from './model'
+import { CUTOUT_PREVIEW_PARAMS, CUTOUT_VARIANT_KEY, THUMB_MAX_EDGE, cutoutParamsOf, identityFor, resultKindOf, thumbFileName, thumbKey, type ReviewFilter, type ReviewVariant } from './model'
 import type { FullResult, ThumbResult } from './renderCore'
 
 export type ReviewBg = 'white' | 'gray' | 'checker'
@@ -46,7 +46,9 @@ interface ReviewState {
   jobId: string | null
   bg: ReviewBg
   filter: ReviewFilter
-  selection: GridSelection | null
+  focusId: string | null                 // キーボード操作の現在位置（アイテム id）
+  activeKey: string                      // 表示中の列（切り抜き or バリアント）
+  selected: Set<string>                  // チェックした写真（アイテム id）
   lightbox: { itemId: string; variantKey: string } | null
   thumbs: Record<string, ThumbState>
   progress: { done: number; total: number; running: boolean }
@@ -55,7 +57,11 @@ interface ReviewState {
   close: () => void
   setBg: (bg: ReviewBg) => void
   setFilter: (f: ReviewFilter) => void
-  setSelection: (s: GridSelection | null) => void
+  setFocusId: (id: string | null) => void
+  setActiveKey: (key: string) => void
+  toggleSelected: (id: string) => void
+  setSelected: (ids: Iterable<string>) => void
+  clearSelected: () => void
   setLightbox: (l: { itemId: string; variantKey: string } | null) => void
   sync: (ctx: ReviewContext) => Promise<void>
   renderFull: (itemId: string, variantKey: string) => Promise<FullResult>
@@ -128,7 +134,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   jobId: null,
   bg: 'checker',
   filter: 'all',
-  selection: null,
+  focusId: null,
+  activeKey: CUTOUT_VARIANT_KEY,
+  selected: new Set<string>(),
   lightbox: null,
   thumbs: {},
   progress: { done: 0, total: 0, running: false },
@@ -147,12 +155,16 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     executor?.cancelAll()
     for (const u of objectUrls.values()) URL.revokeObjectURL(u)
     objectUrls.clear()
-    set({ jobId: null, thumbs: {}, selection: null, lightbox: null, progress: { done: 0, total: 0, running: false } })
+    set({ jobId: null, thumbs: {}, focusId: null, activeKey: CUTOUT_VARIANT_KEY, selected: new Set<string>(), lightbox: null, progress: { done: 0, total: 0, running: false } })
   },
 
   setBg: (bg) => set({ bg }),
-  setFilter: (filter) => set({ filter, selection: null }),
-  setSelection: (selection) => set({ selection }),
+  setFilter: (filter) => set({ filter, focusId: null }),
+  setFocusId: (focusId) => set({ focusId }),
+  setActiveKey: (activeKey) => set({ activeKey }),
+  toggleSelected: (id) => set((st) => { const next = new Set(st.selected); if (next.has(id)) next.delete(id); else next.add(id); return { selected: next } }),
+  setSelected: (ids) => set({ selected: new Set(ids) }),
+  clearSelected: () => set({ selected: new Set<string>() }),
   setLightbox: (lightbox) => set({ lightbox }),
   getExecutor: () => getExecutorImpl(),
 

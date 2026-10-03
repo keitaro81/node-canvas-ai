@@ -1,4 +1,4 @@
-// ジョブの書き出し（仕様 5 章「OK のみ書き出し / すべて書き出し」）: 実行者でフル解像度を描き、形式変換して ZIP に逐次書き込む。
+// ジョブの書き出し（仕様 5 章。範囲は「チェックした写真」か「すべて」）: 実行者でフル解像度を描き、形式変換して ZIP に逐次書き込む。
 import type { ExportParams } from '../../types/nodes'
 import { EXT_OF } from '../export/naming'
 import type { LayoutExecutor } from './executor'
@@ -13,17 +13,20 @@ export interface ExportOutcome { blob: Blob | null; name: string; files: number;
 
 export const ZIP_WARN_BYTES = 1024 * 1024 * 1024
 
-export function exportTargets(ctx: ReviewContext, scope: 'ok' | 'all') {
+export type ExportScope = 'selected' | 'all'
+
+export function exportTargets(ctx: ReviewContext, scope: ExportScope, selected?: ReadonlySet<string>) {
   return ctx.items
     .map((item) => renderableOf(ctx, item))
     .filter((r): r is NonNullable<typeof r> => !!r)
-    .filter((r) => scope === 'all' || r.item.review === 'ok')
+    .filter((r) => scope === 'all' || !!selected?.has(r.item.id))
 }
 
 export async function exportJobZip(opts: {
   ctx: ReviewContext
   jobName: string
-  scope: 'ok' | 'all'
+  scope: ExportScope
+  selected?: ReadonlySet<string>
   params: ExportParams
   executor: LayoutExecutor
   isCancelled: () => boolean
@@ -31,7 +34,7 @@ export async function exportJobZip(opts: {
 }): Promise<ExportOutcome> {
   const { ctx, params, executor } = opts
   const now = new Date()
-  const targets = exportTargets(ctx, opts.scope)
+  const targets = exportTargets(ctx, opts.scope, opts.selected)
   const variantsToExport = exportVariantsOf(ctx.variants)
   const plan = planJobExport(targets.map((t) => t.item), variantsToExport, params, now)
   const total = targets.length * variantsToExport.length
@@ -79,8 +82,8 @@ export async function exportJobZip(opts: {
   return { blob, name, files, warnings, cancelled: false, bytes: blob.size }
 }
 
-export function estimateExportBytes(ctx: ReviewContext, scope: 'ok' | 'all', params: ExportParams): number {
-  const n = exportTargets(ctx, scope).length
+export function estimateExportBytes(ctx: ReviewContext, scope: ExportScope, params: ExportParams, selected?: ReadonlySet<string>): number {
+  const n = exportTargets(ctx, scope, selected).length
   const first = ctx.items.find((i) => i.width && i.height)
   return exportVariantsOf(ctx.variants).reduce((s, v) => {
     // 切り抜き列は元画像サイズの透過 PNG

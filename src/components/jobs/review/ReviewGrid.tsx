@@ -1,39 +1,34 @@
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { CircleNotch, Warning, XCircle } from '@phosphor-icons/react'
-import type { BatchItemRow, BatchReview } from '../../../types/batch'
-import { ITEM_STATUS_META, REVIEW_META } from '../../../types/batch'
+import type { BatchItemRow } from '../../../types/batch'
+import { ITEM_STATUS_META } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
-import { CUTOUT_VARIANT_KEY, thumbKey, type GridSelection, type ReviewVariant } from '../../../lib/review/model'
-import { ACCENT, BG_STYLE, TILE_SIZE } from './reviewStyles'
+import { CUTOUT_VARIANT_KEY, thumbKey, type ReviewVariant } from '../../../lib/review/model'
+import { ACCENT, BG_STYLE } from './reviewStyles'
+
+export const CARD_MIN_WIDTH = 220
+export const CARD_GAP = 12
 
 interface Props {
   items: BatchItemRow[]
   variants: ReviewVariant[]
+  activeKey: string                      // 表示中の列（CUTOUT_VARIANT_KEY か Product Layout ノードの id）
   thumbs: Record<string, ThumbState>
   bg: ReviewBg
-  selection: GridSelection | null
-  onSelect: (s: GridSelection) => void
-  onOpen: (itemId: string, variantKey: string) => void
-  onReview: (item: BatchItemRow, review: BatchReview) => void
-  reviewing: string | null
-  nameOf: (id: string | null) => string
+  selected: ReadonlySet<string>          // チェックした写真（アイテム id）
+  onToggle: (itemId: string) => void
+  focusId: string | null                 // キーボード操作の現在位置
+  onFocus: (itemId: string) => void
+  onOpen: (itemId: string) => void
+  onColumns?: (n: number) => void        // 1 行のカード数（矢印キーの上下移動用）
 }
 
-function Tile({ thumb, bg, selected, onSelect, onOpen, item }: {
-  thumb: ThumbState | undefined; bg: ReviewBg; selected: boolean; onSelect: () => void; onOpen: () => void; item: BatchItemRow
-}) {
+/** サムネイル部分（状態の重ね表示つき） */
+function Thumb({ thumb, item }: { thumb: ThumbState | undefined; item: BatchItemRow }) {
   const st = thumb?.status ?? 'waiting'
   const itemStatus = ITEM_STATUS_META[item.status]
   return (
-    <div
-      role="gridcell"
-      tabIndex={-1}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
-      className="relative rounded-lg overflow-hidden cursor-pointer select-none"
-      style={{ width: TILE_SIZE, height: TILE_SIZE, ...BG_STYLE[bg], outline: selected ? `2px solid ${ACCENT}` : '1px solid var(--border)', outlineOffset: -1 }}
-      title={thumb?.warnings?.length ? thumb.warnings.join('\n') : undefined}
-    >
+    <>
       {st === 'ready' && thumb?.url && (
         <img src={thumb.url} alt="" className="w-full h-full object-contain block" draggable={false} decoding="async" />
       )}
@@ -63,73 +58,84 @@ function Tile({ thumb, bg, selected, onSelect, onOpen, item }: {
         </div>
       )}
       {!!thumb?.warnings?.length && st === 'ready' && (
-        <span className="absolute top-1 right-1 inline-flex items-center gap-0.5 px-1 rounded text-[10px] font-semibold" style={{ color: '#fff', background: '#F59E0B' }}>
+        <span className="absolute top-1 right-1 inline-flex items-center gap-0.5 px-1 rounded text-[10px] font-semibold" style={{ color: '#fff', background: '#F59E0B' }} title={thumb.warnings.join('\n')}>
           <Warning size={10} weight="fill" />{thumb.warnings.length}
         </span>
       )}
-    </div>
+    </>
   )
 }
 
-/** 行 = アイテム、列 = 切り抜き + バリアント。クリックで選択、ダブルクリックで拡大 */
-function ReviewGridInner({ items, variants, thumbs, bg, selection, onSelect, onOpen, onReview, reviewing, nameOf }: Props) {
-  const cols = [{ key: CUTOUT_VARIANT_KEY, name: '切り抜き' }, ...variants.map((v) => ({ key: v.key, name: v.name }))]
+/** 1 列ぶんのカードグリッド（仕様 5 章の確認グリッド・2026-10 改訂）: 写真ごとに 1 枚。チェックで再切り抜き/書き出しの対象にする。ダブルクリックで拡大 */
+function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onToggle, focusId, onFocus, onOpen, onColumns }: Props) {
+  const ref = useRef<HTMLDivElement>(null)
+  const variant = activeKey === CUTOUT_VARIANT_KEY ? null : variants.find((v) => v.key === activeKey) ?? null
+  // 1 行のカード数を測る（矢印キーの上下移動に使う）
+  useEffect(() => {
+    if (!ref.current || !onColumns) return
+    const el = ref.current
+    const report = () => onColumns(Math.max(1, Math.floor((el.clientWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))))
+    report()
+    const ro = new ResizeObserver(report)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [onColumns])
+  // フォーカスしたカードを見える位置へ
+  useEffect(() => {
+    if (!focusId || !ref.current) return
+    ref.current.querySelector<HTMLElement>(`[data-item-id="${focusId}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [focusId])
+
   return (
-    <div className="overflow-auto rounded-xl" style={{ border: '1px solid var(--border)' }} role="grid">
-      <div style={{ display: 'grid', gridTemplateColumns: `240px repeat(${cols.length}, ${TILE_SIZE + 12}px)`, minWidth: 240 + cols.length * (TILE_SIZE + 12) }}>
-        {/* header */}
-        <div className="sticky top-0 z-10 px-3 py-2 text-[11px] font-medium" style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)', borderBottom: '1px solid var(--border)' }}>アイテム</div>
-        {cols.map((c) => (
-          <div key={c.key} className="sticky top-0 z-10 px-2 py-2 text-[11px] font-medium truncate" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }} title={c.name}>{c.name}</div>
-        ))}
-        {items.map((item, row) => {
-          const rm = REVIEW_META[item.review]
-          const rowSelected = selection?.row === row
-          return (
-            <div key={item.id} style={{ display: 'contents' }}>
-              <div className="px-3 py-2 flex flex-col gap-1 min-w-0" style={{ borderBottom: '1px solid var(--border)', background: rowSelected ? 'rgba(20,184,166,0.06)' : 'var(--bg-panel)' }}>
-                <div className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={item.sku}>{item.sort_order}. {item.sku}</div>
-                <div className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={item.original_filename}>{item.original_filename}{item.width && item.height ? `・${item.width}×${item.height}` : ''}</div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  {(['ok', 'ng'] as BatchReview[]).map((r) => {
-                    const on = item.review === r
-                    const m = REVIEW_META[r]
-                    return (
-                      <button key={r} disabled={reviewing === item.id} onClick={(e) => { e.stopPropagation(); onReview(item, r) }}
-                        className="h-6 px-2 rounded-md text-[11px] font-semibold disabled:opacity-60"
-                        style={{ color: on ? '#fff' : m.color, background: on ? m.color : m.bg, border: `1px solid ${on ? m.color : 'transparent'}` }}
-                        title={on ? `${m.label} を取り消す（キー: ${r === 'ok' ? 'O' : 'N'}）` : `${m.label} にする（キー: ${r === 'ok' ? 'O' : 'N'}）`}>
-                        {m.label}
-                      </button>
-                    )
-                  })}
-                  {item.review === 'unreviewed'
-                    ? <span className="text-[10px]" style={{ color: rm.color }}>{rm.label}</span>
-                    : <span className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }} title={nameOf(item.reviewed_by)}>{nameOf(item.reviewed_by)}</span>}
-                </div>
-                {item.warnings.length > 0 && (
-                  <div className="text-[10px] truncate" style={{ color: '#F59E0B' }} title={item.warnings.join('\n')}>⚠ {item.warnings[0]}{item.warnings.length > 1 ? ` 他 ${item.warnings.length - 1}` : ''}</div>
-                )}
-              </div>
-              {cols.map((c, col) => (
-                <div key={c.key} className="p-1.5 flex items-center justify-center" style={{ borderBottom: '1px solid var(--border)', background: rowSelected ? 'rgba(20,184,166,0.04)' : 'var(--bg-panel)' }}>
-                  <Tile
-                    thumb={thumbs[thumbKey(item.id, c.key)]}
-                    bg={bg}
-                    item={item}
-                    selected={rowSelected && selection?.col === col}
-                    onSelect={() => onSelect({ row, col })}
-                    onOpen={() => onOpen(item.id, c.key)}
-                  />
-                </div>
-              ))}
+    <div ref={ref} role="grid" style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`, gap: CARD_GAP }}>
+      {items.map((item) => {
+        const focused = focusId === item.id
+        const checked = selected.has(item.id)
+        const w = variant ? variant.params.width : item.width ?? null
+        const h = variant ? variant.params.height : item.height ?? null
+        const aspect = w && h ? `${w} / ${h}` : '1 / 1'
+        return (
+          <div
+            key={item.id}
+            data-item-id={item.id}
+            role="gridcell"
+            tabIndex={-1}
+            onClick={() => onFocus(item.id)}
+            onDoubleClick={() => onOpen(item.id)}
+            className="rounded-xl overflow-hidden cursor-pointer select-none flex flex-col"
+            style={{ background: 'var(--bg-panel)', outline: focused ? `2px solid ${ACCENT}` : checked ? '2px solid rgba(20,184,166,0.45)' : '1px solid var(--border)', outlineOffset: -1 }}
+          >
+            <div className="flex items-center gap-2 px-2.5 h-9 min-w-0">
+              <input
+                type="checkbox"
+                checked={checked}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => onToggle(item.id)}
+                className="w-4 h-4 shrink-0 cursor-pointer"
+                style={{ accentColor: ACCENT }}
+                title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / 書き出す対象'}
+                aria-label={`${item.sku} をチェック`}
+              />
+              <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={`${item.sort_order}. ${item.sku}`}>{item.sort_order}. {item.sku}</span>
+              <span className="ml-auto text-[11px] tabular-nums shrink-0" style={{ color: 'var(--text-tertiary)' }}>{w && h ? `${w}×${h}` : ''}</span>
             </div>
-          )
-        })}
-        {items.length === 0 && (
-          <div className="px-3 py-8 text-center text-[12px]" style={{ gridColumn: `1 / span ${cols.length + 1}`, color: 'var(--text-tertiary)' }}>該当するアイテムがありません</div>
-        )}
-      </div>
+            <div className="relative w-full" style={{ ...BG_STYLE[bg], aspectRatio: aspect, maxHeight: 420 }}>
+              <div className="absolute inset-0">
+                <Thumb thumb={thumbs[thumbKey(item.id, activeKey)]} item={item} />
+              </div>
+            </div>
+            <div className="px-2.5 py-1.5 min-w-0">
+              <div className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={item.original_filename}>{item.original_filename}</div>
+              {item.warnings.length > 0 && (
+                <div className="text-[10px] truncate" style={{ color: '#F59E0B' }} title={item.warnings.join('\n')}>⚠ {item.warnings[0]}{item.warnings.length > 1 ? ` 他 ${item.warnings.length - 1}` : ''}</div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      {items.length === 0 && (
+        <div className="px-3 py-8 text-center text-[12px]" style={{ gridColumn: '1 / -1', color: 'var(--text-tertiary)' }}>該当する写真がありません</div>
+      )}
     </div>
   )
 }

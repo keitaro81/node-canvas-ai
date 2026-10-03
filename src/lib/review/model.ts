@@ -199,29 +199,28 @@ export function exportVariantsOf(variants: ReviewVariant[]): ReviewVariant[] {
   return [{ key: CUTOUT_VARIANT_KEY, name: 'cutout', params, baseParams: params, overridden: false, added: false, backgroundNodeId: null }]
 }
 
-export type ReviewFilter = 'all' | 'ok' | 'ng' | 'unreviewed' | 'failed'
+export type ReviewFilter = 'all' | 'failed'
 
-export function filterItems<T extends Pick<BatchItemRow, 'review' | 'status'>>(items: T[], f: ReviewFilter): T[] {
-  if (f === 'all') return items
+export function filterItems<T extends Pick<BatchItemRow, 'status'>>(items: T[], f: ReviewFilter): T[] {
   if (f === 'failed') return items.filter((i) => i.status === 'failed')
-  return items.filter((i) => i.review === f)
+  return items
 }
 
-export interface GridSelection { row: number; col: number }
-
-/** 矢印キーでの移動（範囲内に収める）。cols は列数（切り抜き列を含む） */
-export function moveSelection(sel: GridSelection | null, key: string, rows: number, cols: number): GridSelection | null {
-  if (rows <= 0 || cols <= 0) return null
-  const cur = sel ?? { row: 0, col: 0 }
-  let { row, col } = cur
-  if (key === 'ArrowUp') row--
-  else if (key === 'ArrowDown') row++
-  else if (key === 'ArrowLeft') col--
-  else if (key === 'ArrowRight') col++
-  else if (key === 'Home') row = 0
-  else if (key === 'End') row = rows - 1
-  else return sel
-  return { row: Math.min(rows - 1, Math.max(0, row)), col: Math.min(cols - 1, Math.max(0, col)) }
+/** カードグリッドでの矢印キー移動（index ベース。columns は 1 行のカード数）。範囲内に収める。対象のキー以外は現在値のまま */
+export function moveFocus(index: number | null, key: string, count: number, columns: number): number | null {
+  if (count <= 0) return null
+  const cols = Math.max(1, columns)
+  const cur = index ?? 0
+  let next = cur
+  if (index === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) next = 0
+  else if (key === 'ArrowLeft') next = cur - 1
+  else if (key === 'ArrowRight') next = cur + 1
+  else if (key === 'ArrowUp') next = cur - cols
+  else if (key === 'ArrowDown') next = cur + cols
+  else if (key === 'Home') next = 0
+  else if (key === 'End') next = count - 1
+  else return index
+  return Math.min(count - 1, Math.max(0, next))
 }
 
 export interface ExportPlanItem { item: BatchItemRow; entries: PlannedEntry[]; warnings: string[] }
