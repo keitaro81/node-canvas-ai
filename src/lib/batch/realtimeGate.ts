@@ -12,6 +12,12 @@ export const initialGate = (): GateState => ({ subscribed: false, failures: 0, g
  * 状態通知を畳み込む。SUBSCRIBED で回復（失敗数リセット）。
  * 一度も購読できないまま失敗が MAX 回続いたら諦める。一度つながった後の切断は supabase-js の再接続に任せる（諦めない）。
  */
+/** batch_jobs の Realtime を購読すべきか: 追いたい画面（ジョブ管理・一括結果ノード）があるか、自分に見える進行中ジョブがある間だけ。
+ *  それ以外（キャンバスやホームを開いているだけ）では購読せず、DB の WAL ポーリングを発生させない（Nano/Micro の Disk IO 対策） */
+export function shouldSubscribeJobs(watcherCount: number, activeJobCount: number): boolean {
+  return watcherCount > 0 || activeJobCount > 0
+}
+
 export function nextGate(g: GateState, status: ChannelStatus): GateState {
   if (g.gaveUp) return g
   if (status === 'SUBSCRIBED') return { subscribed: true, failures: 0, gaveUp: false }

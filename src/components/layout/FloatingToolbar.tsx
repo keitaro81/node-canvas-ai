@@ -29,6 +29,7 @@ import {
   Images,
   DownloadSimple,
   UploadSimple,
+  SquaresFour,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
@@ -84,6 +85,7 @@ const PALETTE = [
       { type: 'productLayout' as NodeType, label: 'Product Layout', description: '余白・背景・影を付けて規定サイズに配置', icon: <Layout size={15} />, color: '#14B8A6' },
       { type: 'batchInput' as NodeType, label: 'Batch Input', description: '複数の商品画像を受け取り 1 枚ずつ流す（最大 50）', icon: <Images size={15} />, color: '#14B8A6' },
       { type: 'export' as NodeType, label: 'Export', description: '規定の名前と形式で書き出し（ZIP）', icon: <DownloadSimple size={15} />, color: '#14B8A6' },
+      { type: 'batchResults' as NodeType, label: 'Batch Results', description: '一括実行のジョブと結果（切り抜き・バリアント・生成結果）をこのキャンバスで確認', icon: <SquaresFour size={15} />, color: '#14B8A6' },
     ],
   },
 ]
@@ -101,6 +103,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   productLayout: 'productLayoutNode',
   batchInput: 'batchInputNode',
   export: 'exportNode',
+  batchResults: 'batchResultsNode',
 }
 
 let nodeIdCounter = 1000
@@ -168,7 +171,7 @@ function NodePanel({ onClose }: { onClose: () => void }) {
       type: NODE_TYPE_MAP[type],
       position: { x: pos.x - 140, y: pos.y - 80 },
       data: buildNodeData(type, label) as never,
-      ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+      ...(type === 'note' ? { style: { width: 280, height: 160 } } : type === 'batchResults' ? { style: { width: 820, height: 620 } } : {}),
     })
     setTimeout(() => {
       rfInstanceRef.current?.fitView({ nodes: [{ id }], duration: 400, padding: 0.5, maxZoom: 1.2 })

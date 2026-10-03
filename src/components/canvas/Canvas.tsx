@@ -45,6 +45,7 @@ import { ProductLayoutNode } from '../nodes/ProductLayoutNode'
 import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../../lib/layout/nodeIo'
 import { BatchInputNode } from '../nodes/BatchInputNode'
+import { BatchResultsNode } from '../nodes/BatchResultsNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
@@ -76,6 +77,7 @@ const nodeTypes: NodeTypes = {
   productLayoutNode: ProductLayoutNode,
   batchInputNode: BatchInputNode,
   exportNode: ExportNode,
+  batchResultsNode: BatchResultsNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -99,6 +101,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   productLayout:   'productLayoutNode',
   batchInput:      'batchInputNode',
   export:          'exportNode',
+  batchResults:    'batchResultsNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -678,7 +681,7 @@ export function Canvas() {
             data,
             parentId: targetGroupId,
             extent: 'parent' as const,
-            ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+            ...(type === 'note' ? { style: { width: 280, height: 160 } } : type === 'batchResults' ? { style: { width: 820, height: 620 } } : {}),
           })
           autoConnect()
           checkAndDisableCapsuleIfNeeded(targetGroupId)
@@ -695,7 +698,7 @@ export function Canvas() {
         type: NODE_TYPE_MAP[type],
         position: { x: contextMenu.flowX, y: contextMenu.flowY },
         data,
-        ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+        ...(type === 'note' ? { style: { width: 280, height: 160 } } : type === 'batchResults' ? { style: { width: 820, height: 620 } } : {}),
       })
       autoConnect()
       setTimeout(() => {
@@ -1144,7 +1147,7 @@ export function Canvas() {
           data,
           parentId: targetGroup.id,
           extent: 'parent' as const,
-          ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+          ...(type === 'note' ? { style: { width: 280, height: 160 } } : type === 'batchResults' ? { style: { width: 820, height: 620 } } : {}),
         })
         checkAndDisableCapsuleIfNeeded(targetGroup.id)
       } else {
@@ -1153,7 +1156,7 @@ export function Canvas() {
           type: NODE_TYPE_MAP[type],
           position: flowPos,
           data,
-          ...(type === 'note' ? { style: { width: 280, height: 160 } } : {}),
+          ...(type === 'note' ? { style: { width: 280, height: 160 } } : type === 'batchResults' ? { style: { width: 820, height: 620 } } : {}),
         })
       }
       setTimeout(() => {

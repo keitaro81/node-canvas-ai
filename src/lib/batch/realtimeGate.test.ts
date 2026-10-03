@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { initialGate, nextGate, MAX_REALTIME_FAILURES } from './realtimeGate'
+import { initialGate, nextGate, shouldSubscribeJobs, MAX_REALTIME_FAILURES } from './realtimeGate'
 
 describe('realtimeGate（Realtime を諦める判断）', () => {
   it('一度も購読できず失敗が続いたら諦める', () => {
@@ -15,5 +15,13 @@ describe('realtimeGate（Realtime を諦める判断）', () => {
     for (let i = 0; i < 10; i++) g = nextGate(g, 'CLOSED')
     expect(g.gaveUp).toBe(false)
     expect(g.subscribed).toBe(true)
+  })
+})
+
+describe('shouldSubscribeJobs（購読の要否）', () => {
+  it('追う画面が無く進行中ジョブも無ければ購読しない', () => {
+    expect(shouldSubscribeJobs(0, 0)).toBe(false)
+    expect(shouldSubscribeJobs(1, 0)).toBe(true)
+    expect(shouldSubscribeJobs(0, 2)).toBe(true)
   })
 })

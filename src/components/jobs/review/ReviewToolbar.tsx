@@ -21,7 +21,8 @@ interface Props {
   onClearSelection: () => void
   onExport: (scope: ExportScope) => void
   onRerunSelected: () => void
-  onSettings: () => void
+  onSettings?: () => void                // 無ければ「レイアウト設定」ボタンを出さない（一括結果ノード: レイアウトはキャンバスのノードで変える）
+  compact?: boolean                      // ノード内: 余白を詰める
 }
 
 const FILTERS: Array<[ReviewFilter, string]> = [['all', 'すべて'], ['failed', '失敗']]
@@ -29,9 +30,9 @@ const BTN = 'flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medi
 const GHOST = 'h-7 px-2 rounded-md text-[11px] font-medium transition-colors disabled:opacity-40 hover:bg-[var(--bg-elevated)]'
 
 /** 確認グリッドのツールバー: 表示背景・絞り込み・サムネイルの進み・チェックの操作・書き出し */
-export function ReviewToolbar({ bg, onBg, filter, onFilter, counts, progress, executorKind, readyCount, selectedCount, busy, canRerun, onSelectAll, onSelectFailed, onClearSelection, onExport, onRerunSelected, onSettings }: Props) {
+export function ReviewToolbar({ bg, onBg, filter, onFilter, counts, progress, executorKind, readyCount, selectedCount, busy, canRerun, onSelectAll, onSelectFailed, onClearSelection, onExport, onRerunSelected, onSettings, compact }: Props) {
   return (
-    <div className="flex flex-col gap-2 px-8 py-2.5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
+    <div className={`flex flex-col gap-2 ${compact ? 'px-3 py-2' : 'px-8 py-2.5'} border-b shrink-0`} style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1" title="表示背景（キー: B）">
           {BG_ORDER.map((b) => (
@@ -50,9 +51,11 @@ export function ReviewToolbar({ bg, onBg, filter, onFilter, counts, progress, ex
           サムネイル {progress.done} / {progress.total}{executorKind === 'main' ? '（ワーカー非対応のため画面側で描画）' : ''}
         </span>
         <div className="flex-1" />
-        <button className={BTN} style={{ color: 'var(--text-primary)', border: '1px solid var(--border-active)' }} onClick={onSettings} disabled={busy} title="バリアントのレイアウト設定を変更して全アイテムに再適用（fal は呼びません）">
-          <SlidersHorizontal size={14} />レイアウト設定
-        </button>
+        {onSettings && (
+          <button className={BTN} style={{ color: 'var(--text-primary)', border: '1px solid var(--border-active)' }} onClick={onSettings} disabled={busy} title="バリアントのレイアウト設定を変更して全アイテムに再適用（fal は呼びません）">
+            <SlidersHorizontal size={14} />レイアウト設定
+          </button>
+        )}
         <button className={`${BTN} text-white`} style={{ background: 'var(--accent)' }} onClick={() => onExport('all')} disabled={busy || readyCount === 0} title="準備完了の全写真をフル解像度で書き出し">
           <DownloadSimple size={14} />すべて書き出し（{readyCount}）
         </button>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ArrowsClockwise, CaretLeft, CaretRight, CircleNotch, MagnifyingGlass, X } from '@phosphor-icons/react'
-import { useBatchStore } from '../../stores/batchStore'
+import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { fetchFinishedJobs, fetchSkuJobIds } from '../../lib/api/batchJobs'
 import {
   DEFAULT_JOB_FILTERS, JOBS_PAGE_SIZE, jobProgress, matchesFilters, mergeJobRows, normalizeSearch, pageCount, type JobFilters, type JobStatusFilter,
@@ -25,6 +25,7 @@ function shortId(id: string | null): string {
 
 export function JobsPage() {
   const navigate = useNavigate()
+  useWatchBatchJobs('jobs-page')   // 開いている間だけ Realtime を購読
   const teamId = useBatchStore((s) => s.teamId)
   const ready = useBatchStore((s) => s.ready)
   const activeJobs = useBatchStore((s) => s.activeJobs)
