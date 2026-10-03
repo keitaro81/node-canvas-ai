@@ -1,14 +1,19 @@
 // ReviewGrid の状態（仕様 5 章 / 4-9 / 4-10）。
 // - サムネイルは識別値（layoutHash）で管理: 記録済みなら Storage から、無ければ実行者（Worker）で描いて保存・記録する
 // - 同時に描くのは 1 アイテムだけ。画面側は長辺 400px のサムネイル（object URL）しか持たない
+// - 列 = 切り抜き・バリアント（レイアウト）・生成結果（写真ごとの Image Generation ノードごと。フェーズ C(a)）
 import { create } from 'zustand'
 import type { CutoutParams } from '../../types/nodes'
 import type { BatchItemRow, BatchOutputRow, BatchTaskRow } from '../../types/batch'
-import { layoutHash, layoutIdentityString, type LayoutIdentityInput } from '../layout/identity'
-import { signBatchPaths, uploadBatchObject } from '../cutout/store'
+import { layoutHash, layoutIdentityString, sha256Hex, type LayoutIdentityInput } from '../layout/identity'
+import { signBatchPath, signBatchPaths, uploadBatchObject } from '../cutout/store'
+import { fetchBlob } from '../cutout/decode'
 import { recordThumb } from '../api/batchJobs'
 import { CancelledError, createLayoutExecutor, type LayoutExecutor } from './executor'
-import { CUTOUT_PREVIEW_PARAMS, CUTOUT_VARIANT_KEY, THUMB_MAX_EDGE, cutoutParamsOf, identityFor, resultKindOf, thumbFileName, thumbKey, type ReviewFilter, type ReviewVariant } from './model'
+import {
+  CUTOUT_PREVIEW_PARAMS, CUTOUT_VARIANT_KEY, THUMB_MAX_EDGE, chainedSourceRef, cutoutParamsOf, identityFor, isResultKey, resultIdentityString, resultKindOf, resultNodeIdOf,
+  taskDependencyOf, thumbFileName, thumbKey, type ReviewFilter, type ReviewResultColumn, type ReviewVariant,
+} from './model'
 import type { FullResult, ThumbResult } from './renderCore'
 
 export type ReviewBg = 'white' | 'gray' | 'checker'
@@ -30,6 +35,7 @@ export interface ReviewContext {
   items: BatchItemRow[]
   tasks: BatchTaskRow[]
   variants: ReviewVariant[]
+  results: ReviewResultColumn[]           // 生成結果の列（写真ごとの Image Generation ノード）
   cutoutNodeId: string | null
   cutoutParams: CutoutParams            // 写しの切り抜き設定（タスクに __params があればそちら）
   knownThumbs: BatchOutputRow[]
@@ -40,6 +46,8 @@ export interface ItemRenderable {
   item: BatchItemRow
   task: BatchTaskRow
   cutout: CutoutParams
+  sourcePath: string                     // 切り抜きの元画像（写真、または前段の生成結果）
+  sourceRef: string                      // 識別値に使う元画像の参照（前段の結果なら パス#版）
 }
 
 interface ReviewState {
@@ -47,7 +55,7 @@ interface ReviewState {
   bg: ReviewBg
   filter: ReviewFilter
   focusId: string | null                 // キーボード操作の現在位置（アイテム id）
-  activeKey: string                      // 表示中の列（切り抜き or バリアント）
+  activeKey: string                      // 表示中の列（切り抜き・バリアント・生成結果）
   selected: Set<string>                  // チェックした写真（アイテム id）
   lightbox: { itemId: string; variantKey: string } | null
   thumbs: Record<string, ThumbState>
@@ -93,23 +101,52 @@ async function hashOf(input: LayoutIdentityInput): Promise<string> {
   return h
 }
 
-/** アイテムが描画可能か（準備完了・切り抜きタスク完了・結果ファイルあり） */
+async function hashOfString(id: string): Promise<string> {
+  const cached = hashCache.get(id)
+  if (cached) return cached
+  const h = await sha256Hex(id)
+  hashCache.set(id, h)
+  return h
+}
+
+/** 完了して結果ファイルがあるタスク */
+export type DoneTask = BatchTaskRow & { result_path: string }
+const isDone = (t: BatchTaskRow | null | undefined): t is DoneTask => !!t && t.status === 'completed' && !!t.result_path
+
+/** アイテムの切り抜きが描画可能か（切り抜きタスク完了・結果ファイルあり。前段があればその結果が元画像） */
 export function renderableOf(ctx: ReviewContext, item: BatchItemRow): ItemRenderable | null {
   if (!ctx.cutoutNodeId) return null
   const task = ctx.tasks.find((t) => t.item_id === item.id && t.node_id === ctx.cutoutNodeId)
-  if (!task || task.status !== 'completed' || !task.result_path || item.status !== 'ready') return null
-  return { item, task, cutout: cutoutParamsOf(task, ctx.cutoutParams) }
+  if (!isDone(task)) return null
+  const depId = taskDependencyOf(task)
+  const dep = depId ? ctx.tasks.find((t) => t.item_id === item.id && t.node_id === depId) ?? null : null
+  if (depId && !isDone(dep)) return null
+  const sourcePath = dep?.result_path ?? item.source_path ?? item.interactive_path ?? null
+  if (!sourcePath) return null
+  return { item, task, cutout: cutoutParamsOf(task, ctx.cutoutParams), sourcePath, sourceRef: dep ? chainedSourceRef(dep) : sourcePath }
 }
 
-function variantKeys(ctx: ReviewContext): string[] {
-  return [CUTOUT_VARIANT_KEY, ...ctx.variants.map((v) => v.key)]
+/** 生成結果の列のタスク（アイテム × ノード） */
+export function resultTaskOf(ctx: ReviewContext, itemId: string, nodeId: string): BatchTaskRow | null {
+  return ctx.tasks.find((t) => t.item_id === itemId && t.node_id === nodeId) ?? null
+}
+
+/** 完了した生成結果（結果ファイルあり）だけを返す */
+export function completedResultOf(ctx: ReviewContext, itemId: string, nodeId: string): DoneTask | null {
+  const t = resultTaskOf(ctx, itemId, nodeId)
+  return isDone(t) ? t : null
+}
+
+/** レイアウト系の列（切り抜き + バリアント）。切り抜きノードが無いジョブには無い */
+function layoutKeys(ctx: ReviewContext): string[] {
+  return ctx.cutoutNodeId ? [CUTOUT_VARIANT_KEY, ...ctx.variants.map((v) => v.key)] : []
 }
 
 function identityOf(ctx: ReviewContext, r: ItemRenderable, key: string): LayoutIdentityInput {
   const v = ctx.variants.find((x) => x.key === key)
   const params = key === CUTOUT_VARIANT_KEY || !v ? CUTOUT_PREVIEW_PARAMS : v.params
   const backgroundRef = v?.backgroundNodeId ? (ctx.backgroundUrls[v.backgroundNodeId] ? `node:${v.backgroundNodeId}` : null) : null
-  return identityFor({ item: r.item, task: r.task, cutout: r.cutout, params, backgroundRef })
+  return identityFor({ item: r.item, task: r.task, cutout: r.cutout, params, backgroundRef, sourceRef: r.sourceRef })
 }
 
 function setThumbUrl(key: string, url: string | null): void {
@@ -128,6 +165,11 @@ function enqueuePersist(fn: () => Promise<void>): void {
     }
   }
   pump()
+}
+
+/** 描けないタイルの表示状態（失敗 or 待機） */
+function idleState(failed: boolean, transparent: boolean, error?: string): ThumbState {
+  return { status: failed ? 'failed' : 'waiting', url: null, hash: null, warnings: [], transparent, scale: null, error: failed ? (error ?? '処理に失敗しました') : undefined }
 }
 
 export const useReviewStore = create<ReviewState>((set, get) => ({
@@ -169,45 +211,67 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   getExecutor: () => getExecutorImpl(),
 
   /**
-   * 文脈（アイテム・タスク・バリアント・記録済みサムネイル）を受け取り、各タイルの望ましい識別値を出して
+   * 文脈（アイテム・タスク・バリアント・結果列・記録済みサムネイル）を受け取り、各タイルの望ましい識別値を出して
    * 「記録済みなら署名して表示」「無ければ描画待ちに積む」を決める。差分だけを更新する。
    */
   sync: async (ctx) => {
     ctxRef = ctx
     const gen = ++syncGen
-    const keys = variantKeys(ctx)
+    const lkeys = layoutKeys(ctx)
     const next: Record<string, ThumbState> = { ...get().thumbs }
     const toSign: Array<{ key: string; path: string; hash: string; transparent: boolean }> = []
     const needRender = new Set<string>()
     const known = new Map<string, BatchOutputRow>()
     for (const o of ctx.knownThumbs) known.set(`${o.item_id}|${o.variant}|${o.layout_hash}`, o)
+    const keep = (cur: ThumbState | undefined, hash: string) => !!cur && cur.hash === hash && (cur.status === 'ready' || cur.status === 'rendering' || cur.status === 'queued')
+    const place = (tk: string, itemId: string, hash: string, transparent: boolean, cur: ThumbState | undefined, key: string) => {
+      const rec = known.get(`${itemId}|${key}|${hash}`)
+      if (rec) {
+        toSign.push({ key: tk, path: rec.output_path, hash, transparent })
+        next[tk] = { status: 'queued', url: cur?.url ?? null, hash, warnings: cur?.warnings ?? [], transparent, scale: cur?.scale ?? null }
+      } else {
+        next[tk] = { status: 'queued', url: cur?.url ?? null, hash, warnings: [], transparent, scale: null }
+        needRender.add(itemId)
+      }
+    }
 
     for (const item of ctx.items) {
       const r = renderableOf(ctx, item)
-      for (const key of keys) {
+      // レイアウト系（切り抜き + バリアント）
+      for (const key of lkeys) {
         const tk = thumbKey(item.id, key)
         const cur = next[tk]
         if (!r) {
           const failed = item.status === 'failed'
           if (cur?.status !== (failed ? 'failed' : 'waiting')) {
             setThumbUrl(tk, null)
-            next[tk] = { status: failed ? 'failed' : 'waiting', url: null, hash: null, warnings: [], transparent: key === CUTOUT_VARIANT_KEY, scale: null, error: failed ? (item.warnings[0] ?? '処理に失敗しました') : undefined }
+            next[tk] = idleState(failed, key === CUTOUT_VARIANT_KEY, item.warnings[0])
           }
           continue
         }
         const hash = await hashOf(identityOf(ctx, r, key))
         if (gen !== syncGen) return
-        if (cur && cur.hash === hash && (cur.status === 'ready' || cur.status === 'rendering' || cur.status === 'queued')) continue
-        const rec = known.get(`${item.id}|${key}|${hash}`)
+        if (keep(cur, hash)) continue
         const v = ctx.variants.find((x) => x.key === key)
-        const transparent = key === CUTOUT_VARIANT_KEY || v?.params.backgroundKind === 'transparent'
-        if (rec) {
-          toSign.push({ key: tk, path: rec.output_path, hash, transparent })
-          next[tk] = { status: 'queued', url: cur?.url ?? null, hash, warnings: cur?.warnings ?? [], transparent, scale: cur?.scale ?? null }
-        } else {
-          next[tk] = { status: 'queued', url: cur?.url ?? null, hash, warnings: [], transparent, scale: null }
-          needRender.add(item.id)
+        place(tk, item.id, hash, key === CUTOUT_VARIANT_KEY || v?.params.backgroundKind === 'transparent', cur, key)
+      }
+      // 生成結果（ノードごと）: タスクが完了していれば結果ファイルのサムネイル
+      for (const col of ctx.results) {
+        const tk = thumbKey(item.id, col.key)
+        const cur = next[tk]
+        const task = resultTaskOf(ctx, item.id, col.nodeId)
+        if (!isDone(task)) {
+          const failed = task?.status === 'failed' || (!task && item.status === 'failed')
+          if (cur?.status !== (failed ? 'failed' : 'waiting')) {
+            setThumbUrl(tk, null)
+            next[tk] = idleState(failed, false, task?.error ?? item.warnings[0])
+          }
+          continue
         }
+        const hash = await hashOfString(resultIdentityString(task))
+        if (gen !== syncGen) return
+        if (keep(cur, hash)) continue
+        place(tk, item.id, hash, cur?.transparent ?? false, cur, col.key)
       }
     }
     // 記録済みサムネイルの署名（まとめて 1 回）
@@ -237,6 +301,15 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   renderFull: async (itemId, variantKey) => {
     const ctx = ctxRef
     if (!ctx) throw new Error('ジョブが開かれていません')
+    // 生成結果の列: 結果ファイルをそのまま返す
+    if (isResultKey(variantKey)) {
+      const task = completedResultOf(ctx, itemId, resultNodeIdOf(variantKey))
+      if (!task) throw new Error('この生成結果はまだありません')
+      const url = await signBatchPath(task.result_path)
+      if (!url) throw new Error('結果画像の署名に失敗しました（チームの権限を確認してください）')
+      const blob = await fetchBlob(url)
+      return { key: variantKey, blob, warnings: [], quality: null, format: blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpeg' }
+    }
     const item = ctx.items.find((i) => i.id === itemId)
     const r = item ? renderableOf(ctx, item) : null
     if (!r) throw new Error('このアイテムはまだ描画できません')
@@ -252,12 +325,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   },
 }))
 
-/** 元画像と結果ファイルの署名 URL（実行者に渡す。Worker は署名 URL だけを受け取る） */
-async function assetsFor(r: ItemRenderable) {
-  const originalPath = r.item.source_path ?? r.item.interactive_path
-  if (!originalPath || !r.task.result_path) throw new Error('元画像または結果ファイルがありません')
-  const map = await signBatchPaths([originalPath, r.task.result_path])
-  const originalUrl = map[originalPath], resultUrl = map[r.task.result_path]
+/** 元画像（写真か前段の結果）と切り抜き結果の署名 URL（実行者に渡す。Worker は署名 URL だけを受け取る） */
+export async function assetsFor(r: ItemRenderable) {
+  if (!r.task.result_path) throw new Error('元画像または結果ファイルがありません')
+  const map = await signBatchPaths([r.sourcePath, r.task.result_path])
+  const originalUrl = map[r.sourcePath], resultUrl = map[r.task.result_path]
   if (!originalUrl || !resultUrl) throw new Error('画像の署名に失敗しました（チームの権限を確認してください）')
   return { originalUrl, resultUrl, resultKind: resultKindOf(r.task) }
 }
@@ -275,10 +347,13 @@ async function pump(): Promise<void> {
       if (!ctx) break
       const itemId = queue.shift()!
       const item = ctx.items.find((i) => i.id === itemId)
-      const r = item ? renderableOf(ctx, item) : null
-      if (!r) continue
+      if (!item) continue
+      const r = renderableOf(ctx, item)
       const st = useReviewStore.getState()
-      const keys = variantKeys(ctx).filter((k) => st.thumbs[thumbKey(itemId, k)]?.status === 'queued')
+      const queuedOf = (ks: string[]) => ks.filter((k) => st.thumbs[thumbKey(itemId, k)]?.status === 'queued')
+      const lkeys = r ? queuedOf(layoutKeys(ctx)) : []
+      const rkeys = queuedOf(ctx.results.map((c) => c.key))
+      const keys = [...lkeys, ...rkeys]
       if (!keys.length) continue
       const mark = (status: ThumbStatus, patch: Partial<ThumbState> = {}) => {
         const cur = useReviewStore.getState().thumbs
@@ -290,14 +365,23 @@ async function pump(): Promise<void> {
       for (const k of keys) expected[k] = st.thumbs[thumbKey(itemId, k)]?.hash ?? null
       mark('rendering')
       try {
-        const assets = await assetsFor(r)
-        const variants = ctx.variants
-          .filter((v) => keys.includes(v.key))
-          .map((v) => ({ key: v.key, params: v.params, backgroundUrl: v.backgroundNodeId ? ctx.backgroundUrls[v.backgroundNodeId] ?? null : null }))
-        await getExecutorImpl().renderThumbs(
-          { assets, cutout: r.cutout, variants, thumbMaxEdge: THUMB_MAX_EDGE, includeCutout: keys.includes(CUTOUT_VARIANT_KEY) },
-          (t: ThumbResult) => onThumb(ctx, itemId, t, expected[t.key] ?? null),
-        )
+        if (r && lkeys.length) {
+          const assets = await assetsFor(r)
+          const variants = ctx.variants
+            .filter((v) => lkeys.includes(v.key))
+            .map((v) => ({ key: v.key, params: v.params, backgroundUrl: v.backgroundNodeId ? ctx.backgroundUrls[v.backgroundNodeId] ?? null : null }))
+          await getExecutorImpl().renderThumbs(
+            { assets, cutout: r.cutout, variants, thumbMaxEdge: THUMB_MAX_EDGE, includeCutout: lkeys.includes(CUTOUT_VARIANT_KEY) },
+            (t: ThumbResult) => onThumb(ctx, itemId, t, expected[t.key] ?? null),
+          )
+        }
+        for (const k of rkeys) {
+          const task = completedResultOf(ctx, itemId, resultNodeIdOf(k))
+          if (!task) continue
+          const url = await signBatchPath(task.result_path)
+          if (!url) throw new Error('結果画像の署名に失敗しました')
+          await getExecutorImpl().renderImageThumb({ key: k, url, thumbMaxEdge: THUMB_MAX_EDGE }, (t: ThumbResult) => onThumb(ctx, itemId, t, expected[k] ?? null))
+        }
         // 描画中に識別値が変わったタイルは queued のまま残るので、同じアイテムをもう一度並べる
         const after = useReviewStore.getState().thumbs
         if (keys.some((k) => after[thumbKey(itemId, k)]?.status === 'rendering')) {

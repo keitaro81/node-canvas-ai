@@ -6,7 +6,7 @@ import { alphaFromLuminance, alphaFromRgba, processAlpha, resizeAlpha, type Alph
 import { canvasToPng, decodeBlob, fetchBlob, makeCanvas, renderTransparentPng, type AnyCanvas, type DecodedImage } from '../cutout/decode'
 import { computeLayout, type LayoutPlan } from '../layout/computeLayout'
 import { renderLayoutToPng } from '../layout/renderLayout'
-import { encodeWithCap, loadBitmap } from '../export/encode'
+import { bitmapHasTransparency, encodeWithCap, loadBitmap } from '../export/encode'
 import { CUTOUT_VARIANT_KEY } from './model'
 
 export interface ItemAssetsInput { originalUrl: string; resultUrl: string; resultKind: 'mask' | 'rgba' }
@@ -18,6 +18,10 @@ export interface FullVariantSpec extends VariantSpec { encode?: EncodeSpec | nul
 
 export interface ThumbResult { key: string; blob: Blob; warnings: string[]; scale: number; transparent: boolean; width: number; height: number }
 export interface FullResult { key: string; blob: Blob; warnings: string[]; quality: number | null; format: ExportFormat }
+
+/** 生成結果（1 枚の画像ファイル）のサムネイル / フル解像度の要求（フェーズ C(a) の結果列） */
+export interface ImageThumbRequest { key: string; url: string; thumbMaxEdge: number }
+export interface ImageFullRequest { key: string; url: string; encode?: EncodeSpec | null }
 
 /** 元画像と fal の結果（マスク or 透過画像）を読み、元解像度の生マスクにする（Step 2 と同じ手順） */
 export async function loadItemAssets(input: ItemAssetsInput): Promise<ItemAssets> {
@@ -60,21 +64,59 @@ export async function renderVariantPng(assets: ItemAssets, cutout: CutoutSpec, v
 export async function downscaleToThumb(png: Blob, maxEdge: number, transparent: boolean): Promise<{ blob: Blob; width: number; height: number }> {
   const bmp = await createImageBitmap(png)
   try {
-    const target = fitSize(bmp.width, bmp.height, maxEdge)
-    let cur: AnyCanvas | ImageBitmap = bmp
-    let cw = bmp.width, ch = bmp.height
-    while (cw / 2 >= target.w && ch / 2 >= target.h) {
-      const nw = Math.max(1, Math.floor(cw / 2)), nh = Math.max(1, Math.floor(ch / 2))
-      const step = makeCanvas(nw, nh)
-      step.ctx.imageSmoothingEnabled = true; step.ctx.imageSmoothingQuality = 'high'
-      step.ctx.drawImage(cur, 0, 0, cw, ch, 0, 0, nw, nh)
-      cur = step.canvas; cw = nw; ch = nh
-    }
-    const { canvas, ctx } = makeCanvas(target.w, target.h)
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(cur, 0, 0, cw, ch, 0, 0, target.w, target.h)
-    const blob = transparent ? await canvasToPng(canvas) : await toBlob(canvas, 'image/jpeg', 0.85)
-    return { blob, width: target.w, height: target.h }
+    return await downscaleBitmap(bmp, maxEdge, transparent)
+  } finally {
+    bmp.close()
+  }
+}
+
+async function downscaleBitmap(bmp: ImageBitmap, maxEdge: number, transparent: boolean): Promise<{ blob: Blob; width: number; height: number }> {
+  const target = fitSize(bmp.width, bmp.height, maxEdge)
+  let cur: AnyCanvas | ImageBitmap = bmp
+  let cw = bmp.width, ch = bmp.height
+  while (cw / 2 >= target.w && ch / 2 >= target.h) {
+    const nw = Math.max(1, Math.floor(cw / 2)), nh = Math.max(1, Math.floor(ch / 2))
+    const step = makeCanvas(nw, nh)
+    step.ctx.imageSmoothingEnabled = true; step.ctx.imageSmoothingQuality = 'high'
+    step.ctx.drawImage(cur, 0, 0, cw, ch, 0, 0, nw, nh)
+    cur = step.canvas; cw = nw; ch = nh
+  }
+  const { canvas, ctx } = makeCanvas(target.w, target.h)
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(cur, 0, 0, cw, ch, 0, 0, target.w, target.h)
+  const blob = transparent ? await canvasToPng(canvas) : await toBlob(canvas, 'image/jpeg', 0.85)
+  return { blob, width: target.w, height: target.h }
+}
+
+const MAYBE_TRANSPARENT = new Set(['image/png', 'image/webp'])
+function formatOfMime(mime: string): ExportFormat {
+  return mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpeg'
+}
+
+/** 生成結果のサムネイル。透過画素があれば PNG、無ければ JPEG（レイアウトのサムネイルと同じ扱い） */
+export async function renderImageThumb(req: ImageThumbRequest): Promise<ThumbResult> {
+  const blob = await fetchBlob(req.url)
+  const bmp = await createImageBitmap(blob)
+  try {
+    const transparent = MAYBE_TRANSPARENT.has(blob.type) && bitmapHasTransparency(bmp)
+    const t = await downscaleBitmap(bmp, req.thumbMaxEdge, transparent)
+    return { key: req.key, blob: t.blob, warnings: [], scale: 1, transparent, width: t.width, height: t.height }
+  } finally {
+    bmp.close()
+  }
+}
+
+/** 生成結果のフル解像度。encode 指定があれば形式変換と容量上限（仕様 3-4）まで行う。透過に JPEG 指定なら PNG に切り替える */
+export async function renderImageFull(req: ImageFullRequest): Promise<FullResult> {
+  const blob = await fetchBlob(req.url)
+  if (!req.encode) return { key: req.key, blob, warnings: [], quality: null, format: formatOfMime(blob.type) }
+  const bmp = await loadBitmap(blob)
+  try {
+    let format = req.encode.format
+    const warnings: string[] = []
+    if (format === 'jpeg' && MAYBE_TRANSPARENT.has(blob.type) && bitmapHasTransparency(bmp)) { format = 'png'; warnings.push('透過があるため PNG で書き出します') }
+    const enc = await encodeWithCap(bmp, format, req.encode.quality, req.encode.maxBytes)
+    return { key: req.key, blob: enc.blob, warnings: [...warnings, ...enc.warnings], quality: enc.quality, format }
   } finally {
     bmp.close()
   }

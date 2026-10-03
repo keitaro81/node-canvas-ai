@@ -180,6 +180,7 @@ export interface CutoutRef {
   height: number
   maskPath: string             // batch バケット内 <team_id>/interactive/<nodeId>/<ts>-mask.png
   previewPath: string          // batch バケット内 <team_id>/interactive/<nodeId>/<ts>-preview.png
+  cutoutPath?: string | null   // 透過の切り抜き画像 <ts>-cutout.png（後段に Image Generation があるときだけ保存。合成の入力）
   bbox: CutoutBBox | null      // しきい値適用後の外接矩形（全透明なら null）
   engine: CutoutEngine
   params: CutoutParams         // 実行/再適用時のパラメータのスナップショット

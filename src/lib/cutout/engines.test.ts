@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildEngineRequest, normalizeCutoutParams, pickEngineResult, effectiveBirefnetResolution, DEFAULT_CUTOUT_PARAMS, CUTOUT_ENGINES,
+  buildEngineRequest, normalizeCutoutParams, pickEngineCutoutImage, pickEngineResult, effectiveBirefnetResolution, DEFAULT_CUTOUT_PARAMS, CUTOUT_ENGINES,
 } from './engines'
 
 describe('normalizeCutoutParams', () => {
@@ -44,5 +44,16 @@ describe('pickEngineResult', () => {
   it('Bria は image を透過 PNG として扱う', () => {
     expect(pickEngineResult('bria', { image: { url: 'i', width: 1, height: 1 } })).toEqual({ url: 'i', kind: 'rgba', width: 1, height: 1 })
     expect(() => pickEngineResult('bria', { foo: 1 })).toThrow()
+  })
+})
+
+describe('pickEngineCutoutImage（後段の Image Generation 用の透過画像）', () => {
+  it('BiRefNet は mask_only=false のとき image が前景画像。mask_only のときは image がマスクなので null', () => {
+    expect(pickEngineCutoutImage('birefnet', { image: { url: 'fg', width: 2, height: 3 }, mask_image: { url: 'm' } })).toEqual({ url: 'fg', width: 2, height: 3 })
+    expect(pickEngineCutoutImage('birefnet', { image: { url: 'm' } })).toBeNull()
+  })
+  it('Bria は結果そのものが透過画像', () => {
+    expect(pickEngineCutoutImage('bria', { image: { url: 'i' } })).toEqual({ url: 'i', width: undefined, height: undefined })
+    expect(pickEngineCutoutImage('bria', {})).toBeNull()
   })
 })

@@ -118,7 +118,9 @@ const COMPATIBLE: Record<PortType, PortType[]> = {
   item:   ['item'],
 }
 
-function isCompatible(sourceType: PortType, targetType: PortType): boolean {
+/** 切り抜き → 画像 は Image Generation の画像入力だけ許す（切り抜き画像を合成の入力にする。フェーズ C(a)）。他の画像入力は従来どおり不可 */
+export function isCompatibleFor(sourceType: PortType, targetType: PortType, targetNodeType: string | undefined): boolean {
+  if (sourceType === 'cutout' && targetType === 'image') return targetNodeType === 'imageGenerationNode'
   return COMPATIBLE[sourceType]?.includes(targetType) ?? false
 }
 
@@ -317,7 +319,7 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
     const { nodes } = get()
     const sourceType = getPortType(nodes, connection.source, connection.sourceHandle ?? null)
     const targetType = getPortType(nodes, connection.target, connection.targetHandle ?? null)
-    if (!isCompatible(sourceType, targetType)) return
+    if (!isCompatibleFor(sourceType, targetType, nodes.find((n) => n.id === connection.target)?.type)) return
 
     const edgeColor: Record<PortType, string> = {
       text:  '#6366F1',

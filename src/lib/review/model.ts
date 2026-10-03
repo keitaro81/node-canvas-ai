@@ -13,6 +13,48 @@ export type Snapshot = BatchJobDetail['workflow_snapshot']
 export const CUTOUT_VARIANT_KEY = '__cutout'
 export const THUMB_MAX_EDGE = 400
 
+/** 生成結果の列（フェーズ C(a)）: 写真ごとの Image Generation（編集）ノードごとに 1 列。キーは '__result:<nodeId>' */
+export const RESULT_KEY_PREFIX = '__result:'
+export const resultKeyOf = (nodeId: string): string => `${RESULT_KEY_PREFIX}${nodeId}`
+export const isResultKey = (key: string): boolean => key.startsWith(RESULT_KEY_PREFIX)
+export const resultNodeIdOf = (key: string): string => (isResultKey(key) ? key.slice(RESULT_KEY_PREFIX.length) : key)
+
+export interface ReviewResultColumn {
+  key: string                      // resultKeyOf(nodeId)
+  nodeId: string                   // Image Generation ノード ID
+  name: string                     // ノード名（タブ・書き出しフォルダ名。重複は (2) を付ける）
+  stage: number                    // 1 = 写真を直接、2 = 1 段目の結果を入力
+}
+
+/** タスクが待つ前段のノード id（input.__depends_on。サーバーの dependencyOf と同じ） */
+export function taskDependencyOf(task: Pick<BatchTaskRow, 'input'> | null | undefined): string | null {
+  const d = task?.input?.__depends_on
+  return typeof d === 'string' && d ? d : null
+}
+
+/** タスク行から生成結果の列を作る（写真ごとの編集タスク = input.__kind 'imageEdit'。ノードごとに 1 列、段の順） */
+export function resultColumnsOf(tasks: Array<Pick<BatchTaskRow, 'item_id' | 'node_id' | 'input'>>, snapshot?: Snapshot | null): ReviewResultColumn[] {
+  const nodes = nodesOf(snapshot)
+  const seen = new Map<string, ReviewResultColumn>()
+  for (const t of tasks) {
+    if (!t.item_id || t.input?.__kind !== 'imageEdit' || seen.has(t.node_id)) continue
+    const fromTask = t.input.__label
+    const fromSnap = nodes.find((n) => n.id === t.node_id)?.data?.label
+    const raw = typeof fromTask === 'string' && fromTask.trim() ? fromTask.trim() : typeof fromSnap === 'string' && fromSnap.trim() ? fromSnap.trim() : 'Image Generation'
+    const stage = typeof t.input.__stage === 'number' && t.input.__stage > 0 ? t.input.__stage : 1
+    seen.set(t.node_id, { key: resultKeyOf(t.node_id), nodeId: t.node_id, name: raw, stage })
+  }
+  const cols = [...seen.values()].sort((a, b) => a.stage - b.stage || a.nodeId.localeCompare(b.nodeId))
+  // 同名のノードは (2) (3) … を付けて区別する（タブ・フォルダ名が重ならないように）
+  const used = new Map<string, number>()
+  for (const c of cols) {
+    const n = (used.get(c.name) ?? 0) + 1
+    used.set(c.name, n)
+    if (n > 1) c.name = `${c.name} (${n})`
+  }
+  return cols
+}
+
 export interface ReviewVariant {
   key: string                      // Product Layout ノード ID、または追加バリアントの 'added-N'（記録・サムネイル名にも使う）
   name: string                     // variantName（表示・書き出しファイル名）
@@ -62,15 +104,49 @@ export function variantsFromSnapshot(snapshot: Snapshot | null | undefined, over
   return [...fromSnapshot, ...added]
 }
 
-/** 写しの切り抜きノード（Batch Input に直結しているもの＝一括実行の対象。サーバーの planTasks と同じ規則） */
-export function cutoutNodesFromSnapshot(snapshot: Snapshot | null | undefined): Array<{ nodeId: string; params: CutoutParams }> {
+/** 一括実行で写真ごとに動く AI ノードの「段」（サーバーの planTasks と同じ規則）。
+ *  1 = Batch Input の写真を直接、2 = 1 段目の結果（結果ノード Result は透過して生成器へ）。対象外・3 段目以降は null */
+export const MAX_ITEM_STAGES = 2
+export function itemAiStageOf(snapshot: Snapshot | null | undefined, nodeId: string): { stage: number; dependsOn: string | null } | null {
   const nodes = nodesOf(snapshot)
   const edges = edgesOf(snapshot)
-  const batchInputIds = new Set(nodes.filter((n) => n?.data?.type === 'batchInput').map((n) => n.id))
-  return nodes
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const typeOf = (id: string | undefined) => (id ? (byId.get(id)?.data?.type as string | undefined) : undefined)
+  const isItemAi = (id: string) => typeOf(id) === 'removeBackground' || (typeOf(id) === 'imageGen' && (byId.get(id)?.data?.params as Record<string, unknown> | undefined)?.executionScope !== 'job')
+  const producerOf = (sourceId: string): { kind: 'batchInput' | 'ai' | 'other'; nodeId: string } => {
+    const t = typeOf(sourceId)
+    if (t === 'batchInput') return { kind: 'batchInput', nodeId: sourceId }
+    if (t === 'removeBackground' || t === 'imageGen') return { kind: 'ai', nodeId: sourceId }
+    if (t === 'imageDisplay') {
+      const feed = edges.find((e) => e.target === sourceId && typeOf(e.source) === 'imageGen')
+      return feed ? { kind: 'ai', nodeId: feed.source } : { kind: 'other', nodeId: sourceId }
+    }
+    return { kind: 'other', nodeId: sourceId }
+  }
+  const imageInputEdges = (id: string) => (typeOf(id) === 'removeBackground'
+    ? edges.filter((e) => e.target === id && e.targetHandle === 'in-image-image')
+    : edges.filter((e) => e.target === id && (e.targetHandle ?? '').startsWith('in-image')))
+  const walk = (id: string, depth: number): { stage: number; dependsOn: string | null } | null => {
+    if (!isItemAi(id) || depth > MAX_ITEM_STAGES + 1) return null
+    const ins = imageInputEdges(id)
+    if (!ins.length) return null
+    const p = producerOf(ins[0].source)
+    if (p.kind === 'batchInput') return { stage: 1, dependsOn: null }
+    if (p.kind !== 'ai') return null
+    const up = walk(p.nodeId, depth + 1)
+    return up ? { stage: up.stage + 1, dependsOn: p.nodeId } : null
+  }
+  const r = walk(nodeId, 0)
+  return r && r.stage <= MAX_ITEM_STAGES ? r : null
+}
+
+/** 写しの切り抜きノード（Batch Input の写真に 2 段以内で行き着く Remove Background ＝一括実行の対象。サーバーの planTasks と同じ規則） */
+export function cutoutNodesFromSnapshot(snapshot: Snapshot | null | undefined): Array<{ nodeId: string; params: CutoutParams; stage: number; dependsOn: string | null }> {
+  return nodesOf(snapshot)
     .filter((n) => n?.data?.type === 'removeBackground')
-    .filter((n) => { const feed = edges.find((e) => e.target === n.id && e.targetHandle === 'in-image-image'); return !!feed && batchInputIds.has(feed.source) })
-    .map((n) => ({ nodeId: n.id, params: normalizeCutoutParams(n.data?.params) }))
+    .map((n) => ({ n, st: itemAiStageOf(snapshot, n.id) }))
+    .filter((x): x is { n: NonNullable<Snapshot['nodes']>[number]; st: { stage: number; dependsOn: string | null } } => !!x.st)
+    .map(({ n, st }) => ({ nodeId: n.id, params: normalizeCutoutParams(n.data?.params), stage: st.stage, dependsOn: st.dependsOn }))
 }
 
 /** 写しの Export ノードの設定（無ければ既定） */
@@ -103,7 +179,7 @@ const safeSeg = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) ||
 
 /** サムネイルの保存名（識別値の先頭 12 桁）。透過は PNG、それ以外は JPEG */
 export function thumbFileName(variantKey: string, hash: string, transparent: boolean): string {
-  const v = variantKey === CUTOUT_VARIANT_KEY ? 'cutout' : safeSeg(variantKey)
+  const v = variantKey === CUTOUT_VARIANT_KEY ? 'cutout' : isResultKey(variantKey) ? `result-${safeSeg(resultNodeIdOf(variantKey))}` : safeSeg(variantKey)
   return `thumb-${v}-${hash.slice(0, 12)}.${transparent ? 'png' : 'jpg'}`
 }
 
@@ -111,23 +187,35 @@ export function itemInfoOfRow(item: Pick<BatchItemRow, 'sku' | 'original_filenam
   return { sku: item.sku, original: stripExtension(item.original_filename), index: item.sort_order }
 }
 
-/** レイアウト識別値の入力（バリアント）。切り抜き列はレイアウト設定を持たないので params は固定の印だけ */
+/** レイアウト識別値の入力（バリアント）。切り抜き列はレイアウト設定を持たないので params は固定の印だけ。
+ *  sourceRef を渡すと元画像の参照を差し替える（前段の生成結果を切り抜いたとき＝結果パス + 版） */
 export function identityFor(input: {
   item: Pick<BatchItemRow, 'source_path' | 'interactive_path'>
   task: Pick<BatchTaskRow, 'result_path' | 'completed_at' | 'result_meta' | 'id'>
   cutout: Pick<CutoutParams, 'alphaThreshold' | 'featherPx'>
   params: LayoutParams
   backgroundRef?: string | null
+  sourceRef?: string | null
 }): LayoutIdentityInput {
   return {
     params: input.params,
-    sourceRef: input.item.source_path ?? input.item.interactive_path ?? '',
+    sourceRef: input.sourceRef ?? input.item.source_path ?? input.item.interactive_path ?? '',
     maskPath: input.task.result_path ?? '',
     maskVersion: maskVersionOf(input.task),
     alphaThreshold: input.cutout.alphaThreshold,
     featherPx: input.cutout.featherPx,
     backgroundRef: input.backgroundRef ?? null,
   }
+}
+
+/** 前段の結果を元画像として使うときの参照（同じパスに上書きされるので版を混ぜる） */
+export function chainedSourceRef(dep: Pick<BatchTaskRow, 'result_path' | 'completed_at' | 'result_meta' | 'id'>): string {
+  return `${dep.result_path ?? ''}#${maskVersionOf(dep)}`
+}
+
+/** 生成結果サムネイルの識別値の元（結果パス + 版。再実行で差し替わっても描き直す） */
+export function resultIdentityString(task: Pick<BatchTaskRow, 'result_path' | 'completed_at' | 'result_meta' | 'id'>): string {
+  return JSON.stringify({ v: 1, kind: 'result', path: task.result_path ?? '', version: maskVersionOf(task) })
 }
 
 /** 切り抜き列用のダミー設定（透過・余白なし・正方形は使わない。識別値の区別のためだけに固定値を入れる） */
@@ -199,6 +287,23 @@ export function exportVariantsOf(variants: ReviewVariant[]): ReviewVariant[] {
   return [{ key: CUTOUT_VARIANT_KEY, name: 'cutout', params, baseParams: params, overridden: false, added: false, backgroundNodeId: null }]
 }
 
+/** 書き出しの列: レイアウト（切り抜きがあるジョブ）＋ 生成結果（ノードごと）。フォルダ名・{variant} はいずれも name */
+export interface ExportColumn {
+  kind: 'variant' | 'result'
+  key: string
+  name: string
+  transparent: boolean             // 透過が決まっている列（JPEG 指定なら PNG へ）。結果列は描画時に判定するので false
+  variant?: ReviewVariant
+  result?: ReviewResultColumn
+}
+export function exportColumnsOf(variants: ReviewVariant[], results: ReviewResultColumn[], hasCutout: boolean): ExportColumn[] {
+  const layout: ExportColumn[] = hasCutout
+    ? exportVariantsOf(variants).map((v) => ({ kind: 'variant', key: v.key, name: v.name, transparent: v.params.backgroundKind === 'transparent', variant: v }))
+    : []
+  const res: ExportColumn[] = results.map((r) => ({ kind: 'result', key: r.key, name: r.name, transparent: false, result: r }))
+  return [...layout, ...res]
+}
+
 export type ReviewFilter = 'all' | 'failed'
 
 export function filterItems<T extends Pick<BatchItemRow, 'status'>>(items: T[], f: ReviewFilter): T[] {
@@ -225,9 +330,9 @@ export function moveFocus(index: number | null, key: string, count: number, colu
 
 export interface ExportPlanItem { item: BatchItemRow; entries: PlannedEntry[]; warnings: string[] }
 
-/** ジョブの書き出し計画（アイテムごとに命名規則を適用。連番はアイテムの並び順） */
-export function planJobExport(items: BatchItemRow[], variants: ReviewVariant[], params: ExportParams, now: Date): ExportPlanItem[] {
-  const inputs = variants.map((v) => ({ variant: v.name, transparent: v.params.backgroundKind === 'transparent' }))
+/** ジョブの書き出し計画（アイテムごとに命名規則を適用。連番はアイテムの並び順。列 = レイアウト + 生成結果） */
+export function planJobExport(items: BatchItemRow[], columns: Array<Pick<ExportColumn, 'name' | 'transparent'>>, params: ExportParams, now: Date): ExportPlanItem[] {
+  const inputs = columns.map((c) => ({ variant: c.name, transparent: c.transparent }))
   return items.map((item) => {
     const { entries, warnings } = planExportEntries(inputs, params, itemInfoOfRow(item), now)
     return { item, entries, warnings }

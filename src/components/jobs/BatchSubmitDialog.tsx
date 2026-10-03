@@ -17,6 +17,7 @@ type Phase = 'estimating' | 'confirm' | 'creating' | 'submitting' | 'done' | 'er
 interface ApiError extends Error { code?: string; status?: number; details?: Record<string, unknown> }
 
 const ROW = 'flex items-center justify-between text-[12px] py-1'
+const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: '画像生成（写真ごと）', imageGen: '背景生成（ジョブごと）' }
 
 /**
  * 一括実行の確認 → 作成 → 投入（仕様 4-7 / 4-8）。Batch Input ノードの「一括実行…」から開く。
@@ -105,6 +106,7 @@ export function BatchSubmitDialog() {
 
   const submittedSoFar = progress ? progress.totalTasks - progress.pendingTasks : 0
   const remainingAfter = limits ? limits.remaining - items.length : null
+  const perItemGen = plan?.perItemGenerations ?? 0
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close() }}>
@@ -122,7 +124,22 @@ export function BatchSubmitDialog() {
           <div className="mt-3" style={{ color: 'var(--text-secondary)' }}>
             <div className={ROW}><span>枚数</span><b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{items.length} 枚</b></div>
             {plan && <div className={ROW}><span>AI 処理</span><span className="tabular-nums">{plan.totalTasks} 件（アイテムごと {plan.itemTasks} 種{plan.jobTasks ? `・ジョブごと ${plan.jobTasks} 件` : ''}）</span></div>}
-            {plan && <div className={ROW}><span>推定時間</span><span>{formatDuration(plan.estimatedSeconds)}</span></div>}
+            {/* ノード別の内訳（フェーズ C(a)）: 何が何回動くかを投入前に見せる。単価・小計は原価を見せる設定のときだけ */}
+            {plan?.breakdown?.length ? (
+              <div className="rounded-lg px-3 py-1.5 mt-1 mb-1 text-[11px]" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
+                {plan.breakdown.map((b) => (
+                  <div key={b.nodeId} className="flex items-center justify-between py-0.5 gap-2">
+                    <span className="truncate" style={{ color: 'var(--text-secondary)' }} title={b.endpoint}>
+                      {b.label}<span style={{ color: 'var(--text-tertiary)' }}>（{KIND_LABEL[b.kind] ?? b.kind}{b.scope === 'item' && (plan.maxStage ?? 1) > 1 ? `・${b.stage} 段目` : ''}）</span>
+                    </span>
+                    <span className="tabular-nums shrink-0" style={{ color: 'var(--text-primary)' }}>
+                      {b.count} 件{plan.showCost ? <span style={{ color: 'var(--text-tertiary)' }}>（{formatCost(b.unitUsd)} × {b.count} = {formatCost(b.totalUsd)}）</span> : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {plan && <div className={ROW}><span>推定時間</span><span>{formatDuration(plan.estimatedSeconds)}{(plan.maxStage ?? 1) > 1 ? <span style={{ color: 'var(--text-tertiary)' }}>（2 段の処理: 1 段目が終わった写真から 2 段目を投入）</span> : null}</span></div>}
             {limits && (
               <div className={ROW}>
                 <span>本日の残り枚数</span>
@@ -131,6 +148,14 @@ export function BatchSubmitDialog() {
             )}
             {limits && <div className={ROW}><span>同時進行のジョブ</span><span className="tabular-nums">{limits.activeJobs} / {limits.maxActiveJobs}</span></div>}
             {plan?.showCost && <div className={ROW}><span>推定コスト</span><span className="tabular-nums">{formatCost(plan.estimatedCostUsd)}</span></div>}
+            {/* 写真ごとの画像生成は枚数分の生成になる。原価を見せない設定でも必ず注意を出す */}
+            {perItemGen > 0 ? (
+              <div className="mt-2 rounded-lg px-3 py-2 text-[11px]" style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.3)', color: 'var(--text-primary)' }}>
+                <div className="flex items-start gap-1"><Warning size={12} weight="fill" className="mt-0.5 shrink-0" style={{ color: '#8B5CF6' }} />
+                  <span>写真ごとの画像生成が {perItemGen} 種あります。{items.length} 枚 × {perItemGen} = <b>{items.length * perItemGen} 回</b>の生成を行います（切り抜きより時間もコストもかかります）。枚数とプロンプトを確認してから投入してください。</span>
+                </div>
+              </div>
+            ) : null}
             {plan?.warnings.length ? (
               <div className="mt-2 rounded-lg px-3 py-2 text-[11px]" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
                 {plan.warnings.map((w, i) => <div key={i} className="flex items-start gap-1"><Warning size={12} weight="fill" className="mt-0.5 shrink-0" />{w}</div>)}

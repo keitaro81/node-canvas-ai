@@ -24,7 +24,13 @@ async function call<T>(action: string, body: unknown): Promise<T> {
 }
 
 export interface BatchLimits { dailyLimit: number; usedToday: number; remaining: number; activeJobs: number; maxActiveJobs: number; maxItemsPerJob: number }
-export interface BatchPlanInfo { itemTasks: number; jobTasks: number; totalTasks: number; estimatedCostUsd: number; estimatedSeconds: number; showCost: boolean; warnings: string[] }
+export interface BatchPlanBreakdown { nodeId: string; label: string; kind: 'cutout' | 'imageGen' | 'imageEdit'; scope: 'item' | 'job'; stage: number; count: number; unitUsd: number; totalUsd: number; endpoint: string }
+export interface BatchPlanInfo {
+  itemTasks: number; jobTasks: number; totalTasks: number; estimatedCostUsd: number; estimatedSeconds: number; showCost: boolean; warnings: string[]
+  breakdown?: BatchPlanBreakdown[]      // ノード別の件数・単価・小計（フェーズ C）
+  perItemGenerations?: number           // 写真ごとの画像生成の件数（コストの注意文）
+  maxStage?: number                     // 1 経路の AI 処理の段数（1 or 2）
+}
 export interface CreateItemInput { index: number; originalName: string; sku: string; interactivePath: string; width?: number; height?: number }
 export interface WorkflowSnapshot { nodes: Array<{ id: string; type?: string; data: Record<string, unknown> }>; edges: Array<{ source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }> }
 

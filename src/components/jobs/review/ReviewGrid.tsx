@@ -21,6 +21,7 @@ interface Props {
   onFocus: (itemId: string) => void
   onOpen: (itemId: string) => void
   onColumns?: (n: number) => void        // 1 行のカード数（矢印キーの上下移動用）
+  resultSizes?: Record<string, { w: number; h: number }> | null   // 生成結果の列: アイテム id → 結果画像の大きさ（枠の比率用）
 }
 
 /** サムネイル部分（状態の重ね表示つき） */
@@ -67,7 +68,7 @@ function Thumb({ thumb, item }: { thumb: ThumbState | undefined; item: BatchItem
 }
 
 /** 1 列ぶんのカードグリッド（仕様 5 章の確認グリッド・2026-10 改訂）: 写真ごとに 1 枚。チェックで再切り抜き/書き出しの対象にする。ダブルクリックで拡大 */
-function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onToggle, focusId, onFocus, onOpen, onColumns }: Props) {
+function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onToggle, focusId, onFocus, onOpen, onColumns, resultSizes }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const variant = activeKey === CUTOUT_VARIANT_KEY ? null : variants.find((v) => v.key === activeKey) ?? null
   // 1 行のカード数を測る（矢印キーの上下移動に使う）
@@ -91,8 +92,9 @@ function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onT
       {items.map((item) => {
         const focused = focusId === item.id
         const checked = selected.has(item.id)
-        const w = variant ? variant.params.width : item.width ?? null
-        const h = variant ? variant.params.height : item.height ?? null
+        const rs = resultSizes?.[item.id] ?? null
+        const w = variant ? variant.params.width : rs?.w ?? item.width ?? null
+        const h = variant ? variant.params.height : rs?.h ?? item.height ?? null
         const aspect = w && h ? `${w} / ${h}` : '1 / 1'
         return (
           <div
