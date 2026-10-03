@@ -112,7 +112,8 @@ export function itemAiStageOf(snapshot: Snapshot | null | undefined, nodeId: str
   const edges = edgesOf(snapshot)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const typeOf = (id: string | undefined) => (id ? (byId.get(id)?.data?.type as string | undefined) : undefined)
-  const isItemAi = (id: string) => typeOf(id) === 'removeBackground' || (typeOf(id) === 'imageGen' && (byId.get(id)?.data?.params as Record<string, unknown> | undefined)?.executionScope !== 'job')
+  // Image Generation はスコープに関わらず候補（写真由来の画像入力があれば写真ごと。「ジョブごと」は画像入力の無い背景生成だけ）
+  const isItemAi = (id: string) => typeOf(id) === 'removeBackground' || typeOf(id) === 'imageGen'
   const producerOf = (sourceId: string): { kind: 'batchInput' | 'ai' | 'other'; nodeId: string } => {
     const t = typeOf(sourceId)
     if (t === 'batchInput') return { kind: 'batchInput', nodeId: sourceId }

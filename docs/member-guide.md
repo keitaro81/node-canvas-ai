@@ -156,6 +156,7 @@ AI で画像・動画を「**フロー図のように組み合わせて生成す
 - 一括実行は、写真ごとの AI 処理を **1 経路につき 2 段まで** つなげられる（3 段目は投入前に注意が出て対象外）。
   - 切り抜き → 合成: Batch Input → Remove Background → Image Generation（切り抜いた商品だけを入力にして背景を生成・合成）。同じ Remove Background から Product Layout にもつなげる。
   - レタッチ → 切り抜き: Batch Input → Image Generation（レタッチ）→ Result → Remove Background → Product Layout。レタッチ後の写真を切り抜いてレイアウトする。
+- Image Generation に写真由来の画像入力（Batch Input・Remove Background・前段の Image Generation）があれば、「一括実行のスコープ」の設定に関わらず写真ごとに実行される（ノード側でスコープが「アイテムごと」に固定される）。「ジョブごと」は画像入力の無い背景生成だけに使う。
 - キャンバスでは Remove Background の出力を **Image Generation の画像入力だけ** につなげる（他のノードの画像入力にはつながらない）。Image Generation をつないだ状態で Remove Background を「実行」すると透過の切り抜き画像も保存され、Image Generation の「参照 1（切り抜き）」になる。つなぐ前に実行していた場合は Remove Background に注意が出るので「実行」でやり直す。
 - 一括実行の確認ダイアログに **ノード別の内訳**（何が何回動くか・2 段なら段数）が出る。写真ごとの画像生成があるときは「枚数 × 種類 = 回数」の注意が必ず出る（生成は切り抜きより時間もコストもかかる。Nano Banana 2 の編集は 1 回 ≈ $0.04）。2 段の処理は、1 段目が終わった写真から順に 2 段目が投入される。
 - ジョブ画面には **生成結果のタブ**（ノード名）が増える。レタッチ → 切り抜きのジョブでは「切り抜き」タブはレタッチ後の写真を切り抜いた結果で、拡大表示の「元画像と比較」は元の写真。

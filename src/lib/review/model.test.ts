@@ -179,7 +179,9 @@ describe('フェーズ C(a): 連鎖と生成結果の列', () => {
       { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl', targetHandle: 'in-cutout-cutout' },
     ],
   }
-  it('段の割り当てはサーバーの planTasks と同じ（結果ノードは透過、3 段目は対象外）', () => {
+  it('段の割り当てはサーバーの planTasks と同じ（結果ノードは透過、3 段目は対象外、「ジョブごと」でも画像入力があれば写真ごと）', () => {
+    const jobScoped = { ...chain, nodes: chain.nodes.map((n) => (n.id === 'retouch' ? { ...n, data: { ...n.data, params: { executionScope: 'job' } } } : n)) }
+    expect(itemAiStageOf(jobScoped, 'retouch')).toEqual({ stage: 1, dependsOn: null })
     expect(itemAiStageOf(chain, 'retouch')).toEqual({ stage: 1, dependsOn: null })
     expect(itemAiStageOf(chain, 'rb')).toEqual({ stage: 2, dependsOn: 'retouch' })
     expect(itemAiStageOf(chain, 'compose')).toBeNull()      // 3 段目

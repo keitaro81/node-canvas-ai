@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { GPT_IMAGE_2_MODELS, NB_ASPECT_RATIOS, NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS, RECRAFT_MODELS } from '../../lib/ai/imageGenModels'
 import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
@@ -14,6 +14,7 @@ import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
 import { signBatchPath } from '../../lib/cutout/store'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
+import { itemAiStageOf } from '../../lib/review/model'
 
 function getImageUrlFromNode(node: AppNode): string | null {
   return getImageUrlFromNodeData(node.data)
@@ -284,6 +285,11 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   // canvasStore から直接エッジ・ノードを購読（useEdges/useNodes より確実に最新状態を反映）
   const storeNodes = useCanvasStore((s) => s.nodes)
   const storeEdges = useCanvasStore((s) => s.edges)
+  // 一括実行で写真ごとに動くか（Batch Input の写真に 2 段以内で行き着く画像入力がある）。あればスコープは「ジョブごと」にできない（サーバーの planTasks と同じ規則）
+  const perItemStage = useMemo(() => itemAiStageOf(
+    { nodes: storeNodes.map((n) => ({ id: n.id, data: { type: (n.data as { type?: string }).type, params: (n.data as { params?: Record<string, unknown> }).params ?? {} } })), edges: storeEdges.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle, target: e.target, targetHandle: e.targetHandle })) },
+    id,
+  ), [storeNodes, storeEdges, id])
 
   const model = (nodeData.params?.model as string) ?? 'fal-ai/nano-banana-2'
   const editModel = (nodeData.params?.editModel as string) ?? 'fal-ai/nano-banana-2'
@@ -987,17 +993,22 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">一括実行のスコープ</label>
             <div className="relative">
               <select
-                className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none"
+                className="w-full rounded-md pl-2.5 pr-8 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none transition-colors nodrag appearance-none disabled:opacity-60"
                 style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-                value={(nodeData.params?.executionScope as string) === 'job' ? 'job' : 'item'}
+                value={perItemStage ? 'item' : (nodeData.params?.executionScope as string) === 'job' ? 'job' : 'item'}
                 onChange={(e) => updateNode(id, { params: { ...nodeData.params, executionScope: e.target.value } })}
-                disabled={isGenerating}
+                disabled={isGenerating || !!perItemStage}
               >
                 <option value="item">アイテムごと（画像 1 枚につき 1 回）</option>
                 <option value="job">ジョブごと（1 回だけ実行して全アイテムで共有）</option>
               </select>
               <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
             </div>
+            {perItemStage && (
+              <p className="mt-1 text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
+                写真由来の画像入力があるため、一括実行では写真ごとに実行します{perItemStage.stage > 1 ? `（${perItemStage.stage} 段目）` : ''}。「ジョブごと」は画像入力の無い背景生成用です。
+              </p>
+            )}
           </div>
 
           {/* Aspect Ratio / Size: モデルによって切り替え */}
