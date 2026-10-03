@@ -8,21 +8,37 @@ describe('planTasks（写しから AI 処理を抽出）', () => {
       { id: 'rb', data: { type: 'removeBackground', params: { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0 } } },
       { id: 'rb2', data: { type: 'removeBackground', params: { engine: 'bria' } } },   // 未接続
       { id: 'pl', data: { type: 'productLayout', params: {} } },
-      { id: 'ig', data: { type: 'imageGen', params: { executionScope: 'job', prompt: 'studio background', model: 'fal-ai/flux-2' } } },
-      { id: 'ig2', data: { type: 'imageGen', params: { executionScope: 'job', prompt: '' } } },
+      { id: 'pl-bg', data: { type: 'productLayout', params: { backgroundKind: 'image' } } },
+      { id: 'tp', data: { type: 'textPrompt', params: { prompt: 'studio background' } } },
+      { id: 'ig', data: { type: 'imageGen', params: { executionScope: 'job', model: 'fal-ai/nano-banana-2', aspectRatio: '9:16', resolution: '1K' } } },   // 背景につながる
+      { id: 'disp', data: { type: 'imageDisplay' } },
+      { id: 'ig2', data: { type: 'imageGen', params: { executionScope: 'job', prompt: 'unused' } } },   // 背景につながっていない
       { id: 'ig3', data: { type: 'imageGen', params: { executionScope: 'item', prompt: 'x' } } },
     ],
     edges: [
       { source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' },
       { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl', targetHandle: 'in-cutout-cutout' },
+      { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl-bg', targetHandle: 'in-cutout-cutout' },
+      { source: 'tp', sourceHandle: 'out-text-text-out', target: 'ig', targetHandle: 'in-text' },
+      { source: 'ig', sourceHandle: 'out-image-image-out', target: 'disp', targetHandle: 'in-image-image-in' },
+      { source: 'disp', sourceHandle: 'out-image-image', target: 'pl-bg', targetHandle: 'in-image-background' },
     ],
   }
-  it('Batch Input 直結の Remove Background はアイテムごと、ジョブスコープの Image Generation はジョブごと', () => {
+  it('Batch Input 直結の Remove Background はアイテムごと、背景入力に行き着くジョブごとの Image Generation は 1 件（結果ノード経由でも）', () => {
     const { tasks, warnings } = planTasks(snapshot)
-    expect(tasks.map((t) => `${t.nodeId}:${t.scope}:${t.endpoint}`)).toEqual(['rb:item:fal-ai/birefnet/v2', 'ig:job:fal-ai/flux-2'])
+    expect(tasks.map((t) => `${t.nodeId}:${t.scope}:${t.endpoint}`)).toEqual(['rb:item:fal-ai/birefnet/v2', 'ig:job:fal-ai/nano-banana-2'])
     expect(tasks[0].input).toMatchObject({ model: 'General Use (Light)', operating_resolution: '2048x2048', refine_foreground: false, mask_only: true })
     expect('image_url' in tasks[0].input).toBe(false)
-    expect(warnings.length).toBe(2)   // rb2 未接続, ig2 プロンプト空
+    expect(tasks[1].input).toEqual({ prompt: 'studio background', aspect_ratio: '9:16', resolution: '1K' })   // プロンプトは Text Prompt から
+    expect(warnings.length).toBe(2)   // rb2 未接続, ig2 背景につながっていない
+  })
+  it('背景の生成器がアイテムごと・プロンプト無しなら対象外（警告）', () => {
+    const s2 = { ...snapshot, nodes: snapshot.nodes.map((n) => (n.id === 'ig' ? { ...n, data: { ...n.data, params: { ...n.data.params, executionScope: 'item' } } } : n)) }
+    const r = planTasks(s2)
+    expect(r.tasks.map((t) => t.nodeId)).toEqual(['rb'])
+    expect(r.warnings.some((w) => w.includes('ジョブごと'))).toBe(true)
+    const s3 = { ...snapshot, edges: snapshot.edges.filter((e) => e.target !== 'ig') }
+    expect(planTasks(s3).tasks.map((t) => t.nodeId)).toEqual(['rb'])
   })
   it('空/不正な写しは空計画', () => {
     expect(planTasks(null).tasks).toEqual([])

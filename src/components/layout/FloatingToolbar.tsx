@@ -28,9 +28,14 @@ import {
   Layout,
   Images,
   DownloadSimple,
+  UploadSimple,
 } from '@phosphor-icons/react'
-import { useCanvasStore, undoCanvas, redoCanvas } from '../../stores/canvasStore'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { useCanvasStore, undoCanvas, redoCanvas, type AppNode } from '../../stores/canvasStore'
+import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
+import type { Edge } from '@xyflow/react'
+import type { CanvasLike } from '../../lib/review/model'
+import { buildProfile, describeImport, parseProfile, planProfileImport, profileFileName, type ImportPlan } from '../../lib/profile/profile'
+import { showToast } from '../../hooks/useToast'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { DEFAULT_CUTOUT_PARAMS } from '../../lib/cutout/engines'
 import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
@@ -281,6 +286,39 @@ function WorkflowPanel({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState<{ workflowId: string; name: string } | null>(null)
   const [switching, setSwitching] = useState<string | null>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  // 規定プロファイル（Step 8）: 開いているワークフローの撮影後工程の設定を書き出し / 読み込み
+  const currentWorkflowName = useWorkflowStore((s) => s.currentWorkflowName)
+  const canEditNow = useWorkflowStore(selectCanEditNow)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importPlan, setImportPlan] = useState<{ plan: ImportPlan; name: string; warnings: string[] } | null>(null)
+
+  function handleExportProfile() {
+    const { nodes, edges } = useCanvasStore.getState()
+    const { profile, warnings } = buildProfile({ nodes, edges } as unknown as CanvasLike, currentWorkflowName)
+    const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = profileFileName(currentWorkflowName)
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    showToast(warnings.length ? `プロファイルを書き出しました（注意: ${warnings[0]}）` : 'プロファイルを書き出しました', warnings.length ? 'warning' : 'success')
+  }
+  async function handleImportFile(file: File) {
+    const r = parseProfile(await file.text())
+    if (!r.ok) { showToast(`プロファイルを読み込めません: ${r.error}`, 'error'); return }
+    const { nodes, edges } = useCanvasStore.getState()
+    const plan = planProfileImport({ nodes, edges } as unknown as CanvasLike, r.profile)
+    setImportPlan({ plan, name: r.profile.name, warnings: [...r.warnings, ...plan.warnings] })
+  }
+  function applyImport() {
+    if (!importPlan) return
+    const cs = useCanvasStore.getState()
+    cs.setNodes(importPlan.plan.canvas.nodes as unknown as AppNode[])
+    cs.setEdges(importPlan.plan.canvas.edges as unknown as Edge[])
+    showToast(`プロファイル「${importPlan.name}」を読み込みました（自動保存されます）`, 'success')
+    setImportPlan(null)
+    onClose()
+  }
 
   useEffect(() => {
     if (rename) setTimeout(() => renameInputRef.current?.select(), 0)
@@ -435,14 +473,40 @@ function WorkflowPanel({ onClose }: { onClose: () => void }) {
           data-toolbar-portal
           className="fixed rounded-xl py-1 z-[99999]"
           style={{
-            left: menu.x - 160,
+            left: menu.x - 200,
             top: menu.y,
-            width: 160,
+            width: 200,
             background: 'var(--bg-surface)',
             border: '1px solid var(--border)',
               }}
           onClick={(e) => e.stopPropagation()}
         >
+          {menu.workflowId === currentWorkflowId && (
+            <>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-2 text-[12px] transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                onClick={() => { setMenu(null); handleExportProfile() }}
+                title="撮影後工程の設定（入力・切り抜き・バリアント・背景生成・書き出し）を JSON に書き出す"
+              >
+                <DownloadSimple size={13} /> プロファイルを書き出す
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-2 text-[12px] transition-colors disabled:opacity-50"
+                style={{ color: 'var(--text-secondary)' }}
+                disabled={!canEditNow}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                onClick={() => { setMenu(null); fileInputRef.current?.click() }}
+                title={canEditNow ? 'プロファイルをこのワークフローに当てる（既存のノードは残して更新）' : '編集できる状態のときに読み込めます'}
+              >
+                <UploadSimple size={13} /> プロファイルを読み込む…
+              </button>
+              <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+            </>
+          )}
           <button
             className="w-full flex items-center gap-2 px-3 py-2 text-[12px] transition-colors"
             style={{ color: 'var(--text-secondary)' }}
@@ -469,6 +533,33 @@ function WorkflowPanel({ onClose }: { onClose: () => void }) {
           >
             <Trash size={13} /> 削除
           </button>
+        </div>,
+        document.body
+      )}
+
+      <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleImportFile(f) }} />
+
+      {/* Profile import confirm */}
+      {importPlan && createPortal(
+        <div data-toolbar-portal className="fixed inset-0 flex items-center justify-center z-[99999]" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={() => setImportPlan(null)}>
+          <div className="rounded-2xl p-5 flex flex-col gap-4" style={{ width: 420, background: 'var(--bg-surface)', border: '1px solid var(--border)' }} onClick={(e) => e.stopPropagation()}>
+            <div>
+              <p className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>プロファイルを読み込む</p>
+              <p className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>「{importPlan.name}」を開いているワークフローに当てます。既存のノードは残して設定を更新し、バリアントは名前で突き合わせます。</p>
+              <ul className="text-[12px] mt-2 space-y-0.5" style={{ color: 'var(--text-primary)' }}>
+                {describeImport(importPlan.plan.summary).map((l, i) => <li key={i}>・{l}</li>)}
+              </ul>
+              {importPlan.warnings.length > 0 && (
+                <ul className="text-[11px] mt-2 space-y-0.5" style={{ color: 'var(--warning)' }}>
+                  {importPlan.warnings.map((w, i) => <li key={i}>注意: {w}</li>)}
+                </ul>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="px-3 py-1.5 rounded-lg text-[12px] transition-colors" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setImportPlan(null)}>キャンセル</button>
+              <button className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }} onClick={applyImport}>読み込む</button>
+            </div>
+          </div>
         </div>,
         document.body
       )}

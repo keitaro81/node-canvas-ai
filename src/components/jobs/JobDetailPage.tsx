@@ -24,6 +24,8 @@ import { ReviewToolbar } from './review/ReviewToolbar'
 import { ReviewLightbox } from './review/ReviewLightbox'
 import { LayoutSettingsDrawer, type LayoutChangePlan, type LayoutSaveTarget } from './review/LayoutSettingsDrawer'
 import { acquireEditLock, releaseEditLock } from '../../lib/api/workflowLocks'
+import { signMediaRequest } from '../../lib/api/storage'
+import { resolveBackgroundSource, type BgCanvas } from '../../lib/batch/background'
 import { editSessionId, holderLabel, lockRequiredFor } from '../../lib/workflow/editLock'
 import { RerunDialog } from './review/RerunDialog'
 import { ExportDialog, type ExportDialogState } from './review/ExportDialog'
@@ -48,6 +50,7 @@ export function JobDetailPage() {
   const [tasks, setTasks] = useState<BatchTaskRow[]>([])
   const [knownThumbs, setKnownThumbs] = useState<BatchOutputRow[]>([])
   const [source, setSource] = useState<WorkflowSource | null>(null)          // 投入元ワークフローの現在の内容（読めるとき）
+  const [backgroundUrls, setBackgroundUrls] = useState<Record<string, string>>({})   // 背景入力ノード ID → 署名 URL（Step 8）
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -155,14 +158,42 @@ export function JobDetailPage() {
     }
     return variantsFromSnapshot(job.workflow_snapshot, job.layout_overrides)
   }, [job, source])
+  // 背景画像（Step 8）: 背景が「画像」のバリアントについて、生成器（ジョブごとタスク）の結果か固定画像を署名して渡す
+  useEffect(() => {
+    if (!job) return
+    const canvas = (source?.canvas ?? job.workflow_snapshot) as unknown as BgCanvas
+    const wanted = variants.filter((v) => v.backgroundNodeId && v.params.backgroundKind === 'image')
+    if (!wanted.length) { setBackgroundUrls({}); return }
+    let cancelled = false
+    void (async () => {
+      const byPath: Record<string, string> = {}, byUrl: Record<string, string> = {}
+      for (const v of wanted) {
+        const src = resolveBackgroundSource(canvas, v.key)
+        if (!src) continue
+        if (src.generatorNodeId) {
+          const t = tasks.find((x) => x.item_id === null && x.node_id === src.generatorNodeId && x.status === 'completed' && x.result_path)
+          if (t?.result_path) byPath[src.sourceNodeId] = t.result_path
+        } else {
+          const d = canvas.nodes?.find((n) => n.id === src.sourceNodeId)?.data
+          const u = typeof d?.output === 'string' ? d.output : typeof d?.imageUrl === 'string' ? d.imageUrl : null
+          if (u) byUrl[src.sourceNodeId] = u
+        }
+      }
+      const out: Record<string, string> = {}
+      if (Object.keys(byPath).length) { const m = await signMediaRequest({ batchPaths: Object.values(byPath) }); for (const [nid, p] of Object.entries(byPath)) if (m[p]) out[nid] = m[p] }
+      if (Object.keys(byUrl).length) { const m = await signMediaRequest({ urls: Object.values(byUrl), workflowId: job.workflow_id ?? undefined }); for (const [nid, u] of Object.entries(byUrl)) if (m[u]) out[nid] = m[u] }
+      if (!cancelled) setBackgroundUrls((prev) => (JSON.stringify(prev) === JSON.stringify(out) ? prev : out))
+    })()
+    return () => { cancelled = true }
+  }, [job, source, tasks, variants])
   const hasJobOverrides = !!job && Object.keys(job.layout_overrides).length > 0
   const cutoutNode = useMemo(() => (job ? cutoutNodesFromSnapshot(job.workflow_snapshot)[0] ?? null : null), [job])
   const exportParams = useMemo<ExportParams>(() => exportParamsFromSnapshot(job?.workflow_snapshot), [job])
   const ctx = useMemo<ReviewContext | null>(() => (job && teamId ? {
     teamId, jobId: job.id, items, tasks, variants, cutoutNodeId: cutoutNode?.nodeId ?? null,
     cutoutParams: cutoutNode?.params ?? ({ engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, previewBg: 'checker' } as CutoutParams),
-    knownThumbs, backgroundUrls: {},
-  } : null), [job, teamId, items, tasks, variants, cutoutNode, knownThumbs])
+    knownThumbs, backgroundUrls,
+  } : null), [job, teamId, items, tasks, variants, cutoutNode, knownThumbs, backgroundUrls])
   useEffect(() => { if (ctx) void useReviewStore.getState().sync(ctx) }, [ctx])
 
   const visibleItems = useMemo(() => filterItems(items, filter), [items, filter])

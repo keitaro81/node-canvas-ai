@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { interactiveBackgroundUrl, type BgNode } from '../../lib/batch/background'
 import type { NodeProps } from '@xyflow/react'
 import { LayoutTemplate, Loader2, RefreshCw } from 'lucide-react'
 import { BaseNode } from './BaseNode'
@@ -8,7 +9,7 @@ import { useSignedMedia } from '../../hooks/useSignedMedia'
 import { toCanonicalRef } from '../../lib/api/storage'
 import type { NodeData, LayoutParams, LayoutOutputRef } from '../../types/nodes'
 import { computeLayout, effectiveMargins, normalizeLayoutParams } from '../../lib/layout/computeLayout'
-import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
+import { PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
 import { loadLayoutAssets, runLayout, storeLayoutOutput, type LayoutAssets } from '../../lib/layout/runLayout'
 import { layoutHash } from '../../lib/layout/identity'
 import { interactiveCutoutDir, resolveFetchableUrl, resolveTeamId, signBatchPath } from '../../lib/cutout/store'
@@ -35,9 +36,8 @@ function ProductLayoutNodeInner(props: NodeProps) {
   const cutoutEdge = edges.find((e) => e.target === id && e.targetHandle === PRODUCT_LAYOUT_INPUT_CUTOUT)
   const cutoutNode = cutoutEdge ? nodes.find((n) => n.id === cutoutEdge.source) : undefined
   const cutout = cutoutRefFromNodeData(cutoutNode?.data as Record<string, unknown> | undefined)
-  const bgEdge = edges.find((e) => e.target === id && e.targetHandle === PRODUCT_LAYOUT_INPUT_BACKGROUND)
-  const bgNode = bgEdge ? nodes.find((n) => n.id === bgEdge.source) : undefined
-  const bgUrl = params.backgroundKind === 'image' ? imageUrlFromNodeData(bgNode?.data as Record<string, unknown> | undefined) : null
+  // 背景: 結果ノード（Image Display）・Image Generation 直結・固定画像のどれでも同じ解決（src/lib/batch/background.ts）
+  const bgUrl = params.backgroundKind === 'image' ? interactiveBackgroundUrl({ nodes: nodes as unknown as BgNode[], edges }, id, (d) => imageUrlFromNodeData(d)) : null
   const bgCanonical = bgUrl ? (toCanonicalRef(bgUrl) ?? bgUrl) : null
 
   // 元画像は切り抜きの sourceRef（canonical）を署名して取る（ワークフロー認可 → batch チーム署名 → 上流ノードの現在 URL の順）
