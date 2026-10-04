@@ -82,6 +82,22 @@ export async function fetchFinishedJobs(teamId: string, f: JobFilters, page: num
   return { rows: asJobs(data), total: count ?? 0 }
 }
 
+export interface WorkflowJobCounts { total: number; active: number; latestAt: string | null }
+/** ワークフローごとのジョブ数（Apps ページのカード用。見えるものだけ） */
+export async function fetchJobCountsByWorkflow(workflowIds: string[]): Promise<Record<string, WorkflowJobCounts>> {
+  const out: Record<string, WorkflowJobCounts> = {}
+  if (!workflowIds.length) return out
+  const { data, error } = await sb.from('batch_jobs').select('workflow_id, status, created_at').in('workflow_id', workflowIds)
+  if (error) throw new Error(error.message)
+  for (const r of (data ?? []) as Array<{ workflow_id: string; status: string; created_at: string }>) {
+    const c = out[r.workflow_id] ?? (out[r.workflow_id] = { total: 0, active: 0, latestAt: null })
+    c.total++
+    if ((ACTIVE_JOB_STATUSES as string[]).includes(r.status)) c.active++
+    if (!c.latestAt || r.created_at > c.latestAt) c.latestAt = r.created_at
+  }
+  return out
+}
+
 /** ワークフローから投入したジョブ（新しい順・最大 limit 件）。見えるものだけ（RLS: 作成者 / 共有ワークフローならチーム）。一括結果ノード用 */
 export async function fetchWorkflowJobs(workflowId: string, limit = 30): Promise<BatchJobRow[]> {
   const { data, error } = await sb.from('batch_jobs').select(JOB_COLUMNS).eq('workflow_id', workflowId).order('created_at', { ascending: false }).limit(limit)

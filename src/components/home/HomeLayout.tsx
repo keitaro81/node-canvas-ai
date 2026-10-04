@@ -12,6 +12,7 @@ import {
   User,
   UsersThree,
   Queue,
+  AppWindow,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -22,6 +23,7 @@ import { PageLoading } from '../ui/PageLoading'
 const NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'My Projects' },
   { to: '/team', icon: UsersThree, label: 'Team' },
+  { to: '/apps', icon: AppWindow, label: 'Apps' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
   { to: '/jobs', icon: Queue, label: 'Jobs' },
@@ -29,6 +31,7 @@ const NAV_ITEMS = [
 
 const MOBILE_NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
+  { to: '/apps', icon: AppWindow, label: 'Apps' },
   { to: '/history', icon: Clock, label: 'History' },
   { to: '/account', icon: User, label: 'Account' },
 ]

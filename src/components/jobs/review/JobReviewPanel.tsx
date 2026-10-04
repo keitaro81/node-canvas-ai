@@ -42,8 +42,9 @@ const DEFAULT_CUTOUT: CutoutParams = { engine: 'birefnet', birefnetModel: 'Gener
 export interface JobReviewPanelProps {
   jobId: string
   store: ReviewStoreHook
-  mode: 'page' | 'node'
-  /** node モード: キャンバスの現在のノード（バリアント・背景・Export 設定の出どころ） */
+  /** page = ジョブ管理画面 / node = 一括結果ノード / app = App モードの結果欄（node と同じくキャンバスの現在のノードが出どころ・キー操作は画面全体） */
+  mode: 'page' | 'node' | 'app'
+  /** node / app モード: キャンバスの現在のノード（バリアント・背景・Export 設定の出どころ） */
   liveCanvas?: CanvasLike | null
   /** 削除後（node: 一覧を取り直す / page: 一覧へ戻る） */
   onDeleted?: () => void
@@ -53,7 +54,8 @@ type KeyLike = { key: string; target: EventTarget | null; preventDefault: () => 
 
 export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDeleted }: JobReviewPanelProps) {
   const navigate = useNavigate()
-  const isNode = mode === 'node'
+  const isNode = mode !== 'page'          // 埋め込み（ノード / App）: キャンバスの現在のノードが出どころ・レイアウトの引き出し無し・詰めた見た目
+  const scopedKeys = mode === 'node'      // ノードの中にフォーカスがある間だけキー操作（App は画面全体）
   const userId = useAuthStore((s) => s.user?.id ?? null)
   const teamId = useBatchStore((s) => s.teamId)
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
@@ -266,12 +268,12 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
     else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); e.stopPropagation(); setBg(BG_ORDER[(BG_ORDER.indexOf(bg) + 1) % BG_ORDER.length]) }
   }, [lightbox, settingsOpen, rerunOpen, exportScope, visibleItems, focusId, columns, setFocusId, toggleSelected, setLightbox, activeKey, bg, setBg])
   useEffect(() => {
-    if (isNode) return
+    if (scopedKeys) return
     const h = (e: KeyboardEvent) => handleKey(e)
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [isNode, handleKey])
-  const onRootKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => { if (isNode) handleKey(e) }, [isNode, handleKey])
+  }, [scopedKeys, handleKey])
+  const onRootKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => { if (scopedKeys) handleKey(e) }, [scopedKeys, handleKey])
 
   // ── 拡大表示 ──
   const lbItem = lightbox ? items.find((i) => i.id === lightbox.itemId) ?? null : null
@@ -407,7 +409,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   const handleDeleted = () => { if (onDeleted) onDeleted(); else navigate('/jobs') }
 
   return (
-    <div ref={rootRef} tabIndex={isNode ? 0 : -1} onKeyDown={onRootKeyDown} className={`flex flex-col h-full min-h-0 outline-none ${isNode ? 'text-[12px]' : ''}`}>
+    <div ref={rootRef} tabIndex={scopedKeys ? 0 : -1} onKeyDown={onRootKeyDown} className={`flex flex-col h-full min-h-0 outline-none ${isNode ? 'text-[12px]' : ''}`}>
       {/* Header */}
       {isNode ? (
         <div className="flex items-center gap-3 px-3 py-2 border-b shrink-0 text-[11px] flex-wrap" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
@@ -452,10 +454,10 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
         onExport={(scope) => { setExportScope(scope); setExportState({ phase: 'idle' }) }}
         onRerunSelected={() => setRerunOpen(true)}
         onSettings={isNode ? undefined : () => setSettingsOpen(true)}
-        compact={isNode}
+        compact={mode === 'node'}
       />
 
-      <div className={`flex-1 min-h-0 overflow-auto ${isNode ? 'px-3 py-3' : 'px-8 py-4'}`}>
+      <div className={`flex-1 min-h-0 overflow-auto ${mode === 'node' ? 'px-3 py-3' : mode === 'app' ? 'px-5 py-4' : 'px-8 py-4'}`}>
         {!cutoutNode && results.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
             このジョブには切り抜き（Remove Background）が無いため、生成結果の列だけを表示しています。

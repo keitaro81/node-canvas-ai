@@ -9,6 +9,15 @@ import { initialGate, nextGate, shouldSubscribeJobs, type GateState } from '../l
 import { batchReconcile, submitJobFully } from '../lib/api/batch'
 import { getTeamInfo } from '../lib/api/team'
 import { isResumableJob } from '../lib/batch/jobsQuery'
+import type { CreateItemInput, WorkflowSnapshot } from '../lib/api/batch'
+
+export interface SubmitDialogSource {
+  items: CreateItemInput[]
+  snapshot: WorkflowSnapshot
+  workflowId: string | null
+  /** 投入が終わったら呼ぶ（App モードは結果欄でそのジョブを開く） */
+  onDone?: (jobId: string) => void
+}
 
 const RECONCILE_MIN_INTERVAL_MS = 60_000
 const REFRESH_DEBOUNCE_MS = 300
@@ -31,6 +40,8 @@ interface BatchState {
   /** null=接続中 / true=購読中 / false=接続できず再取得ポーリングで代替中 */
   realtimeOk: boolean | null
   submitDialogNodeId: string | null
+  /** App モードなど、ノード以外から開く一括実行（写真と写しを直接渡す） */
+  submitDialogSource: SubmitDialogSource | null
 
   start: (teamId: string, userId: string, role: 'owner' | 'member') => Promise<void>
   stop: () => void
@@ -38,6 +49,7 @@ interface BatchState {
   bump: () => void
   reconcileNow: (force?: boolean) => Promise<void>
   openSubmitDialog: (nodeId: string) => void
+  openSubmitDialogWith: (source: SubmitDialogSource) => void
   closeSubmitDialog: () => void
   /** ジョブの変更を Realtime で追いたい画面（ジョブ管理・一括結果ノード）が登録する。登録が無く進行中ジョブも無ければ購読しない（DB の WAL ポーリングを止める） */
   watch: (key: string) => void
@@ -116,6 +128,7 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   ready: false,
   realtimeOk: null,
   submitDialogNodeId: null,
+  submitDialogSource: null,
 
   start: async (teamId, userId, role) => {
     if (get().teamId === teamId && get().userId === userId) { if (get().role !== role) set({ role }); return }
@@ -172,7 +185,7 @@ export const useBatchStore = create<BatchState>((set, get) => ({
       if (typeof window !== 'undefined') window.removeEventListener('online', visibilityHandler)
       visibilityHandler = null
     }
-    set({ teamId: null, userId: null, role: null, activeJobs: [], activeCount: 0, usedToday: 0, ready: false, realtimeOk: null, memberNames: {}, submitDialogNodeId: null })
+    set({ teamId: null, userId: null, role: null, activeJobs: [], activeCount: 0, usedToday: 0, ready: false, realtimeOk: null, memberNames: {}, submitDialogNodeId: null, submitDialogSource: null })
   },
 
   refresh: async () => {
@@ -210,8 +223,9 @@ export const useBatchStore = create<BatchState>((set, get) => ({
     }
   },
 
-  openSubmitDialog: (nodeId) => set({ submitDialogNodeId: nodeId }),
-  closeSubmitDialog: () => set({ submitDialogNodeId: null }),
+  openSubmitDialog: (nodeId) => set({ submitDialogNodeId: nodeId, submitDialogSource: null }),
+  openSubmitDialogWith: (source) => set({ submitDialogSource: source, submitDialogNodeId: null }),
+  closeSubmitDialog: () => set({ submitDialogNodeId: null, submitDialogSource: null }),
 
   watch: (key) => { watchers.add(key); syncRealtime(); get().bump() },
   unwatch: (key) => { watchers.delete(key); syncRealtime() },

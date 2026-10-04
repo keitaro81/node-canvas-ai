@@ -11,6 +11,7 @@ const TeamPage = lazy(() => import('./components/home/TeamPage').then((m) => ({ 
 const TeamSettingsPage = lazy(() => import('./components/home/TeamSettingsPage').then((m) => ({ default: m.TeamSettingsPage })))
 const JoinPage = lazy(() => import('./components/home/JoinPage').then((m) => ({ default: m.JoinPage })))
 const HistoryPage = lazy(() => import('./components/home/HistoryPage').then((m) => ({ default: m.HistoryPage })))
+const AppsPage = lazy(() => import('./components/home/AppsPage').then((m) => ({ default: m.AppsPage })))
 const JobsPage = lazy(() => import('./components/jobs/JobsPage').then((m) => ({ default: m.JobsPage })))
 const JobDetailPage = lazy(() => import('./components/jobs/JobDetailPage').then((m) => ({ default: m.JobDetailPage })))
 const MyPage = lazy(() => import('./components/home/MyPage').then((m) => ({ default: m.MyPage })))
@@ -37,6 +38,8 @@ export const router = createBrowserRouter([
       { path: '/projects', element: <ProjectsPage /> },
       { path: '/team', element: <TeamPage /> },
       { path: '/team/settings', element: <TeamSettingsPage /> },
+      // App 化されたワークフローの一覧（フェーズ C(c)）
+      { path: '/apps', element: <AppsPage /> },
       { path: '/community', element: <CommunityPage /> },
       { path: '/history', element: <HistoryPage /> },
       // 撮影後工程: ジョブ管理（仕様 4-11）。キャンバスとは別ページ
@@ -48,6 +51,11 @@ export const router = createBrowserRouter([
   {
     path: '/canvas/:workflowId',
     element: <CanvasPage />,
+  },
+  // App モードで開く（撮影後工程なら 写真の投入 → 一括実行 → 結果、生成ならグループの App）
+  {
+    path: '/app/:workflowId',
+    element: <CanvasPage initialMode="app" />,
   },
   // 運営コンソール（要ログイン＋サーバー側 ADMIN_USER_IDS ゲート。通常ナビには出さない）
   { path: '/admin', element: <AdminPage /> },
