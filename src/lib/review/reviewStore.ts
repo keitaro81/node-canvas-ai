@@ -8,7 +8,7 @@ import { useStore } from 'zustand'
 import type { CutoutParams } from '../../types/nodes'
 import type { BatchItemRow, BatchOutputRow, BatchTaskRow } from '../../types/batch'
 import { layoutHash, layoutIdentityString, sha256Hex, type LayoutIdentityInput } from '../layout/identity'
-import { signBatchPath, signBatchPaths, uploadBatchObject } from '../cutout/store'
+import { signBatchPath, signBatchPaths, uploadBatchObjectIfMissing } from '../cutout/store'
 import { fetchBlob } from '../cutout/decode'
 import { recordThumb } from '../api/batchJobs'
 import { CancelledError, createLayoutExecutor, type LayoutExecutor } from './executor'
@@ -179,6 +179,7 @@ export function createReviewStore(): ReviewStoreApi {
   let pumping = false
   let syncGen = 0
   const objectUrls = new Map<string, string>()   // thumbKey → object URL（差し替え時に revoke）
+  const persisted = new Map<string, string>()    // このインスタンスで保存した記録 `${item}|${variant}|${hash}` → path（知っている記録が取り直されるまでの間に描き直さない）
 
   const getExecutorImpl = (): LayoutExecutor => {
     if (!executor) executor = createLayoutExecutor()
@@ -240,8 +241,9 @@ export function createReviewStore(): ReviewStoreApi {
       const next: Record<string, ThumbState> = { ...get().thumbs }
       const toSign: Array<{ key: string; path: string; hash: string; transparent: boolean }> = []
       const needRender = new Set<string>()
-      const known = new Map<string, BatchOutputRow>()
+      const known = new Map<string, { output_path: string }>()
       for (const o of ctx.knownThumbs) known.set(`${o.item_id}|${o.variant}|${o.layout_hash}`, o)
+      for (const [k, path] of persisted) if (!known.has(k)) known.set(k, { output_path: path })
       const keep = (cur: ThumbState | undefined, hash: string) => !!cur && cur.hash === hash && (cur.status === 'ready' || cur.status === 'rendering' || cur.status === 'queued')
       const place = (tk: string, itemId: string, hash: string, transparent: boolean, cur: ThumbState | undefined, key: string) => {
         const rec = known.get(`${itemId}|${key}|${hash}`)
@@ -427,12 +429,9 @@ export function createReviewStore(): ReviewStoreApi {
     const hash = cur.hash
     const path = `${ctx.teamId}/${ctx.jobId}/${itemId}/${thumbFileName(t.key, hash, t.transparent)}`
     enqueuePersist(async () => {
-      try {
-        await uploadBatchObject(path, t.blob, t.transparent ? 'image/png' : 'image/jpeg')
-      } catch (e) {
-        if (!/already exists|duplicate|409/i.test(e instanceof Error ? e.message : String(e))) throw e
-      }
+      await uploadBatchObjectIfMissing(path, t.blob, t.transparent ? 'image/png' : 'image/jpeg')
       await recordThumb(itemId, t.key, hash, path)
+      persisted.set(`${itemId}|${t.key}|${hash}`, path)
     })
   }
 
