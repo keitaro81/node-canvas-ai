@@ -467,11 +467,6 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
             {isNode ? 'このキャンバスに Product Layout ノードが無いため、' : source ? `ワークフロー「${source.name}」に Product Layout ノードが無いため、` : '実行時のワークフローに Product Layout ノードが無いため、'}切り抜き列だけを表示しています。{isNode ? 'Product Layout ノードを切り抜きにつなぐとバリアントの列が増えます（切り抜きの再実行は不要）。' : '「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合のダウンロードは切り抜きの透過 PNG）。'}
           </div>
         )}
-        {isNode && variants.length > 0 && (
-          <div className="mb-2 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            バリアントはこのキャンバスの Product Layout ノードと連動しています。ノードの設定を変えるとここに自動で反映されます（fal は呼びません）。
-          </div>
-        )}
         {!isNode && !source && job?.workflow_id && variants.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
             元のワークフローを読み込めないため、実行時のレイアウトを表示しています（列が最新でない可能性があります）。
