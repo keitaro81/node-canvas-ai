@@ -21,10 +21,11 @@ export interface BatchJobRow {
   actual_cost_usd: number
   created_at: string
   updated_at: string
+  workflow_id: string | null      // 投入元ワークフロー（0014）。一覧から App で開くのに使う
 }
 
 /** 一覧・詳細で読む列（workflow_snapshot は大きいので読まない） */
-export const JOB_COLUMNS = 'id, team_id, created_by, name, status, item_count, task_count, completed_tasks, failed_tasks, estimated_cost_usd, actual_cost_usd, created_at, updated_at'
+export const JOB_COLUMNS = 'id, team_id, created_by, name, status, item_count, task_count, completed_tasks, failed_tasks, estimated_cost_usd, actual_cost_usd, created_at, updated_at, workflow_id'
 
 export interface BatchItemRow {
   id: string
@@ -122,7 +123,6 @@ export const OUTPUT_COLUMNS = 'id, item_id, team_id, variant, layout_hash, outpu
 export interface BatchJobDetail extends BatchJobRow {
   workflow_snapshot: { nodes?: Array<{ id: string; type?: string; data?: Record<string, unknown> }>; edges?: Array<{ source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }> }
   layout_overrides: Record<string, unknown>
-  workflow_id: string | null      // 投入元ワークフロー（0014）。バリアントはこのワークフローの現在のノードから作る
 }
 
-export const JOB_DETAIL_COLUMNS = `${JOB_COLUMNS}, workflow_snapshot, layout_overrides, workflow_id`
+export const JOB_DETAIL_COLUMNS = `${JOB_COLUMNS}, workflow_snapshot, layout_overrides`

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { ArrowsClockwise, CaretLeft, CaretRight, CircleNotch, MagnifyingGlass, X } from '@phosphor-icons/react'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { fetchFinishedJobs, fetchSkuJobIds } from '../../lib/api/batchJobs'
+import { getWorkflowNames } from '../../lib/api/workflows'
 import {
   DEFAULT_JOB_FILTERS, JOBS_PAGE_SIZE, jobProgress, matchesFilters, mergeJobRows, normalizeSearch, pageCount, type JobFilters, type JobStatusFilter,
 } from '../../lib/batch/jobsQuery'
@@ -82,6 +83,15 @@ export function JobsPage() {
   useEffect(() => { const t = setInterval(() => bump(), realtimeOk === false ? 20_000 : 60_000); return () => clearInterval(t) }, [bump, realtimeOk])
 
   const visibleActive = useMemo(() => activeJobs.filter((j) => matchesFilters(j, filters, skuJobIds)), [activeJobs, filters, skuJobIds])
+  // 投入元ワークフロー（App）の名前。読めるものだけ返るので、名前があるジョブは App で開ける
+  const [wfNames, setWfNames] = useState<Record<string, string>>({})
+  const wfIdsKey = useMemo(() => Array.from(new Set([...activeJobs, ...finished].map((j) => j.workflow_id).filter((x): x is string => !!x))).sort().join(','), [activeJobs, finished])
+  useEffect(() => {
+    let alive = true
+    ;(wfIdsKey ? getWorkflowNames(wfIdsKey.split(',')) : Promise.resolve({} as Record<string, string>)).then((m) => { if (alive) setWfNames(m) }).catch(() => {})
+    return () => { alive = false }
+  }, [wfIdsKey])
+  const openPathOf = (job: BatchJobRow) => (job.workflow_id && wfNames[job.workflow_id] ? `/app/${job.workflow_id}?job=${job.id}` : `/jobs/${job.id}`)
   const pages = pageCount(total)
   const creatorOptions = useMemo(() => {
     const map = new Map<string, string>(Object.entries(memberNames))
@@ -177,15 +187,15 @@ export function JobsPage() {
         ) : (
           <>
             <div className="rounded-xl overflow-x-auto" style={{ border: '1px solid var(--border)' }}>
-              <table className="w-full text-[12px]" style={{ tableLayout: 'fixed', minWidth: showCost ? 1180 : 1080 }}>
+              <table className="w-full text-[12px]" style={{ tableLayout: 'fixed', minWidth: showCost ? 1330 : 1230 }}>
                 <colgroup>
-                  <col style={{ minWidth: 160 }} /><col style={{ width: 140 }} /><col style={{ width: 112 }} /><col style={{ width: 104 }} /><col style={{ width: 160 }} />
+                  <col style={{ minWidth: 160 }} /><col style={{ width: 150 }} /><col style={{ width: 140 }} /><col style={{ width: 112 }} /><col style={{ width: 104 }} /><col style={{ width: 160 }} />
                   <col style={{ width: 48 }} /><col style={{ width: showCost ? 170 : 72 }} /><col style={{ width: 112 }} /><col style={{ width: 120 }} />
                 </colgroup>
                 <thead>
                   <tr style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
-                    {['ジョブ名', '投入者', '投入日時', '状態', '進捗', '失敗', '利用量', '最終更新', ''].map((h, i) => (
-                      <th key={i} className={`font-medium px-3 py-2 whitespace-nowrap ${i === 5 ? 'text-right' : 'text-left'}`}>{h}</th>
+                    {['ジョブ名', 'App', '投入者', '投入日時', '状態', '進捗', '失敗', '利用量', '最終更新', ''].map((h, i) => (
+                      <th key={i} className={`font-medium px-3 py-2 whitespace-nowrap ${i === 6 ? 'text-right' : 'text-left'}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -196,7 +206,7 @@ export function JobsPage() {
                     return (
                       <tr
                         key={job.id}
-                        onClick={() => navigate(`/jobs/${job.id}`)}
+                        onClick={() => navigate(openPathOf(job))}
                         className="cursor-pointer transition-colors hover:bg-[var(--bg-elevated)]"
                         style={{
                           borderTop: firstFinished ? '2px solid var(--border-active)' : '1px solid var(--border)',
@@ -204,6 +214,9 @@ export function JobsPage() {
                         }}
                       >
                         <td className="px-3 py-2 truncate font-medium" style={{ color: 'var(--text-primary)' }} title={job.name}>{job.name}</td>
+                        <td className="px-3 py-2 truncate" style={{ color: job.workflow_id && wfNames[job.workflow_id] ? 'var(--text-secondary)' : 'var(--text-tertiary)' }} title={job.workflow_id ? (wfNames[job.workflow_id] ?? 'ワークフローを開けません（削除済みか権限なし）') : '投入元の記録なし'}>
+                          {job.workflow_id ? (wfNames[job.workflow_id] ?? '—') : '—'}
+                        </td>
                         <td className="px-3 py-2 truncate" style={{ color: 'var(--text-secondary)' }} title={nameOf(job.created_by)}>{nameOf(job.created_by)}</td>
                         <td className="px-3 py-2 tabular-nums whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{formatJst(job.created_at)}</td>
                         <td className="px-3 py-2"><JobStatusBadge status={job.status as BatchJobStatus} /></td>
@@ -224,7 +237,7 @@ export function JobsPage() {
                           {job.item_count} 枚{showCost && <span className="ml-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{formatCost(job.actual_cost_usd)}</span>}
                         </td>
                         <td className="px-3 py-2 tabular-nums whitespace-nowrap" style={{ color: 'var(--text-tertiary)' }}>{formatJst(job.updated_at)}</td>
-                        <td className="px-2 py-1.5"><JobActions job={job} showOpen compact /></td>
+                        <td className="px-2 py-1.5"><JobActions job={job} showOpen compact openTo={openPathOf(job)} /></td>
                       </tr>
                     )
                   })}

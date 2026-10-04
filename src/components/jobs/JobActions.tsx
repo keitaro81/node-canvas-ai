@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 interface Props {
   job: BatchJobRow
   showOpen?: boolean
+  openTo?: string                 // 「開く」の遷移先（既定はジョブ詳細。一覧からは App で開く）
   compact?: boolean
   onChanged?: () => void
   onDeleted?: () => void
@@ -19,7 +20,7 @@ interface Props {
 type Busy = 'cancel' | 'retry' | 'delete' | null
 
 /** 行の操作（仕様 4-11）: 開く / キャンセル / 失敗分を再実行 / 削除（投入者本人と owner のみ表示）。再書き出しは Step 7 で追加 */
-export function JobActions({ job, showOpen, compact, onChanged, onDeleted }: Props) {
+export function JobActions({ job, showOpen, compact, onChanged, onDeleted, openTo }: Props) {
   const navigate = useNavigate()
   const userId = useBatchStore((s) => s.userId)
   const role = useBatchStore((s) => s.role)
@@ -62,7 +63,7 @@ export function JobActions({ job, showOpen, compact, onChanged, onDeleted }: Pro
   return (
     <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
       {showOpen && (
-        <button className={btn} style={{ color: 'var(--text-secondary)' }} title="開く" onClick={() => navigate(`/jobs/${job.id}`)}>
+        <button className={btn} style={{ color: 'var(--text-secondary)' }} title="開く" onClick={() => navigate(openTo ?? `/jobs/${job.id}`)}>
           <ArrowSquareOut size={13} />{!compact && '開く'}
         </button>
       )}

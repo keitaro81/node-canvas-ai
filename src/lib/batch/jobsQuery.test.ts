@@ -8,7 +8,7 @@ import type { BatchJobRow } from '../../types/batch'
 
 const job = (over: Partial<BatchJobRow> = {}): BatchJobRow => ({
   id: 'j1', team_id: 't', created_by: 'u1', name: '2026-09-23 10:00 20枚', status: 'processing',
-  item_count: 20, task_count: 20, completed_tasks: 5, failed_tasks: 1, estimated_cost_usd: 0.02, actual_cost_usd: 0.01,
+  item_count: 20, task_count: 20, completed_tasks: 5, failed_tasks: 1, estimated_cost_usd: 0.02, actual_cost_usd: 0.01, workflow_id: null,
   created_at: '2026-09-23T01:00:00.000Z', updated_at: '2026-09-23T01:00:00.000Z', ...over,
 })
 
