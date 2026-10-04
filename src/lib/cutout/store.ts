@@ -27,6 +27,29 @@ export async function uploadBatchObject(path: string, blob: Blob, contentType = 
   return path
 }
 
+/** 同じパスのファイルが既にあるか（識別値で名前が決まる出力の再アップロードを避ける。list は閲覧権限だけで動く） */
+export async function batchObjectExists(path: string): Promise<boolean> {
+  const i = path.lastIndexOf('/')
+  const dir = i >= 0 ? path.slice(0, i) : '', name = i >= 0 ? path.slice(i + 1) : path
+  const { data, error } = await supabase.storage.from(BATCH_BUCKET).list(dir, { limit: 20, search: name })
+  if (error) return false
+  return (data ?? []).some((o) => o.name === name)
+}
+
+/** 識別値で名前が決まる出力（同じ名前 = 同じ内容）の保存: あれば上げ直さない。無ければ上げる（同時実行で先を越されても成功扱い）。
+ *  bucket は更新を許していないので upsert は使えず、先に有無を見る（重複で 400 がコンソールに出ないように） */
+export async function uploadBatchObjectIfMissing(path: string, blob: Blob, contentType = 'image/png'): Promise<{ path: string; uploaded: boolean }> {
+  if (await batchObjectExists(path)) return { path, uploaded: false }
+  try {
+    await uploadBatchObject(path, blob, contentType)
+    return { path, uploaded: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/already exists|duplicate|409/i.test(msg)) return { path, uploaded: false }
+    throw e
+  }
+}
+
 // 署名 URL のキャッシュ（サーバー署名は TTL 24h。保持は 20h にして失効前に取り直す）
 const SIGN_CACHE_MS = 20 * 60 * 60 * 1000
 const signCache = new Map<string, { url: string; exp: number }>()

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { interactiveBackgroundUrl, type BgNode } from '../../lib/batch/background'
+import { interactiveBackgroundUrl, resolveBackgroundSource, type BgNode } from '../../lib/batch/background'
 import type { NodeProps } from '@xyflow/react'
 import { LayoutTemplate, Loader2, RefreshCw } from 'lucide-react'
 import { BaseNode } from './BaseNode'
@@ -39,6 +39,9 @@ function ProductLayoutNodeInner(props: NodeProps) {
   // 背景: 結果ノード（Image Display）・Image Generation 直結・固定画像のどれでも同じ解決（src/lib/batch/background.ts）
   const bgUrl = params.backgroundKind === 'image' ? interactiveBackgroundUrl({ nodes: nodes as unknown as BgNode[], edges }, id, (d) => imageUrlFromNodeData(d)) : null
   const bgCanonical = bgUrl ? (toCanonicalRef(bgUrl) ?? bgUrl) : null
+  // 背景入力の出どころ（つながっているが画像がまだ無い、を見分けるため）
+  const bgSource = params.backgroundKind === 'image' ? resolveBackgroundSource({ nodes: nodes as unknown as BgNode[], edges }, id) : null
+  const bgPending = !!bgSource && !bgUrl
 
   // 元画像は切り抜きの sourceRef（canonical）を署名して取る（ワークフロー認可 → batch チーム署名 → 上流ノードの現在 URL の順）
   const { freshUrl: freshOriginalUrl } = useSignedMedia(cutout?.sourceRef ?? null, currentWorkflowId)
@@ -140,7 +143,13 @@ function ProductLayoutNodeInner(props: NodeProps) {
   const marginDeviates = !!eff && (
     Math.abs(eff.topPct - setPct(params.marginTop, params.height)) > 1 || Math.abs(eff.leftPct - setPct(params.marginLeft, params.width)) > 1
   )
-  const warnings = layout?.warnings ?? []
+  // 背景入力はつながっているがまだ画像が無い: 「接続されていない」という警告は紛らわしいので、状況に合った案内に置き換える
+  const warnings = (layout?.warnings ?? []).filter((w) => !(bgPending && w.includes('背景画像が接続されていない')))
+  const bgPendingNotice = bgPending
+    ? (bgSource?.generatorNodeId
+      ? '背景入力の Image Generation はキャンバスではまだ実行されていないため、いまは単色で描いています。Generate を押すと背景付きで描き直します。一括実行ではジョブごとに自動で生成され、Batch Results / App の結果で確認できます。'
+      : '背景入力につないだノードにまだ画像が無いため、いまは単色で描いています。')
+    : null
   const isTransparent = params.backgroundKind === 'transparent'
   const shownUrl = previewUrl ?? signedOutput ?? null
 
@@ -189,6 +198,9 @@ function ProductLayoutNodeInner(props: NodeProps) {
         {warnings.map((w) => (
           <div key={w} className="rounded-md px-2 py-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>{w}</div>
         ))}
+        {bgPendingNotice && (
+          <div className="rounded-md px-2 py-1 text-[11px]" style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}>{bgPendingNotice}</div>
+        )}
         {status === 'error' && error && (
           <div className="flex items-start gap-1.5">
             <div className="flex-1 text-[11px] break-words" style={{ color: '#EF4444' }}>{error}</div>

@@ -4,7 +4,7 @@ import type { CutoutRef, LayoutOutputRef, LayoutParams } from '../../types/nodes
 import type { AlphaMap } from '../cutout/alpha'
 import { decodeBlob, fetchBlob, type DecodedImage } from '../cutout/decode'
 import { loadRawAlpha } from '../cutout/runCutout'
-import { signBatchPath, uploadBatchObject } from '../cutout/store'
+import { signBatchPath, uploadBatchObjectIfMissing } from '../cutout/store'
 import { computeLayout, type LayoutPlan } from './computeLayout'
 import { layoutHash } from './identity'
 import { renderLayoutToPng } from './renderLayout'
@@ -70,13 +70,8 @@ export async function runLayout(input: RunLayoutInput): Promise<RunLayoutResult>
 export async function storeLayoutOutput(input: { dir: string; result: RunLayoutResult; cutout: CutoutRef }): Promise<LayoutOutputRef> {
   const { dir, result, cutout } = input
   const path = `${dir}/${result.hash}.png`
-  try {
-    await uploadBatchObject(path, result.blob)
-  } catch (e) {
-    // 同じ識別値 = 同じ内容。既に存在するなら成功扱い（仕様 4-10「同じ内容の出力は作り直さない」）
-    const msg = e instanceof Error ? e.message : String(e)
-    if (!/already exists|duplicate|409/i.test(msg)) throw e
-  }
+  // 同じ識別値 = 同じ内容。既に存在するなら上げ直さない（仕様 4-10「同じ内容の出力は作り直さない」）
+  await uploadBatchObjectIfMissing(path, result.blob)
   return {
     path,
     width: result.plan.canvas.width,
