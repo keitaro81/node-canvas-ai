@@ -6,6 +6,7 @@ import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { useNavigate } from 'react-router'
 import { LayoutGrid, Loader2, RefreshCw } from 'lucide-react'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useCanvasStore } from '../../stores/canvasStore'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
@@ -25,6 +26,8 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
   const workflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
   const bump = useBatchStore((s) => s.bump)
+  // App モードの間はキャンバスごと背面に隠れる。見えないのに描画・保存すると App の結果欄と同じサムネイルを二重に作る（Storage の重複 400）ので止める
+  const hidden = useCanvasStore((s) => s.appMode) !== 'graph'
   useWatchBatchJobs(`results:${id}`)   // ノードがある間はジョブの変更を Realtime で追う
 
   const [jobs, setJobs] = useState<BatchJobRow[] | null>(null)
@@ -35,6 +38,7 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
   // 確認グリッドの状態はノードごとに 1 つ（ジョブ管理画面や他のノードと混ざらない）。外すときに Worker と object URL を解放
   const store = useMemo(() => createReviewStoreHook(), [])
   useEffect(() => () => store.getState().close(), [store])
+  useEffect(() => { if (hidden) store.getState().close() }, [hidden, store])
 
   useEffect(() => {
     let alive = true
@@ -91,7 +95,7 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
             {workflowId ? null : <div style={{ color: '#F59E0B' }}>ワークフローを保存すると表示できるようになります</div>}
           </div>
         )}
-        {current && (
+        {current && !hidden && (
           <JobReviewPanel key={current.id} jobId={current.id} store={store} mode="node" liveCanvas={liveCanvas} onDeleted={() => { setSelectedId(null); setReloadTick((t) => t + 1); bump() }} />
         )}
       </div>
