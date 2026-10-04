@@ -5,6 +5,7 @@ import { ITEM_STATUS_META } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
 import { CUTOUT_VARIANT_KEY, thumbKey, type ReviewVariant } from '../../../lib/review/model'
 import { BG_STYLE } from './reviewStyles'
+import { Switch } from '../../ui/Switch'
 
 export const CARD_MIN_WIDTH = 220
 export const CARD_GAP = 12
@@ -114,15 +115,14 @@ function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onT
               <div className="absolute inset-0">
                 <Thumb thumb={thumbs[thumbKey(item.id, activeKey)]} item={item} />
               </div>
-              <span className="absolute top-1.5 left-1.5 inline-flex p-0.5 rounded" style={{ background: 'rgba(255,255,255,0.85)' }} onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="checkbox"
+              {/* チェックの切替: 右パネルと同じ丸いトグル。画像の左上に重ねる */}
+              <span className="absolute top-1.5 left-1.5 inline-flex p-1 rounded-full" style={{ background: 'rgba(255,255,255,0.9)' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                <Switch
                   checked={checked}
                   onChange={() => onToggle(item.id)}
-                  className="w-4 h-4 block cursor-pointer"
-                  style={{ accentColor: 'var(--accent)' }}
+                  stopPropagation
+                  label={`${item.sku} をチェック`}
                   title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / ダウンロードの対象'}
-                  aria-label={`${item.sku} をチェック`}
                 />
               </span>
             </div>

@@ -4,7 +4,8 @@ import { ArrowsLeftRight, CaretLeft, CaretRight, CircleNotch, X } from '@phospho
 import type { BatchItemRow } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
 import type { FullResult } from '../../../lib/review/renderCore'
-import { ACCENT, BG_LABEL, BG_ORDER, BG_STYLE } from './reviewStyles'
+import { BG_LABEL, BG_ORDER, BG_STYLE } from './reviewStyles'
+import { Switch } from '../../ui/Switch'
 
 interface Props {
   item: BatchItemRow
@@ -109,10 +110,10 @@ export function ReviewLightbox(p: Props) {
       </div>
       {/* footer */}
       <div className="flex items-center gap-3 px-4 h-14 shrink-0 text-[12px]" style={{ color: '#E5E7EB' }}>
-        <label className="flex items-center gap-2 h-8 px-3 rounded-lg cursor-pointer select-none" style={{ background: checked ? 'rgba(20,184,166,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? ACCENT : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「ダウンロード」の対象（キー: Space）">
-          <input type="checkbox" checked={checked} onChange={onToggleCheck} className="w-4 h-4" style={{ accentColor: ACCENT }} />
+        <div className="flex items-center gap-2 h-8 px-3 rounded-lg select-none" style={{ background: checked ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? 'var(--accent)' : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「ダウンロード」の対象（キー: Space）">
+          <Switch checked={checked} onChange={() => onToggleCheck()} label="この写真をチェック" />
           <span className="font-medium">{checked ? 'チェック済み' : 'この写真をチェック'}</span>
-        </label>
+        </div>
         {warnings.length > 0 && <span className="truncate" style={{ color: '#F59E0B' }} title={warnings.join('\n')}>⚠ {warnings.join(' / ')}</span>}
         <div className="flex-1" />
         <span style={{ color: '#6B7280' }}>← → 写真・↑ ↓ 列・Space チェック・C 比較・B 背景・Esc 閉じる</span>
