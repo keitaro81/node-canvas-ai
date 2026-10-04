@@ -1,14 +1,14 @@
 // 撮影後工程の App モード（フェーズ C(c)）: 左に「写真を投入」、右に「ジョブと結果」。
 // ワークフローの中身（ノード）はキャンバスで組み、使う人はこの画面だけで 入力 → 一括実行 → 結果 を完結させる。
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { ArrowSquareOut, ArrowsClockwise, CircleNotch, Images } from '@phosphor-icons/react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
-import { fetchWorkflowJobs } from '../../lib/api/batchJobs'
+import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { buildWorkflowSnapshot, type CreateItemInput } from '../../lib/api/batch'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { normalizeBatchInputParams } from '../../lib/batch/items'
@@ -17,6 +17,7 @@ import { JOB_STATUS_META, type BatchJobRow } from '../../types/batch'
 import type { NodeData } from '../../types/nodes'
 import { JobReviewPanel } from '../jobs/review/JobReviewPanel'
 import { AppBatchInput } from './AppBatchInput'
+import { AppLayoutSettings } from './AppLayoutSettings'
 
 const ACCENT = '#14B8A6'
 
@@ -34,8 +35,10 @@ export function BatchAppView() {
   const batchInput = useMemo(() => nodes.find((n) => (n.data as unknown as NodeData).type === 'batchInput') ?? null, [nodes])
   const skuPattern = useMemo(() => normalizeBatchInputParams((batchInput?.data as unknown as NodeData | undefined)?.params).skuPattern, [batchInput])
 
+  const [searchParams] = useSearchParams()
+  const jobParam = searchParams.get('job')          // ジョブ一覧から開いたとき: このジョブを選んだ状態で始める
   const [jobs, setJobs] = useState<BatchJobRow[] | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(jobParam)
   const [error, setError] = useState<string | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
   const [resetKey, setResetKey] = useState(0)
@@ -46,10 +49,18 @@ export function BatchAppView() {
   useEffect(() => {
     let alive = true
     ;(workflowId ? fetchWorkflowJobs(workflowId) : Promise.resolve([] as BatchJobRow[]))
-      .then((rows) => { if (!alive) return; setJobs(rows); setError(null) })
+      .then(async (rows) => {
+        // 一覧（最新 30 件）に無い古いジョブを指定して開いたときは、そのジョブだけ足す
+        if (jobParam && !rows.some((j) => j.id === jobParam)) {
+          const extra = await fetchJob(jobParam).catch(() => null)
+          if (extra && extra.workflow_id === workflowId) rows = [extra, ...rows]
+        }
+        if (!alive) return
+        setJobs(rows); setError(null)
+      })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
     return () => { alive = false }
-  }, [workflowId, jobsVersion, reloadTick])
+  }, [workflowId, jobsVersion, reloadTick, jobParam])
   const current = useMemo(() => (jobs ? jobs.find((j) => j.id === selectedId) ?? jobs[0] ?? null : null), [jobs, selectedId])
 
   const submit = useCallback((items: CreateItemInput[]) => {
@@ -83,6 +94,8 @@ export function BatchAppView() {
           App「{workflowName}」の処理（切り抜き・レイアウト・生成）を、入れた写真すべてに実行します。
         </p>
         <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId} onSubmit={submit} />
+        <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
+        <AppLayoutSettings />
       </aside>
 
       {/* 右: ジョブと結果 */}

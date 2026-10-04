@@ -22,6 +22,17 @@ export async function getWorkflows(projectId: string): Promise<WorkflowRow[]> {
   return signWorkflowThumbnails((data ?? []) as any)
 }
 
+/** ワークフロー名の一覧（読めるものだけ返る＝RLS）。ジョブ一覧で App 名を出し、開けるかどうかの判定にも使う */
+export async function getWorkflowNames(ids: string[]): Promise<Record<string, string>> {
+  const uniq = Array.from(new Set(ids.filter(Boolean)))
+  if (!uniq.length) return {}
+  const { data, error } = await supabase.from('workflows').select('id, name').in('id', uniq)
+  if (error) throw error
+  const out: Record<string, string> = {}
+  for (const r of (data ?? []) as Array<{ id: string; name: string }>) out[r.id] = r.name
+  return out
+}
+
 export async function getWorkflow(id: string): Promise<WorkflowRow> {
   const { data, error } = await supabase
     .from('workflows')
