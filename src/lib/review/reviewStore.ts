@@ -82,10 +82,26 @@ export type ReviewStoreApi = StoreApi<ReviewState>
 /** セレクタで読める hook と、getState/setState/subscribe を併せ持つ（zustand の create() が返すものと同じ形） */
 export type ReviewStoreHook = (<T>(selector: (s: ReviewState) => T) => T) & ReviewStoreApi
 
-// ── インスタンス間で共有してよいもの（純粋な計算結果と、保存のスロットル） ──
+// ── インスタンス間で共有してよいもの（純粋な計算結果と、保存のスロットル・重複排除） ──
 const hashCache = new Map<string, string>()    // identityString → hash
 let persistInFlight = 0
 const persistQueue: Array<() => Promise<void>> = []
+const persistedPaths = new Set<string>()                   // このタブで保存済みのサムネイルのパス（別のインスタンスが同じものを上げない）
+const inFlightPaths = new Map<string, Promise<void>>()     // 保存中のパス（同時に走った別インスタンスは待つだけ）
+
+/** サムネイルを保存して記録する。同じパスはタブ内で 1 回だけ（ジョブ管理 / 一括結果ノード / App の結果欄が同じジョブを描いても重複しない） */
+async function persistThumbOnce(path: string, blob: Blob, contentType: string, record: () => Promise<void>): Promise<void> {
+  if (persistedPaths.has(path)) return
+  const running = inFlightPaths.get(path)
+  if (running) { await running; return }
+  const p = (async () => {
+    await uploadBatchObjectIfMissing(path, blob, contentType)
+    await record()
+    persistedPaths.add(path)
+  })()
+  inFlightPaths.set(path, p)
+  try { await p } finally { inFlightPaths.delete(path) }
+}
 
 async function hashOf(input: LayoutIdentityInput): Promise<string> {
   const id = layoutIdentityString(input)
@@ -429,8 +445,7 @@ export function createReviewStore(): ReviewStoreApi {
     const hash = cur.hash
     const path = `${ctx.teamId}/${ctx.jobId}/${itemId}/${thumbFileName(t.key, hash, t.transparent)}`
     enqueuePersist(async () => {
-      await uploadBatchObjectIfMissing(path, t.blob, t.transparent ? 'image/png' : 'image/jpeg')
-      await recordThumb(itemId, t.key, hash, path)
+      await persistThumbOnce(path, t.blob, t.transparent ? 'image/png' : 'image/jpeg', () => recordThumb(itemId, t.key, hash, path))
       persisted.set(`${itemId}|${t.key}|${hash}`, path)
     })
   }
