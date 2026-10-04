@@ -398,6 +398,7 @@ function groupSelectedNodes(
 export function Canvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, updateNode, setSelectedNode, setZoom, toolMode } =
     useCanvasStore()
+  const appMode = useCanvasStore((s) => s.appMode)   // App モード中は隠れたキャンバスにキー操作を効かせない
   const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
   const setCapsuleGroupId = useCanvasStore((s) => s.setCapsuleGroupId)
 
@@ -1209,7 +1210,8 @@ export function Canvas() {
         zoomActivationKeyCode="Meta"
         nodesDraggable={isOwned}
         nodesConnectable={isOwned}
-        deleteKeyCode={isOwned ? ['Backspace', 'Delete'] : null}
+        deleteKeyCode={isOwned && appMode === 'graph' ? ['Backspace', 'Delete'] : null}
+        disableKeyboardA11y={appMode !== 'graph'}
         onNodeContextMenu={isOwned ? handleNodeContextMenu : undefined}
         onPaneContextMenu={isOwned ? handlePaneContextMenu : undefined}
         onPaneClick={() => setContextMenu(null)}

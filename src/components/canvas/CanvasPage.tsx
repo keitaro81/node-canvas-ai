@@ -78,6 +78,13 @@ export function CanvasPage({ initialMode }: { initialMode?: 'app' } = {}) {
     if (initialMode === 'app') setAppMode('capsule')
   }, [initialMode, workflowId, setAppMode])
 
+  // App モードの間、背面に隠れたキャンバスのノード選択を解除する（矢印キーや Delete が隠れたノードに効かないように）
+  useEffect(() => {
+    if (appMode === 'graph') return
+    const { nodes: ns } = useCanvasStore.getState()
+    if (ns.some((n) => n.selected)) useCanvasStore.setState({ nodes: ns.map((n) => (n.selected ? { ...n, selected: false } : n)) })
+  }, [appMode])
+
   // モバイルでは常に capsule モードに固定
   useEffect(() => {
     if (isMobile && appMode !== 'capsule') {
@@ -138,14 +145,14 @@ export function CanvasPage({ initialMode }: { initialMode?: 'app' } = {}) {
 
       <div className="flex flex-1 min-h-0 relative">
         {/* キャンバスは常に DOM に残す（ノードのイベントリスナーを維持するため）
-            デスクトップ capsule モード: display:none
-            モバイル: absolute で背面に隠す（display:none だと React Flow が寸法計算できず NaN エラーになる） */}
+            App モード・モバイル: absolute で背面に隠す（display:none だと React Flow が寸法計算できず <circle cx="NaN"> エラーになる。
+            /app/:id のように最初から App モードで開くと初期化がその状態で走るので、デスクトップでも同じ隠し方にする） */}
         <div
           className="flex flex-1 min-h-0"
           style={
-            isMobile
+            isMobile || appMode !== 'graph'
               ? { position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none', zIndex: -1 }
-              : { display: appMode !== 'graph' ? 'none' : 'flex' }
+              : { display: 'flex' }
           }
         >
           <main className="flex-1 min-w-0 h-full relative">
