@@ -4,7 +4,7 @@ import type { BatchItemRow } from '../../../types/batch'
 import { ITEM_STATUS_META } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
 import { CUTOUT_VARIANT_KEY, thumbKey, type ReviewVariant } from '../../../lib/review/model'
-import { ACCENT, BG_STYLE } from './reviewStyles'
+import { BG_STYLE } from './reviewStyles'
 
 export const CARD_MIN_WIDTH = 220
 export const CARD_GAP = 12
@@ -104,34 +104,36 @@ function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onT
             tabIndex={-1}
             onClick={() => onFocus(item.id)}
             onDoubleClick={() => onOpen(item.id)}
-            className="rounded-xl overflow-hidden cursor-pointer select-none flex flex-col"
-            style={{ background: 'var(--bg-panel)', outline: focused ? `2px solid ${ACCENT}` : checked ? '2px solid rgba(20,184,166,0.45)' : '1px solid var(--border)', outlineOffset: -1 }}
+            className="cursor-pointer select-none flex flex-col gap-1.5 min-w-0"
           >
-            <div className="flex items-center gap-2 px-2.5 h-9 min-w-0">
-              <input
-                type="checkbox"
-                checked={checked}
-                onClick={(e) => e.stopPropagation()}
-                onChange={() => onToggle(item.id)}
-                className="w-4 h-4 shrink-0 cursor-pointer"
-                style={{ accentColor: ACCENT }}
-                title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / ダウンロードの対象'}
-                aria-label={`${item.sku} をチェック`}
-              />
-              <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={`${item.sort_order}. ${item.sku}`}>{item.sort_order}. {item.sku}</span>
-              <span className="ml-auto text-[11px] tabular-nums shrink-0" style={{ color: 'var(--text-tertiary)' }}>{w && h ? `${w}×${h}` : ''}</span>
-            </div>
-            <div className="relative w-full" style={{ ...BG_STYLE[bg], aspectRatio: aspect, maxHeight: 420 }}>
+            {/* 画像: 角丸なし。チェック / フォーカスの枠は画像にだけ付ける（文字情報は別要素） */}
+            <div
+              className="relative w-full"
+              style={{ ...BG_STYLE[bg], aspectRatio: aspect, maxHeight: 420, outline: checked ? '2px solid var(--accent)' : focused ? '2px solid rgba(139,92,246,0.45)' : '1px solid var(--border)', outlineOffset: -1 }}
+            >
               <div className="absolute inset-0">
                 <Thumb thumb={thumbs[thumbKey(item.id, activeKey)]} item={item} />
               </div>
+              <span className="absolute top-1.5 left-1.5 inline-flex p-0.5 rounded" style={{ background: 'rgba(255,255,255,0.85)' }} onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggle(item.id)}
+                  className="w-4 h-4 block cursor-pointer"
+                  style={{ accentColor: 'var(--accent)' }}
+                  title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / ダウンロードの対象'}
+                  aria-label={`${item.sku} をチェック`}
+                />
+              </span>
             </div>
-            <div className="px-2.5 py-1.5 min-w-0">
-              <div className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={item.original_filename}>{item.original_filename}</div>
-              {item.warnings.length > 0 && (
-                <div className="text-[10px] truncate" style={{ color: '#F59E0B' }} title={item.warnings.join('\n')}>⚠ {item.warnings[0]}{item.warnings.length > 1 ? ` 他 ${item.warnings.length - 1}` : ''}</div>
-              )}
+            {/* 文字情報: 下に 1 行だけ（番号 + SKU、右にサイズ）。元のファイル名はツールチップ */}
+            <div className="flex items-baseline gap-2 min-w-0 px-0.5">
+              <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={`${item.sort_order}. ${item.sku}（${item.original_filename}）`}>{item.sort_order}. {item.sku}</span>
+              <span className="ml-auto text-[11px] tabular-nums shrink-0" style={{ color: 'var(--text-tertiary)' }}>{w && h ? `${w}×${h}` : ''}</span>
             </div>
+            {item.warnings.length > 0 && (
+              <div className="text-[10px] truncate px-0.5 -mt-1" style={{ color: '#F59E0B' }} title={item.warnings.join('\n')}>⚠ {item.warnings[0]}{item.warnings.length > 1 ? ` 他 ${item.warnings.length - 1}` : ''}</div>
+            )}
           </div>
         )
       })}
