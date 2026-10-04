@@ -10,6 +10,7 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { jobLabel } from '../../lib/batch/jobLabel'
+import { JobActions } from '../jobs/JobActions'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import type { BatchJobRow } from '../../types/batch'
@@ -76,6 +77,7 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
             ))}
           </select>
         )}
+        {current && <JobActions job={current} variant="menu" className="nodrag" onChanged={bump} onDeleted={() => { setSelectedId(null); setReloadTick((t) => t + 1); bump() }} />}
       </div>
       {/* 本体: ジョブ管理画面と同じ確認グリッド。ノード内でスクロールし、キャンバスのドラッグ/ズームには流さない */}
       <div className="nodrag nowheel flex-1 min-h-0" style={{ cursor: 'default' }}>

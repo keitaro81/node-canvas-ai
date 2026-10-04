@@ -15,5 +15,7 @@ describe('jobLabel', () => {
     expect(jobLabel({ ...base, name: '2026-10-04 19:27 2枚' })).toBe('2026-10-04 19:27・2 枚・完了')
     expect(jobLabel({ ...base, name: ' 秋物 第 1 便 ' })).toBe('2026-10-04 19:27・2 枚・完了・秋物 第 1 便')
     expect(jobLabel({ ...base, name: 'x', status: 'uploading' })).toBe('2026-10-04 19:27・2 枚・送信中・x')
+    expect(jobLabel({ ...base, name: '2026-10-04 19:27 2枚' }, '田中')).toBe('2026-10-04 19:27・2 枚・完了・田中')
+    expect(jobLabel({ ...base, name: '2026-10-04 19:27 2枚' }, null)).toBe('2026-10-04 19:27・2 枚・完了')
   })
 })

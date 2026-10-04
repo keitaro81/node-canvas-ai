@@ -7,6 +7,7 @@ import { ArrowSquareOut, CircleNotch, Images } from '@phosphor-icons/react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
+import { JobActions } from '../jobs/JobActions'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
@@ -31,6 +32,10 @@ export function BatchAppView() {
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
   const bump = useBatchStore((s) => s.bump)
   const openSubmitDialogWith = useBatchStore((s) => s.openSubmitDialogWith)
+  const userId = useBatchStore((s) => s.userId)
+  const memberNames = useBatchStore((s) => s.memberNames)
+  // 履歴の 1 行: 他の人が実行した分だけ名前を添える（自分の分は日時・枚数・状態だけ）
+  const labelOf = useCallback((j: BatchJobRow) => jobLabel(j, j.created_by && j.created_by !== userId ? (memberNames[j.created_by] ?? `${j.created_by.slice(0, 8)}…`) : null), [userId, memberNames])
   useWatchBatchJobs('batch-app')
 
   const batchInput = useMemo(() => nodes.find((n) => (n.data as unknown as NodeData).type === 'batchInput') ?? null, [nodes])
@@ -112,11 +117,12 @@ export function BatchAppView() {
                 title="履歴（この App で処理した分・新しい順）"
               >
                 {jobs.map((j) => (
-                  <option key={j.id} value={j.id}>{jobLabel(j)}</option>
+                  <option key={j.id} value={j.id}>{labelOf(j)}</option>
                 ))}
               </select>
             </label>
           )}
+          {current && <JobActions job={current} variant="menu" onChanged={bump} onDeleted={() => { setSelectedId(null); setReloadTick((t) => t + 1); bump() }} />}
           <div className="flex-1" />
           <button className="flex items-center gap-1 h-8 px-2.5 rounded-md hover:bg-[var(--bg-elevated)] text-[12px]" style={{ color: 'var(--text-secondary)' }} title="すべての App の履歴（運用）" onClick={() => navigate('/jobs')}>
             <ArrowSquareOut size={13} />すべての履歴
