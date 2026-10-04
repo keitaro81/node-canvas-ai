@@ -4,15 +4,15 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { useNavigate } from 'react-router'
-import { LayoutGrid, Loader2, RefreshCw } from 'lucide-react'
+import { LayoutGrid, Loader2 } from 'lucide-react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { fetchWorkflowJobs } from '../../lib/api/batchJobs'
+import { jobLabel } from '../../lib/batch/jobLabel'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
-import { formatJst } from '../../lib/batch/dates'
-import { JOB_STATUS_META, type BatchJobRow } from '../../types/batch'
+import type { BatchJobRow } from '../../types/batch'
 import type { NodeData } from '../../types/nodes'
 import { JobReviewPanel } from '../jobs/review/JobReviewPanel'
 
@@ -52,7 +52,6 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
   // キャンバスの現在のノード（バリアント・背景・Export 設定の出どころ）。位置の変化では更新しない
   const liveCanvas = useLiveCanvas()
 
-  const statusLabel = (j: BatchJobRow) => JOB_STATUS_META[j.status]?.label ?? j.status
 
   return (
     <div
@@ -70,28 +69,24 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
             style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
             value={current?.id ?? ''}
             onChange={(e) => setSelectedId(e.target.value)}
-            title="表示するジョブ（このワークフローから投入したもの・新しい順）"
+            title="履歴（このワークフローで処理した分・新しい順）"
           >
             {jobs.map((j) => (
-              <option key={j.id} value={j.id}>{formatJst(j.created_at)}・{j.name}（{j.item_count} 枚・{statusLabel(j)}）</option>
+              <option key={j.id} value={j.id}>{jobLabel(j)}</option>
             ))}
           </select>
         )}
-        <div className="flex-1" />
-        <button className="nodrag w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="ジョブ一覧を読み直す" onClick={() => { setReloadTick((t) => t + 1); bump() }}>
-          <RefreshCw size={13} />
-        </button>
       </div>
       {/* 本体: ジョブ管理画面と同じ確認グリッド。ノード内でスクロールし、キャンバスのドラッグ/ズームには流さない */}
       <div className="nodrag nowheel flex-1 min-h-0" style={{ cursor: 'default' }}>
         {jobs === null && !error && (
-          <div className="flex items-center justify-center h-full gap-2 text-[12px]" style={{ color: 'var(--text-tertiary)' }}><Loader2 size={16} className="animate-spin" />ジョブを読み込み中…</div>
+          <div className="flex items-center justify-center h-full gap-2 text-[12px]" style={{ color: 'var(--text-tertiary)' }}><Loader2 size={16} className="animate-spin" />結果を読み込み中…</div>
         )}
-        {error && <div className="p-4 text-[12px]" style={{ color: '#EF4444' }}>ジョブを読み込めませんでした: {error}</div>}
+        {error && <div className="p-4 text-[12px]" style={{ color: '#EF4444' }}>結果を読み込めませんでした: {error}</div>}
         {jobs && jobs.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-center text-[12px]" style={{ color: 'var(--text-secondary)' }}>
             <div className="font-medium" style={{ color: 'var(--text-primary)' }}>このワークフローの一括実行はまだありません</div>
-            <div style={{ color: 'var(--text-tertiary)' }}>Batch Input に写真を入れて「一括実行…」で投入すると、ここにジョブと結果が出ます。他のメンバーのジョブは、ワークフローがチームに共有されていれば表示されます。</div>
+            <div style={{ color: 'var(--text-tertiary)' }}>Batch Input に写真を入れて「一括実行…」を押すと、ここに結果が出ます。他のメンバーの分は、ワークフローがチームに共有されていれば表示されます。</div>
             {workflowId ? null : <div style={{ color: '#F59E0B' }}>ワークフローを保存すると表示できるようになります</div>}
           </div>
         )}
@@ -102,7 +97,7 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
       {current && (
         <div className="px-3 py-1 text-[10px] shrink-0 border-t truncate" style={{ borderColor: 'var(--border)', color: 'var(--text-tertiary)' }}>
           クリックで選択・ダブルクリックで拡大・矢印キーで移動・Space でチェック。
-          <button className="nodrag underline ml-1" onClick={() => navigate(`/jobs/${current.id}`)} style={{ color: 'var(--text-secondary)' }}>ジョブ管理で開く</button>
+          <button className="nodrag underline ml-1" onClick={() => navigate(workflowId ? `/app/${workflowId}?job=${current.id}` : `/jobs/${current.id}`)} style={{ color: 'var(--text-secondary)' }}>App で開く</button>
         </div>
       )}
     </div>

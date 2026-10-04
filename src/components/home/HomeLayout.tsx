@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { to: '/apps', icon: AppWindow, label: 'Apps' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
-  { to: '/jobs', icon: Queue, label: 'Jobs' },
+  { to: '/jobs', icon: Queue, label: '履歴' },
 ]
 
 const MOBILE_NAV_ITEMS = [
@@ -155,7 +155,7 @@ export function HomeLayout() {
                   <Icon size={15} weight={isActive ? 'fill' : 'regular'} />
                   {label}
                   {to === '/jobs' && activeJobCount > 0 && (
-                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center tabular-nums" style={{ background: '#6366F1', color: '#fff' }} title="進行中のジョブ">
+                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center tabular-nums" style={{ background: '#6366F1', color: '#fff' }} title="進行中の処理">
                       {activeJobCount}
                     </span>
                   )}

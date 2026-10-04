@@ -109,14 +109,14 @@ export function JobsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between px-8 py-5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
         <div>
-          <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Jobs</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>一括実行のジョブ（自分のジョブと、チームに共有されたワークフローのジョブ。owner は全件）</p>
+          <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>履歴</h1>
+          <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>App で処理した分の一覧（自分の分と、チームに共有された App の分。owner は全件）</p>
         </div>
         <div className="flex items-center gap-4 shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-          <span title="本日（日本時間）に投入した枚数と、ワークスペースの 1 日の上限">
+          <span title="本日（日本時間）に処理した枚数と、ワークスペースの 1 日の上限">
             本日 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{usedToday}</b> / {dailyLimit} 枚
           </span>
-          <span title="同時に進行できるジョブは 2 つまで（チーム全体。共有されていないジョブも数えます）">
+          <span title="同時に進められる処理は 2 つまで（チーム全体。共有されていない分も数えます）">
             進行中 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{activeCount}</b> / 2
           </span>
           <button
@@ -137,7 +137,7 @@ export function JobsPage() {
           <input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="ジョブ名 / SKU で検索"
+            placeholder="名前 / SKU で検索"
             className={`${SELECT} pl-7 w-[240px]`}
             style={{ ...SELECT_STYLE, color: 'var(--text-primary)' }}
           />
@@ -145,8 +145,8 @@ export function JobsPage() {
         <select value={filters.status} onChange={(e) => setFilter('status', e.target.value as JobStatusFilter)} className={SELECT} style={SELECT_STYLE}>
           {STATUS_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <select value={filters.createdBy} onChange={(e) => setFilter('createdBy', e.target.value)} className={SELECT} style={SELECT_STYLE} title="投入者で絞り込み">
-          <option value="all">投入者: 全員</option>
+        <select value={filters.createdBy} onChange={(e) => setFilter('createdBy', e.target.value)} className={SELECT} style={SELECT_STYLE} title="実行者で絞り込み">
+          <option value="all">実行者: 全員</option>
           {creatorOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select>
         <label className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
@@ -179,7 +179,7 @@ export function JobsPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-2">
-            <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>{hasFilter ? '条件に一致するジョブがありません' : 'まだジョブがありません'}</p>
+            <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>{hasFilter ? '条件に一致する履歴がありません' : 'まだ履歴がありません'}</p>
             <p className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
               {hasFilter ? '絞り込みや検索語を変えてみてください' : 'キャンバスの Batch Input ノードから「一括実行」すると、ここに表示されます'}
             </p>
@@ -194,7 +194,7 @@ export function JobsPage() {
                 </colgroup>
                 <thead>
                   <tr style={{ background: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
-                    {['ジョブ名', 'App', '投入者', '投入日時', '状態', '進捗', '失敗', '利用量', '最終更新', ''].map((h, i) => (
+                    {['名前', 'App', '実行者', '開始', '状態', '進捗', '失敗', '利用量', '最終更新', ''].map((h, i) => (
                       <th key={i} className={`font-medium px-3 py-2 whitespace-nowrap ${i === 6 ? 'text-right' : 'text-left'}`}>{h}</th>
                     ))}
                   </tr>
@@ -214,7 +214,7 @@ export function JobsPage() {
                         }}
                       >
                         <td className="px-3 py-2 truncate font-medium" style={{ color: 'var(--text-primary)' }} title={job.name}>{job.name}</td>
-                        <td className="px-3 py-2 truncate" style={{ color: job.workflow_id && wfNames[job.workflow_id] ? 'var(--text-secondary)' : 'var(--text-tertiary)' }} title={job.workflow_id ? (wfNames[job.workflow_id] ?? 'ワークフローを開けません（削除済みか権限なし）') : '投入元の記録なし'}>
+                        <td className="px-3 py-2 truncate" style={{ color: job.workflow_id && wfNames[job.workflow_id] ? 'var(--text-secondary)' : 'var(--text-tertiary)' }} title={job.workflow_id ? (wfNames[job.workflow_id] ?? 'ワークフローを開けません（削除済みか権限なし）') : '元の App の記録なし'}>
                           {job.workflow_id ? (wfNames[job.workflow_id] ?? '—') : '—'}
                         </td>
                         <td className="px-3 py-2 truncate" style={{ color: 'var(--text-secondary)' }} title={nameOf(job.created_by)}>{nameOf(job.created_by)}</td>
@@ -224,7 +224,7 @@ export function JobsPage() {
                           <div className="flex items-center gap-2">
                             <ProgressBar done={p.done} failed={p.failed} total={p.total} />
                             <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                              {p.total ? `${p.done + p.failed} / ${p.total}` : job.status === 'uploading' ? '投入中' : '—'}
+                              {p.total ? `${p.done + p.failed} / ${p.total}` : job.status === 'uploading' ? '送信中' : '—'}
                             </span>
                           </div>
                         </td>

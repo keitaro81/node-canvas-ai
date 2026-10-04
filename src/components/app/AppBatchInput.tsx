@@ -1,4 +1,4 @@
-// App モードの「写真を投入」欄（フェーズ C(c)）。Batch Input ノードと同じ流れ（選択 → アップロード → 一括実行）だが、
+// App モードの「写真を追加」欄（フェーズ C(c)）。Batch Input ノードと同じ流れ（選択 → アップロード → 一括実行）だが、
 // 写真の一覧はこの画面だけで持ち、ワークフロー（canvas_data）には保存しない（共有 App を使うメンバーの写真が
 // ワークフローに書き込まれないように）。アップロード先はノードと同じ interactive/<nodeId>/items/。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -184,13 +184,13 @@ export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit }: Props
         className="h-9 w-full rounded-lg text-[12px] font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
         style={{ background: ACCENT }}
         disabled={!canSubmit || readyItems.length === 0 || uploading}
-        title={!canSubmit ? 'このワークフローでは一括実行できません' : uploading ? 'アップロードが終わるまで待ってください' : readyItems.length === 0 ? '準備完了の写真がありません' : '準備完了の全写真をジョブとして投入します'}
+        title={!canSubmit ? 'この App ではまだ処理を始められません（ワークフローが未保存です）' : uploading ? 'アップロードが終わるまで待ってください' : readyItems.length === 0 ? '準備完了の写真がありません' : '準備完了の写真すべてを処理します'}
         onClick={submit}
       >
-        一括実行…（{readyItems.length} 枚）
+        {readyItems.length} 枚を処理する
       </button>
       <div className="text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
-        投入すると処理は裏側で進み、右の一覧にジョブが出ます。この一覧の写真はこの画面を離れると消えますが、投入したジョブには残ります。
+        処理は裏側で進み、右の欄に結果が出ます。ここに並ぶ写真はこの画面を離れると消えますが、結果は残ります。
       </div>
     </div>
   )

@@ -109,7 +109,7 @@ export function ReviewLightbox(p: Props) {
       </div>
       {/* footer */}
       <div className="flex items-center gap-3 px-4 h-14 shrink-0 text-[12px]" style={{ color: '#E5E7EB' }}>
-        <label className="flex items-center gap-2 h-8 px-3 rounded-lg cursor-pointer select-none" style={{ background: checked ? 'rgba(20,184,166,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? ACCENT : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「書き出し」の対象（キー: Space）">
+        <label className="flex items-center gap-2 h-8 px-3 rounded-lg cursor-pointer select-none" style={{ background: checked ? 'rgba(20,184,166,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? ACCENT : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「ダウンロード」の対象（キー: Space）">
           <input type="checkbox" checked={checked} onChange={onToggleCheck} className="w-4 h-4" style={{ accentColor: ACCENT }} />
           <span className="font-medium">{checked ? 'チェック済み' : 'この写真をチェック'}</span>
         </label>

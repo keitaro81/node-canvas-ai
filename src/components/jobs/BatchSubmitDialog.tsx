@@ -17,7 +17,7 @@ type Phase = 'estimating' | 'confirm' | 'creating' | 'submitting' | 'done' | 'er
 interface ApiError extends Error { code?: string; status?: number; details?: Record<string, unknown> }
 
 const ROW = 'flex items-center justify-between text-[12px] py-1'
-const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: '画像生成（写真ごと）', imageGen: '背景生成（ジョブごと）' }
+const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: '画像生成（写真ごと）', imageGen: '背景生成（1 回）' }
 
 /**
  * 一括実行の確認 → 作成 → 投入（仕様 4-7 / 4-8）。Batch Input ノードの「一括実行…」から開く。
@@ -80,7 +80,7 @@ export function BatchSubmitDialog() {
     setPhase('submitting')
     try {
       const last = await submitJobFully(id, (r) => setProgress(r))
-      if (!last.done) throw new Error(`投入が完了しませんでした（未投入 ${last.pendingTasks} 件・未コピー ${last.pendingCopies} 件）。「投入を再開」で続けられます`)
+      if (!last.done) throw new Error(`写真を送りきれませんでした（未送信 ${last.pendingTasks} 件・未コピー ${last.pendingCopies} 件）。「送信を再開」で続けられます`)
       setPhase('done')
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
@@ -121,7 +121,7 @@ export function BatchSubmitDialog() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close() }}>
       <div role="dialog" aria-modal="true" className="w-[480px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>一括実行</h2>
+          <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{items.length} 枚を処理します</h2>
           <button onClick={close} disabled={busy} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-elevated)] disabled:opacity-40" style={{ color: 'var(--text-secondary)' }} title="閉じる"><X size={14} /></button>
         </div>
 
@@ -132,7 +132,7 @@ export function BatchSubmitDialog() {
         {(phase === 'confirm' || phase === 'creating' || phase === 'submitting' || phase === 'done' || phase === 'error') && (
           <div className="mt-3" style={{ color: 'var(--text-secondary)' }}>
             <div className={ROW}><span>枚数</span><b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{items.length} 枚</b></div>
-            {plan && <div className={ROW}><span>AI 処理</span><span className="tabular-nums">{plan.totalTasks} 件（アイテムごと {plan.itemTasks} 種{plan.jobTasks ? `・ジョブごと ${plan.jobTasks} 件` : ''}）</span></div>}
+            {plan && <div className={ROW}><span>AI 処理</span><span className="tabular-nums">{plan.totalTasks} 件（写真ごと {plan.itemTasks} 種{plan.jobTasks ? `・全体で ${plan.jobTasks} 件` : ''}）</span></div>}
             {/* ノード別の内訳（フェーズ C(a)）: 何が何回動くかを投入前に見せる。単価・小計は原価を見せる設定のときだけ */}
             {plan?.breakdown?.length ? (
               <div className="rounded-lg px-3 py-1.5 mt-1 mb-1 text-[11px]" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
@@ -155,13 +155,13 @@ export function BatchSubmitDialog() {
                 <span className="tabular-nums">{limits.remaining} 枚 → 実行後 <b style={{ color: remainingAfter !== null && remainingAfter < 0 ? '#EF4444' : 'var(--text-primary)' }}>{remainingAfter}</b> 枚（上限 {limits.dailyLimit}）</span>
               </div>
             )}
-            {limits && <div className={ROW}><span>同時進行のジョブ</span><span className="tabular-nums">{limits.activeJobs} / {limits.maxActiveJobs}</span></div>}
+            {limits && <div className={ROW}><span>同時に進められる処理</span><span className="tabular-nums">{limits.activeJobs} / {limits.maxActiveJobs}</span></div>}
             {plan?.showCost && <div className={ROW}><span>推定コスト</span><span className="tabular-nums">{formatCost(plan.estimatedCostUsd)}</span></div>}
             {/* 写真ごとの画像生成は枚数分の生成になる。原価を見せない設定でも必ず注意を出す */}
             {perItemRuns > 0 ? (
               <div className="mt-2 rounded-lg px-3 py-2 text-[11px]" style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.3)', color: 'var(--text-primary)' }}>
                 <div className="flex items-start gap-1"><Warning size={12} weight="fill" className="mt-0.5 shrink-0" style={{ color: '#8B5CF6' }} />
-                  <span>写真ごとの画像生成が {perItemKinds} 種あります。{items.length} 枚 × {perItemKinds} = <b>{perItemRuns} 回</b>の生成を行います（切り抜きより時間もコストもかかります）。枚数とプロンプトを確認してから投入してください。</span>
+                  <span>写真ごとの画像生成が {perItemKinds} 種あります。{items.length} 枚 × {perItemKinds} = <b>{perItemRuns} 回</b>の生成を行います（切り抜きより時間もコストもかかります）。枚数とプロンプトを確認してから始めてください。</span>
                 </div>
               </div>
             ) : null}
@@ -175,22 +175,25 @@ export function BatchSubmitDialog() {
 
         {phase === 'confirm' && (
           <>
-            <label className="block mt-3 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-              ジョブ名（任意）
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="未入力なら「日時 + 枚数」"
-                className="mt-1 w-full h-8 rounded-md px-2 text-[12px] outline-none"
-                style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                onKeyDown={(e) => e.stopPropagation()}
-              />
-            </label>
-            <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>投入が終わるまでこの画面を閉じないでください。投入後は処理が裏側で続き、ブラウザを閉じても構いません。</p>
+            {/* 名前はキャンバスから実行するときだけ任意で付けられる。App からは日時 + 枚数で自動（使う人に「ジョブ」を意識させない） */}
+            {!source && (
+              <label className="block mt-3 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+                名前（任意）
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="未入力なら「日時 + 枚数」"
+                  className="mt-1 w-full h-8 rounded-md px-2 text-[12px] outline-none"
+                  style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+              </label>
+            )}
+            <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>写真を送り終わるまでこの画面を閉じないでください。始まった後は裏側で処理が続くので、ブラウザを閉じても構いません。</p>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={close} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>キャンセル</button>
               <button onClick={() => void start()} disabled={!items.length || !plan?.totalTasks} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-                {items.length} 枚を投入する
+                {items.length} 枚の処理を始める
               </button>
             </div>
           </>
@@ -203,21 +206,21 @@ export function BatchSubmitDialog() {
             </div>
             <div className="flex items-center gap-2 mt-2 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
               <CircleNotch size={14} className="animate-spin" />
-              {phase === 'creating' ? 'ジョブを作成しています…' : `投入中 ${submittedSoFar} / ${progress?.totalTasks ?? plan?.totalTasks ?? '?'} 件${progress?.pendingCopies ? `（元画像のコピー 残り ${progress.pendingCopies}）` : ''}`}
+              {phase === 'creating' ? '準備しています…' : `写真を送っています ${submittedSoFar} / ${progress?.totalTasks ?? plan?.totalTasks ?? '?'}${progress?.pendingCopies ? `（元画像のコピー 残り ${progress.pendingCopies}）` : ''}`}
             </div>
           </div>
         )}
 
         {phase === 'done' && (
           <div className="mt-4">
-            <div className="flex items-center gap-2 text-[13px] font-medium" style={{ color: '#22C55E' }}><CheckCircle size={18} weight="fill" />投入が完了しました</div>
-            <p className="mt-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>ブラウザを閉じても処理は続きます。進み具合はジョブ管理画面で確認できます。</p>
+            <div className="flex items-center gap-2 text-[13px] font-medium" style={{ color: '#22C55E' }}><CheckCircle size={18} weight="fill" />処理を始めました</div>
+            <p className="mt-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>{source ? '結果は右の欄に出ます。ブラウザを閉じても処理は続きます。' : 'ブラウザを閉じても処理は続きます。進み具合は履歴で確認できます。'}</p>
             {progress?.copyFailures.length ? <p className="mt-1 text-[11px]" style={{ color: '#F59E0B' }}>コピーできなかった元画像: {progress.copyFailures.join(', ')}</p> : null}
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={close} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>閉じる</button>
               {source?.onDone && jobId
                 ? <button onClick={() => { const cb = source.onDone; close(); cb?.(jobId) }} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>結果を見る</button>
-                : <button onClick={() => { close(); navigate(jobId ? `/jobs/${jobId}` : '/jobs') }} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>ジョブ管理へ</button>}
+                : <button onClick={() => { close(); navigate(jobId ? `/jobs/${jobId}` : '/jobs') }} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>履歴へ</button>}
             </div>
           </div>
         )}
@@ -228,8 +231,8 @@ export function BatchSubmitDialog() {
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={close} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>閉じる</button>
               {jobId
-                ? <button onClick={() => void runSubmit(jobId)} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>投入を再開</button>
-                : <button onClick={() => navigate('/jobs')} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>ジョブ管理へ</button>}
+                ? <button onClick={() => void runSubmit(jobId)} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>送信を再開</button>
+                : <button onClick={() => navigate('/jobs')} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>履歴へ</button>}
             </div>
           </div>
         )}

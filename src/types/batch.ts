@@ -51,8 +51,8 @@ export const ITEM_COLUMNS = 'id, job_id, team_id, sort_order, original_filename,
 export interface ReviewCounts { ok: number; ng: number; unreviewed: number }
 
 export const JOB_STATUS_META: Record<BatchJobStatus, { label: string; color: string; bg: string; active: boolean }> = {
-  uploading:      { label: '投入中',       color: '#14B8A6', bg: 'rgba(20,184,166,0.12)',  active: true },
-  submitted:      { label: '投入済み',     color: '#6366F1', bg: 'rgba(99,102,241,0.12)',  active: true },
+  uploading:      { label: '送信中',       color: '#14B8A6', bg: 'rgba(20,184,166,0.12)',  active: true },
+  submitted:      { label: '待機中',     color: '#6366F1', bg: 'rgba(99,102,241,0.12)',  active: true },
   processing:     { label: '処理中',       color: '#6366F1', bg: 'rgba(99,102,241,0.12)',  active: true },
   completed:      { label: '完了',         color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   active: false },
   partial_failed: { label: '一部失敗',     color: '#F59E0B', bg: 'rgba(245,158,11,0.14)',  active: false },

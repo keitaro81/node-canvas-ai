@@ -57,13 +57,13 @@ function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !running) onClose() }}>
       <div role="dialog" aria-modal="true" className="w-[480px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
-        <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{scope === 'selected' ? 'チェックした写真を書き出し' : 'すべて書き出し'}</h2>
+        <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{scope === 'selected' ? 'チェックした写真をダウンロード' : 'すべてダウンロード'}</h2>
         <p className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
           対象 {targetCount} 枚 × {columnNames.length} 列（{columnNames.join('・')}）= {total} ファイル。フル解像度で描画して ZIP にまとめます（概算 {mb(estimateBytes)}）。
         </p>
         {estimateBytes > ZIP_WARN_BYTES && state.phase === 'idle' && (
           <div className="mt-2 rounded-lg px-3 py-2 text-[11px] flex items-start gap-1" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
-            <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />ZIP が 1GB を超える見込みです。OK のみに絞るか、バリアントを分けて書き出すことをおすすめします。
+            <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />ZIP が 1GB を超える見込みです。チェックした写真に絞るか、バリアントを分けてダウンロードすることをおすすめします。
           </div>
         )}
 
@@ -82,12 +82,12 @@ function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, 
             {cutoutOptional && (
               <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: 'var(--text-primary)' }}>
                 <input type="checkbox" checked={params.includeCutout} onChange={(e) => setParams((p) => ({ ...p, includeCutout: e.target.checked }))} className="w-4 h-4" />
-                切り抜きの透過 PNG も書き出す（cutout/ フォルダ・元のサイズ）
+                切り抜きの透過 PNG も含める（cutout/ フォルダ・元のサイズ）
               </label>
             )}
             <div className="flex justify-end gap-2 mt-2">
               <button onClick={onClose} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>キャンセル</button>
-              <button onClick={() => onStart(normalizeExportParams({ ...params, zip: true }))} disabled={total === 0} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>書き出す</button>
+              <button onClick={() => onStart(normalizeExportParams({ ...params, zip: true }))} disabled={total === 0} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>ダウンロード</button>
             </div>
           </div>
         )}

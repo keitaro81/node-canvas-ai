@@ -115,7 +115,7 @@ function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onT
                 onChange={() => onToggle(item.id)}
                 className="w-4 h-4 shrink-0 cursor-pointer"
                 style={{ accentColor: ACCENT }}
-                title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / 書き出す対象'}
+                title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / ダウンロードの対象'}
                 aria-label={`${item.sku} をチェック`}
               />
               <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={`${item.sort_order}. ${item.sku}`}>{item.sort_order}. {item.sku}</span>

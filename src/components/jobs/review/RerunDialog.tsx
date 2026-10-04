@@ -31,7 +31,7 @@ function RerunDialogInner({ count, initial, busy, onClose, onConfirm }: Props) {
       <div role="dialog" aria-modal="true" className="w-[460px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
         <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>チェックした {count} 枚を再度切り抜く</h2>
         <p className="text-[12px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
-          チェックした写真の切り抜きだけを、下の設定で fal.ai に再投入します。他の写真には影響しません。完了すると結果とサムネイルが差し替わります。
+          チェックした写真の切り抜きだけを、下の設定でやり直します。他の写真には影響しません。完了すると結果とサムネイルが差し替わります。
         </p>
         <CutoutParamsForm params={params} onChange={(patch) => setParams((p) => ({ ...p, ...patch }))} disabled={busy} />
         <div className="flex justify-end gap-2 mt-5">

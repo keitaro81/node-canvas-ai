@@ -56,8 +56,8 @@ export function ReviewToolbar({ bg, onBg, filter, onFilter, counts, progress, ex
             <SlidersHorizontal size={14} />レイアウト設定
           </button>
         )}
-        <button className={`${BTN} text-white`} style={{ background: 'var(--accent)' }} onClick={() => onExport('all')} disabled={busy || readyCount === 0} title="準備完了の全写真をフル解像度で書き出し">
-          <DownloadSimple size={14} />すべて書き出し（{readyCount}）
+        <button className={`${BTN} text-white`} style={{ background: 'var(--accent)' }} onClick={() => onExport('all')} disabled={busy || readyCount === 0} title="準備完了の全写真をフル解像度でダウンロード（ZIP）">
+          <DownloadSimple size={14} />すべてダウンロード（{readyCount}）
         </button>
       </div>
       {/* チェックの操作: 1 枚でもチェックすると「再度切り抜く」「書き出し」が出る */}
@@ -70,11 +70,11 @@ export function ReviewToolbar({ bg, onBg, filter, onFilter, counts, progress, ex
           <>
             <button className={GHOST} style={{ color: 'var(--text-secondary)' }} onClick={onClearSelection} disabled={busy}><span className="inline-flex items-center gap-1"><X size={12} />解除</span></button>
             <span className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
-            <button className={BTN} style={{ color: '#F59E0B', border: '1px solid rgba(245,158,11,0.4)' }} onClick={onRerunSelected} disabled={busy || !canRerun} title={canRerun ? 'チェックした写真の切り抜きだけを、エンジンや設定を変えてやり直す（他の写真には影響しません）' : 'このジョブには切り抜きのノードが無いため再実行できません'}>
+            <button className={BTN} style={{ color: '#F59E0B', border: '1px solid rgba(245,158,11,0.4)' }} onClick={onRerunSelected} disabled={busy || !canRerun} title={canRerun ? 'チェックした写真の切り抜きだけを、エンジンや設定を変えてやり直す（他の写真には影響しません）' : 'この処理には切り抜きのノードが無いためやり直せません'}>
               <ArrowsClockwise size={14} />チェックした {selectedCount} 枚を再度切り抜く
             </button>
-            <button className={BTN} style={{ color: 'var(--text-primary)', border: '1px solid var(--border-active)' }} onClick={() => onExport('selected')} disabled={busy} title="チェックした写真だけをフル解像度で書き出し">
-              <DownloadSimple size={14} />チェックした {selectedCount} 枚を書き出し
+            <button className={BTN} style={{ color: 'var(--text-primary)', border: '1px solid var(--border-active)' }} onClick={() => onExport('selected')} disabled={busy} title="チェックした写真だけをフル解像度でダウンロード（ZIP）">
+              <DownloadSimple size={14} />チェックした {selectedCount} 枚をダウンロード
             </button>
           </>
         )}

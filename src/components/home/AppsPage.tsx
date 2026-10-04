@@ -122,7 +122,7 @@ function AppCard({ entry, creatorLabel, counts, onOpenApp, onOpenCanvas }: { ent
         <div className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }}>{creatorLabel} · 更新 {formatJst(w.updated_at)}</div>
         {kind === 'batch' && (
           <div className="text-[11px] tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-            {counts ? <>ジョブ {counts.total} 件{counts.active ? <span style={{ color: accent }}>・進行中 {counts.active}</span> : null}{counts.latestAt ? `・最終投入 ${formatJst(counts.latestAt)}` : ''}</> : 'ジョブ 0 件'}
+            {counts ? <>履歴 {counts.total} 件{counts.active ? <span style={{ color: accent }}>・進行中 {counts.active}</span> : null}{counts.latestAt ? `・最終 ${formatJst(counts.latestAt)}` : ''}</> : '履歴 0 件'}
           </div>
         )}
         <div className="flex items-center gap-2 mt-1">
