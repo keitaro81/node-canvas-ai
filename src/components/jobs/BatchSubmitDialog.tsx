@@ -25,7 +25,9 @@ const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: 
  */
 export function BatchSubmitDialog() {
   const nodeId = useBatchStore((s) => s.submitDialogNodeId)
+  const source = useBatchStore((s) => s.submitDialogSource)
   const close = useBatchStore((s) => s.closeSubmitDialog)
+  const isOpen = !!nodeId || !!source
   const bump = useBatchStore((s) => s.bump)
   const navigate = useNavigate()
   const [phase, setPhase] = useState<Phase>('estimating')
@@ -39,13 +41,18 @@ export function BatchSubmitDialog() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const running = useRef(false)
 
-  // 開いたら見積（dryRun）
+  // 開いたら見積（dryRun）。ノードから開いたときはそのノードの写真と今のキャンバス、App モードからは渡された写真と写し
   useEffect(() => {
-    if (!nodeId) return
-    const { nodes, edges } = useCanvasStore.getState()
-    const node = nodes.find((n) => n.id === nodeId)
-    const its = batchItemsFromNode(node?.data as NodeData | undefined)
-    const snap = buildWorkflowSnapshot(nodes, edges)
+    if (!nodeId && !source) return
+    let its: CreateItemInput[]
+    let snap: WorkflowSnapshot
+    if (source) { its = source.items; snap = source.snapshot }
+    else {
+      const { nodes, edges } = useCanvasStore.getState()
+      const node = nodes.find((n) => n.id === nodeId)
+      its = batchItemsFromNode(node?.data as NodeData | undefined)
+      snap = buildWorkflowSnapshot(nodes, edges)
+    }
     setItems(its); setSnapshot(snap); setName(''); setJobId(null); setProgress(null); setErrorMsg(null); setPhase('estimating')
     let alive = true
     batchDryRun({ items: its, workflowSnapshot: snap })
@@ -57,17 +64,17 @@ export function BatchSubmitDialog() {
         setErrorMsg(e.message); setPhase('error')
       })
     return () => { alive = false }
-  }, [nodeId])
+  }, [nodeId, source])
 
   const busy = phase === 'creating' || phase === 'submitting'
   useEffect(() => {
-    if (!nodeId) return
+    if (!isOpen) return
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) close() }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [nodeId, busy, close])
+  }, [isOpen, busy, close])
 
-  if (!nodeId) return null
+  if (!isOpen) return null
 
   async function runSubmit(id: string) {
     setPhase('submitting')
@@ -90,7 +97,7 @@ export function BatchSubmitDialog() {
     setPhase('creating')
     try {
       // 投入元ワークフローを記録する（バリアント = そのワークフローの Product Layout ノード、と連動させるため）
-      const r = await batchCreate({ name: name.trim() || undefined, items, workflowSnapshot: snapshot, workflowId: useWorkflowStore.getState().currentWorkflowId })
+      const r = await batchCreate({ name: name.trim() || undefined, items, workflowSnapshot: snapshot, workflowId: source ? source.workflowId : useWorkflowStore.getState().currentWorkflowId })
       setJobId(r.jobId); setLimits(r.limits); setPlan(r.plan)
       bump()
       await runSubmit(r.jobId)
@@ -208,7 +215,9 @@ export function BatchSubmitDialog() {
             {progress?.copyFailures.length ? <p className="mt-1 text-[11px]" style={{ color: '#F59E0B' }}>コピーできなかった元画像: {progress.copyFailures.join(', ')}</p> : null}
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={close} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>閉じる</button>
-              <button onClick={() => { close(); navigate(jobId ? `/jobs/${jobId}` : '/jobs') }} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>ジョブ管理へ</button>
+              {source?.onDone && jobId
+                ? <button onClick={() => { const cb = source.onDone; close(); cb?.(jobId) }} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>結果を見る</button>
+                : <button onClick={() => { close(); navigate(jobId ? `/jobs/${jobId}` : '/jobs') }} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white" style={{ background: 'var(--accent)' }}>ジョブ管理へ</button>}
             </div>
           </div>
         )}

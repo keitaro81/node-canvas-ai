@@ -1,16 +1,15 @@
 // 一括結果ノード（フェーズ C(b)）: このワークフローから投入したジョブと、その確認グリッド（切り抜き・バリアント・生成結果）をキャンバス上で見る。
 // 操作はジョブ管理画面と同じ（チェック・拡大・再度切り抜く・書き出し・キャンセル/再実行/削除）。レイアウトの変更だけはキャンバスの Product Layout ノードで行い、
 // 変更はこのノードのサムネイルにその場で反映される（fal は呼ばない）。入出力ポートは無い。
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { useNavigate } from 'react-router'
 import { LayoutGrid, Loader2, RefreshCw } from 'lucide-react'
-import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useBatchStore, useWatchBatchJobs } from '../../stores/batchStore'
 import { fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
-import type { CanvasLike } from '../../lib/review/model'
+import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { formatJst } from '../../lib/batch/dates'
 import { JOB_STATUS_META, type BatchJobRow } from '../../types/batch'
 import type { NodeData } from '../../types/nodes'
@@ -19,13 +18,6 @@ import { JobReviewPanel } from '../jobs/review/JobReviewPanel'
 const ACCENT = '#14B8A6'
 // 既定サイズ 820×620 は Canvas.tsx / FloatingToolbar.tsx の追加時に style で与える
 const MIN_W = 560, MIN_H = 400
-
-/** 値が落ち着いてから反映する（Product Layout のスライダー操作中に描き直しが連打されないように） */
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = useState(value)
-  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t) }, [value, ms])
-  return v
-}
 
 function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as NodeData
@@ -45,9 +37,8 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
   useEffect(() => () => store.getState().close(), [store])
 
   useEffect(() => {
-    if (!workflowId) { setJobs([]); return }
     let alive = true
-    fetchWorkflowJobs(workflowId)
+    ;(workflowId ? fetchWorkflowJobs(workflowId) : Promise.resolve([] as BatchJobRow[]))
       .then((rows) => { if (!alive) return; setJobs(rows); setError(null) })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
     return () => { alive = false }
@@ -55,20 +46,7 @@ function BatchResultsNodeInner({ id, data, selected }: NodeProps) {
   const current = useMemo(() => (jobs ? jobs.find((j) => j.id === selectedId) ?? jobs[0] ?? null : null), [jobs, selectedId])
 
   // キャンバスの現在のノード（バリアント・背景・Export 設定の出どころ）。位置の変化では更新しない
-  const nodes = useCanvasStore((s) => s.nodes)
-  const edges = useCanvasStore((s) => s.edges)
-  const latest = useRef({ nodes, edges })
-  latest.current = { nodes, edges }
-  const signature = useMemo(() => JSON.stringify({
-    n: nodes.map((n) => { const d = n.data as unknown as Record<string, unknown>; return [n.id, n.type, d.type, d.params ?? null, typeof d.output === 'string' ? d.output : null, typeof d.imageUrl === 'string' ? d.imageUrl : null] }),
-    e: edges.map((e) => [e.source, e.sourceHandle ?? null, e.target, e.targetHandle ?? null]),
-  }), [nodes, edges])
-  const settledSignature = useDebounced(signature, 400)
-  const liveCanvas = useMemo<CanvasLike>(() => ({
-    nodes: latest.current.nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as unknown as Record<string, unknown> })),
-    edges: latest.current.edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [settledSignature])
+  const liveCanvas = useLiveCanvas()
 
   const statusLabel = (j: BatchJobRow) => JOB_STATUS_META[j.status]?.label ?? j.status
 

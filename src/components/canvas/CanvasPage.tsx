@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { CircleNotch } from '@phosphor-icons/react'
 import { Canvas } from './Canvas'
@@ -6,6 +6,8 @@ import { FloatingToolbar } from '../layout/FloatingToolbar'
 import { StatusBar } from '../layout/StatusBar'
 import { Header } from '../layout/Header'
 import { CapsuleView } from '../capsule/CapsuleView'
+import { BatchAppView } from '../app/BatchAppView'
+import { appKindOf } from '../../lib/apps/appKind'
 import { BatchSubmitDialog } from '../jobs/BatchSubmitDialog'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -31,7 +33,7 @@ function LoadingScreen() {
   )
 }
 
-export function CanvasPage() {
+export function CanvasPage({ initialMode }: { initialMode?: 'app' } = {}) {
   const { workflowId } = useParams<{ workflowId: string }>()
   const navigate = useNavigate()
   const { theme, toggle: toggleTheme } = useTheme()
@@ -39,6 +41,9 @@ export function CanvasPage() {
   const canEditNow = useWorkflowStore(selectCanEditNow)
   const appMode = useCanvasStore((s) => s.appMode)
   const setAppMode = useCanvasStore((s) => s.setAppMode)
+  const nodes = useCanvasStore((s) => s.nodes)
+  // App の種類: Batch Input があれば撮影後工程の App（写真の投入 → 結果）、無ければ従来のグループ App
+  const appKind = useMemo(() => appKindOf({ nodes: nodes.map((n) => ({ type: n.type, data: n.data as unknown as Record<string, unknown> })) }), [nodes])
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
@@ -59,12 +64,19 @@ export function CanvasPage() {
       // レイアウトノード（バリアント）が変わったときだけ知らせる（生成結果の書込などでも版は進むため）
       const sig = () => JSON.stringify(useCanvasStore.getState().nodes.filter((n) => (n.data as { type?: string }).type === 'productLayout').map((n) => [n.id, (n.data as { params?: unknown }).params]))
       const before = sig()
+      const mode = useCanvasStore.getState().appMode   // 読み直しでキャンバスが graph に戻るので、App モードならそのまま保つ
       await loadWorkflow(workflowId)
+      if (mode !== useCanvasStore.getState().appMode) useCanvasStore.getState().setAppMode(mode)
       if (sig() !== before) showToast('他の画面でのバリアントの変更を読み込みました', 'info')
     }
     document.addEventListener('visibilitychange', check)
     return () => document.removeEventListener('visibilitychange', check)
   }, [workflowId, loadWorkflow])
+
+  // /app/:id から開いたときは App モードで始める
+  useEffect(() => {
+    if (initialMode === 'app') setAppMode('capsule')
+  }, [initialMode, workflowId, setAppMode])
 
   // モバイルでは常に capsule モードに固定
   useEffect(() => {
@@ -82,6 +94,8 @@ export function CanvasPage() {
       try {
         await loadWorkflows()
         await loadWorkflow(workflowId!)
+        // /app/:id: 読み込み（キャンバスの初期化で graph に戻る）の後に App モードへ
+        if (initialMode === 'app') useCanvasStore.getState().setAppMode('capsule')
       } catch (err) {
         console.error('[CanvasPage] 初期化エラー:', err)
         // ワークフローが見つからない場合（PGRST116）はプロジェクト一覧へ
@@ -141,7 +155,7 @@ export function CanvasPage() {
             {/* {canEditNow && <RightPanel />} */}
           </main>
         </div>
-        {(appMode === 'capsule' || isMobile) && <CapsuleView />}
+        {(appMode === 'capsule' || isMobile) && (appKind === 'batch' ? <BatchAppView /> : <CapsuleView />)}
       </div>
 
       {!isMobile && <StatusBar />}
