@@ -1,17 +1,8 @@
-import { ArrowsClockwise, CheckSquare, CircleNotch, DownloadSimple, Selection, SlidersHorizontal, X } from '@phosphor-icons/react'
-import type { ReviewBg } from '../../../lib/review/reviewStore'
-import type { ReviewFilter } from '../../../lib/review/model'
+import { ArrowsClockwise, CheckSquare, DownloadSimple, Selection, SlidersHorizontal, X } from '@phosphor-icons/react'
 import type { ExportScope } from '../../../lib/review/exportJob'
-import { BG_LABEL, BG_ORDER, BG_STYLE } from './reviewStyles'
 
 interface Props {
-  bg: ReviewBg
-  onBg: (bg: ReviewBg) => void
-  filter: ReviewFilter
-  onFilter: (f: ReviewFilter) => void
   counts: { all: number; failed: number }
-  progress: { done: number; total: number; running: boolean }
-  executorKind: 'worker' | 'main' | null
   readyCount: number
   selectedCount: number
   busy: boolean
@@ -25,31 +16,14 @@ interface Props {
   compact?: boolean                      // ノード内: 余白を詰める
 }
 
-const FILTERS: Array<[ReviewFilter, string]> = [['all', 'すべて'], ['failed', '失敗']]
 const BTN = 'flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medium transition-colors disabled:opacity-50'
 const GHOST = 'h-7 px-2 rounded-md text-[11px] font-medium transition-colors disabled:opacity-40 hover:bg-[var(--bg-elevated)]'
 
-/** 確認グリッドのツールバー: 表示背景・絞り込み・サムネイルの進み・チェックの操作・書き出し */
-export function ReviewToolbar({ bg, onBg, filter, onFilter, counts, progress, executorKind, readyCount, selectedCount, busy, canRerun, onSelectAll, onSelectFailed, onClearSelection, onExport, onRerunSelected, onSettings, compact }: Props) {
+/** 確認グリッドのツールバー: チェックの操作・ダウンロード。表示背景の切替・サムネイルの進み・絞り込みは出さない（2026-10-04 ユーザー指示。背景は市松固定、「失敗だけ表示」はヘッダーの失敗行へ） */
+export function ReviewToolbar({ counts, readyCount, selectedCount, busy, canRerun, onSelectAll, onSelectFailed, onClearSelection, onExport, onRerunSelected, onSettings, compact }: Props) {
   return (
     <div className={`flex flex-col gap-2 ${compact ? 'px-3 py-2' : 'px-8 py-2.5'} border-b shrink-0`} style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-1" title="表示背景（キー: B）">
-          {BG_ORDER.map((b) => (
-            <button key={b} onClick={() => onBg(b)} className="w-6 h-6 rounded" title={`背景: ${BG_LABEL[b]}`} style={{ ...BG_STYLE[b], border: bg === b ? '2px solid #14B8A6' : '1px solid rgba(0,0,0,0.35)' }} />
-          ))}
-        </div>
-        <div className="flex items-center rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-          {FILTERS.map(([f, label]) => (
-            <button key={f} onClick={() => onFilter(f)} className="h-7 px-2.5 text-[11px] font-medium transition-colors" style={{ background: filter === f ? 'var(--bg-elevated)' : 'transparent', color: filter === f ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-              {label} <span className="tabular-nums" style={{ color: f === 'failed' && counts.failed ? '#EF4444' : 'var(--text-tertiary)' }}>{counts[f]}</span>
-            </button>
-          ))}
-        </div>
-        <span className="text-[11px] tabular-nums flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-          {progress.running && <CircleNotch size={12} className="animate-spin" />}
-          サムネイル {progress.done} / {progress.total}{executorKind === 'main' ? '（ワーカー非対応のため画面側で描画）' : ''}
-        </span>
         <div className="flex-1" />
         {onSettings && (
           <button className={BTN} style={{ color: 'var(--text-primary)', border: '1px solid var(--border-active)' }} onClick={onSettings} disabled={busy} title="バリアントのレイアウト設定を変更して全アイテムに再適用（fal は呼びません）">

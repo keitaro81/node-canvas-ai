@@ -4,25 +4,26 @@
 // レイアウト設定の引き出しは出さない（ノードで変える）、キーボードはノード内にフォーカスがある間だけ、余白を詰める。
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
+import { ArrowLeft, CircleNotch, Warning } from '@phosphor-icons/react'
 import { useBatchStore } from '../../../stores/batchStore'
 import { useAuthStore } from '../../../stores/authStore'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, saveWorkflowCanvasChecked, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../../lib/api/batchJobs'
 import { batchRerun, submitJobFully } from '../../../lib/api/batch'
 import { signBatchPath } from '../../../lib/cutout/store'
-import { jobProgress } from '../../../lib/batch/jobsQuery'
+import { isActiveJob, jobProgress } from '../../../lib/batch/jobsQuery'
 import { formatJst } from '../../../lib/batch/dates'
 import { formatCost } from '../../../lib/batch/cost'
 import { downloadBlob } from '../../../lib/export/zip'
 import type { CutoutParams, ExportParams } from '../../../types/nodes'
 import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchTaskRow } from '../../../types/batch'
-import type { ReviewContext, ReviewStoreHook } from '../../../lib/review/reviewStore'
+import type { ReviewBg, ReviewContext, ReviewStoreHook } from '../../../lib/review/reviewStore'
 import {
   ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, filterItems, isResultKey, moveFocus,
   removeLayoutNodeFromCanvas, resultColumnsOf, resultNodeIdOf, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike, type Snapshot, layoutSaveTargetFor } from '../../../lib/review/model'
 import { estimateExportBytes, exportColumnsFor, exportFileCount, exportJobZip, exportTargets, type ExportScope } from '../../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from '../badges'
 import { JobActions } from '../JobActions'
+import { ACCENT } from './reviewStyles'
 import { ReviewGrid } from './ReviewGrid'
 import { ReviewTabs, ReviewToolbar } from './ReviewToolbar'
 import { ReviewLightbox } from './ReviewLightbox'
@@ -33,7 +34,6 @@ import { resolveBackgroundSource, type BgCanvas } from '../../../lib/batch/backg
 import { editSessionId, holderLabel, lockRequiredFor } from '../../../lib/workflow/editLock'
 import { RerunDialog } from './RerunDialog'
 import { ExportDialog, type ExportDialogState } from './ExportDialog'
-import { BG_ORDER } from './reviewStyles'
 import { showToast } from '../../../hooks/useToast'
 
 const isTypingTarget = (t: EventTarget | null) => { const tag = (t as HTMLElement | null)?.tagName; return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' }
@@ -92,9 +92,6 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   const selected = useReview((s) => s.selected)
   const lightbox = useReview((s) => s.lightbox)
   const thumbs = useReview((s) => s.thumbs)
-  const progress = useReview((s) => s.progress)
-  const executorKind = useReview((s) => s.executorKind)
-  const setBg = useReview((s) => s.setBg)
   const setFilter = useReview((s) => s.setFilter)
   const setFocusId = useReview((s) => s.setFocusId)
   const setActiveKey = useReview((s) => s.setActiveKey)
@@ -221,6 +218,10 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
 
   const visibleItems = useMemo(() => filterItems(items, filter), [items, filter])
   const counts = useMemo(() => ({ all: items.length, failed: items.filter((i) => i.status === 'failed').length }), [items])
+  // 「失敗だけ表示」中に失敗が無くなった（やり直しが済んだ）ら全件表示に戻す（切替ボタン自体が消えるため）
+  useEffect(() => { if (filter === 'failed' && counts.failed === 0) setFilter('all') }, [filter, counts.failed, setFilter])
+  // 拡大表示だけは背景を切り替えられる（グリッドは市松固定）
+  const [lbBg, setLbBg] = useState<ReviewBg>('checker')
   const readyCount = useMemo(() => (ctx ? exportTargets(ctx, 'all').length : 0), [ctx])
   const exportTargetList = useMemo(() => (ctx && exportScope ? exportTargets(ctx, exportScope, selected) : []), [ctx, exportScope, selected])
   // 書き出しダイアログの要約（設定の変更に追従: 切り抜きを含めるか・形式）
@@ -265,8 +266,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
     const item = idx >= 0 ? visibleItems[idx] : undefined
     if (e.key === ' ' && item) { e.preventDefault(); e.stopPropagation(); toggleSelected(item.id) }
     else if (e.key === 'Enter' && item) { e.preventDefault(); e.stopPropagation(); setLightbox({ itemId: item.id, variantKey: activeKey }) }
-    else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); e.stopPropagation(); setBg(BG_ORDER[(BG_ORDER.indexOf(bg) + 1) % BG_ORDER.length]) }
-  }, [lightbox, settingsOpen, rerunOpen, exportScope, visibleItems, focusId, columns, setFocusId, toggleSelected, setLightbox, activeKey, bg, setBg])
+  }, [lightbox, settingsOpen, rerunOpen, exportScope, visibleItems, focusId, columns, setFocusId, toggleSelected, setLightbox, activeKey])
   useEffect(() => {
     if (scopedKeys) return
     const h = (e: KeyboardEvent) => handleKey(e)
@@ -412,14 +412,35 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
     <div ref={rootRef} tabIndex={scopedKeys ? 0 : -1} onKeyDown={onRootKeyDown} className={`flex flex-col h-full min-h-0 outline-none ${isNode ? 'text-[12px]' : ''}`}>
       {/* Header */}
       {isNode ? (
-        <div className="flex items-center gap-3 px-3 py-2 border-b shrink-0 text-[11px] flex-wrap" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-          <JobStatusBadge status={job.status} />
-          <span className="flex items-center gap-2"><ProgressBar done={p.done} failed={p.failed} total={p.total} width={100} /><span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total}` : '送信中'}</span></span>
-          <span className="tabular-nums">{job.item_count} 枚 · 準備完了 {summary.ready} · 処理中 {summary.processing}{summary.failed ? <> · <span style={{ color: '#EF4444' }}>失敗 {summary.failed}</span></> : null}</span>
-          <span className="tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{nameOf(job.created_by)} · {formatJst(job.created_at)}{showCost ? ` · 実績 ${formatCost(job.actual_cost_usd)}` : ''}</span>
-          <div className="flex-1" />
-          <JobActions job={job} compact onChanged={() => { bump(); void loadAll() }} onDeleted={handleDeleted} />
-        </div>
+        <>
+          {/* App / ノード: 常設のバーは出さない。処理中だけ進み + キャンセル、失敗があるときだけ失敗行（絞り込み + やり直し）。削除は親ヘッダーの「…」 */}
+          {isActiveJob(job) && (
+            <div className="flex items-center gap-3 px-3 py-1.5 border-b shrink-0 text-[11px]" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+              <CircleNotch size={13} className="animate-spin shrink-0" style={{ color: ACCENT }} />
+              <span className="tabular-nums shrink-0">{p.total ? `処理中 ${p.done + p.failed} / ${p.total}` : '写真を送っています…'}</span>
+              <ProgressBar done={p.done} failed={p.failed} total={p.total} width={140} />
+              <span className="tabular-nums" style={{ color: 'var(--text-tertiary)' }}>準備完了 {summary.ready} / {job.item_count} 枚</span>
+              <div className="flex-1" />
+              <JobActions job={job} only={['cancel']} onChanged={() => { bump(); void loadAll() }} />
+            </div>
+          )}
+          {counts.failed > 0 && (
+            <div className="flex items-center gap-3 px-3 py-1.5 border-b shrink-0 text-[11px]" style={{ borderColor: 'var(--border)', background: 'rgba(239,68,68,0.06)', color: 'var(--text-secondary)' }}>
+              <Warning size={13} weight="fill" className="shrink-0" style={{ color: '#EF4444' }} />
+              <span className="font-medium" style={{ color: '#EF4444' }}>{counts.failed} 枚が失敗しました</span>
+              <button
+                onClick={() => setFilter(filter === 'failed' ? 'all' : 'failed')}
+                className="h-7 px-2.5 rounded-lg text-[11px] font-medium transition-colors hover:bg-[var(--bg-elevated)]"
+                style={{ border: '1px solid rgba(239,68,68,0.4)', background: filter === 'failed' ? 'rgba(239,68,68,0.12)' : 'transparent', color: '#EF4444' }}
+                title={filter === 'failed' ? 'すべての写真を表示する' : '失敗した写真だけを表示する'}
+              >
+                {filter === 'failed' ? 'すべて表示' : `失敗 ${counts.failed} 枚だけ表示`}
+              </button>
+              <div className="flex-1" />
+              <JobActions job={job} only={['retry']} onChanged={() => { bump(); void loadAll() }} />
+            </div>
+          )}
+        </>
       ) : (
         <div className="px-8 py-4 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
           <button onClick={() => navigate('/jobs')} className="flex items-center gap-1 text-[11px] mb-2 transition-colors hover:text-[var(--text-primary)]" style={{ color: 'var(--text-tertiary)' }}><ArrowLeft size={12} />履歴</button>
@@ -444,7 +465,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       )}
 
       <ReviewToolbar
-        bg={bg} onBg={setBg} filter={filter} onFilter={setFilter} counts={counts} progress={progress} executorKind={executorKind} readyCount={readyCount}
+        counts={counts} readyCount={readyCount}
         selectedCount={selectedItems.length} canRerun={!!cutoutNode}
         busy={rerunBusy || savingLayout || exportState.phase === 'running'}
         onSelectAll={() => setSelected([...selected, ...visibleItems.map((i) => i.id)])}
@@ -488,7 +509,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
         />
         {!isNode && (
           <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            タブで列（切り抜き・各バリアント{results.length ? '・生成結果' : ''}）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック、B で背景切替。チェックした写真は「再度切り抜く」「ダウンロード」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
+            タブで列（切り抜き・各バリアント{results.length ? '・生成結果' : ''}）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック。チェックした写真は「再度切り抜く」「ダウンロード」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
           </p>
         )}
       </div>
@@ -496,7 +517,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       {lightbox && lbItem && (
         <ReviewLightbox
           item={lbItem} variantKey={lightbox.variantKey} columns={tabs} thumb={thumbs[thumbKey(lbItem.id, lightbox.variantKey)]}
-          bg={bg} onBg={setBg} originalUrl={originalUrl} renderFull={renderFull}
+          bg={lbBg} onBg={setLbBg} originalUrl={originalUrl} renderFull={renderFull}
           onClose={() => setLightbox(null)}
           onPrev={() => { const n = visibleItems[lbIdx - 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
           onNext={() => { const n = visibleItems[lbIdx + 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}

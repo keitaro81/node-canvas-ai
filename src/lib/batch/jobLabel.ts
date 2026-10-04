@@ -10,9 +10,11 @@ export function isAutoJobName(name: string | null | undefined): boolean {
   return !name || AUTO_NAME.test(name.trim())
 }
 
-/** 例: '2026-10-04 19:27・2 枚・完了' / 名前付きなら '2026-10-04 19:27・2 枚・完了・秋物 第 1 便' */
-export function jobLabel(job: Pick<BatchJobRow, 'name' | 'created_at' | 'item_count' | 'status'>): string {
+/** 例: '2026-10-04 19:27・2 枚・完了' / 名前付きなら '…・完了・秋物 第 1 便' / by（他の人の実行）付きなら末尾に '・name' */
+export function jobLabel(job: Pick<BatchJobRow, 'name' | 'created_at' | 'item_count' | 'status'>, by?: string | null): string {
   const status = JOB_STATUS_META[job.status]?.label ?? job.status
-  const base = `${formatJst(job.created_at)}・${job.item_count} 枚・${status}`
-  return isAutoJobName(job.name) ? base : `${base}・${job.name.trim()}`
+  let label = `${formatJst(job.created_at)}・${job.item_count} 枚・${status}`
+  if (!isAutoJobName(job.name)) label += `・${job.name.trim()}`
+  if (by) label += `・${by}`
+  return label
 }
