@@ -46,17 +46,17 @@ export function JobActions({ job, showOpen, compact, onChanged, onDeleted, openT
 
   const doCancel = () => run('cancel', async () => {
     const r = await batchCancel(job.id)
-    showToast(r.status === 'cancelled' ? `キャンセルしました（未完了タスク ${r.cancelledTasks} 件）` : 'このジョブは既に終了しています', 'info')
+    showToast(r.status === 'cancelled' ? `キャンセルしました（未完了タスク ${r.cancelledTasks} 件）` : 'この処理は既に終わっています', 'info')
   })
   const doRetry = () => run('retry', async () => {
     const r = await batchRetry(job.id)
     if (!r.retriedTasks) { showToast('再実行する失敗タスクはありません', 'info'); return }
     await submitJobFully(job.id)
-    showToast(`失敗した ${r.retriedTasks} 件を再投入しました`, 'success')
+    showToast(`失敗した ${r.retriedTasks} 件をやり直しています`, 'success')
   })
   const doDelete = () => run('delete', async () => {
     const r = await batchDelete(job.id)
-    showToast(`ジョブを削除しました（ファイル ${r.deletedFiles} 件）`, 'success')
+    showToast(`削除しました（ファイル ${r.deletedFiles} 件）`, 'success')
     onDeleted?.()
   })
 
@@ -85,18 +85,18 @@ export function JobActions({ job, showOpen, compact, onChanged, onDeleted, openT
 
       <ConfirmDialog
         open={confirm === 'cancel'}
-        title="ジョブをキャンセルしますか？"
+        title="処理をキャンセルしますか？"
         confirmLabel="キャンセルする"
         cancelLabel="戻る"
         busy={busy === 'cancel'}
         onConfirm={doCancel}
         onCancel={() => setConfirm(null)}
       >
-        「{job.name}」の未完了の処理を fal.ai に取り消し依頼し、ジョブを「キャンセル済み」にします。完了済みの結果は残ります。
+        「{job.name}」の未完了の処理を fal.ai に取り消し依頼し、「キャンセル済み」にします。完了済みの結果は残ります。
       </ConfirmDialog>
       <ConfirmDialog
         open={confirm === 'delete'}
-        title="ジョブを削除しますか？"
+        title="この結果を削除しますか？"
         confirmLabel="削除する"
         cancelLabel="戻る"
         danger

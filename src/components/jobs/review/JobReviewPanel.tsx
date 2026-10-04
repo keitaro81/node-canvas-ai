@@ -357,7 +357,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   const resetJobOverrides = useCallback(async () => {
     if (!job) return
     setSavingLayout(true)
-    try { await setJobLayoutOverrides(job.id, {}); await loadAll(); showToast('ジョブ側の変更を消しました', 'success') }
+    try { await setJobLayoutOverrides(job.id, {}); await loadAll(); showToast('この結果だけの変更を消しました', 'success') }
     catch (e) { showToast(e instanceof Error ? e.message : String(e), 'error') }
     finally { setSavingLayout(false) }
   }, [job, loadAll])
@@ -372,7 +372,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       const r = await batchRerun({ jobId: job.id, nodeId: cutoutNode.nodeId, itemIds: ngIds, params })
       if (!r.rerunTasks) { showToast(`再実行できる写真がありません（${r.skipped.map((s) => s.reason).join(', ')}）`, 'warning'); return }
       await submitJobFully(job.id)
-      showToast(`チェックした ${r.rerunTasks} 枚を再投入しました。完了すると結果が差し替わります`, 'success')
+      showToast(`チェックした ${r.rerunTasks} 枚をやり直しています。完了すると結果が差し替わります`, 'success')
       setRerunOpen(false)
       clearSelected()
       bump(); await loadAll()
@@ -399,8 +399,8 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   if (notFound || !job) {
     return (
       <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
-        <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{error ? `読み込みに失敗しました: ${error}` : 'ジョブが見つかりません（削除されたか、閲覧できないワークスペースのジョブです）'}</p>
-        {!isNode && <button onClick={() => navigate('/jobs')} className="px-3 h-8 rounded-lg text-[12px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>ジョブ一覧へ</button>}
+        <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{error ? `読み込みに失敗しました: ${error}` : '結果が見つかりません（削除されたか、閲覧できないワークスペースのものです）'}</p>
+        {!isNode && <button onClick={() => navigate('/jobs')} className="px-3 h-8 rounded-lg text-[12px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>履歴へ</button>}
       </div>
     )
   }
@@ -414,7 +414,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       {isNode ? (
         <div className="flex items-center gap-3 px-3 py-2 border-b shrink-0 text-[11px] flex-wrap" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
           <JobStatusBadge status={job.status} />
-          <span className="flex items-center gap-2"><ProgressBar done={p.done} failed={p.failed} total={p.total} width={100} /><span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total}` : '投入中'}</span></span>
+          <span className="flex items-center gap-2"><ProgressBar done={p.done} failed={p.failed} total={p.total} width={100} /><span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total}` : '送信中'}</span></span>
           <span className="tabular-nums">{job.item_count} 枚 · 準備完了 {summary.ready} · 処理中 {summary.processing}{summary.failed ? <> · <span style={{ color: '#EF4444' }}>失敗 {summary.failed}</span></> : null}</span>
           <span className="tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{nameOf(job.created_by)} · {formatJst(job.created_at)}{showCost ? ` · 実績 ${formatCost(job.actual_cost_usd)}` : ''}</span>
           <div className="flex-1" />
@@ -422,7 +422,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
         </div>
       ) : (
         <div className="px-8 py-4 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-          <button onClick={() => navigate('/jobs')} className="flex items-center gap-1 text-[11px] mb-2 transition-colors hover:text-[var(--text-primary)]" style={{ color: 'var(--text-tertiary)' }}><ArrowLeft size={12} />ジョブ一覧</button>
+          <button onClick={() => navigate('/jobs')} className="flex items-center gap-1 text-[11px] mb-2 transition-colors hover:text-[var(--text-primary)]" style={{ color: 'var(--text-tertiary)' }}><ArrowLeft size={12} />履歴</button>
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2 min-w-0">
@@ -430,10 +430,10 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
                 <JobStatusBadge status={job.status} />
               </div>
               <div className="flex items-center gap-3 mt-2 text-[12px] flex-wrap" style={{ color: 'var(--text-secondary)' }}>
-                <span className="flex items-center gap-2"><ProgressBar done={p.done} failed={p.failed} total={p.total} width={140} /><span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total} タスク` : '投入中'}</span></span>
+                <span className="flex items-center gap-2"><ProgressBar done={p.done} failed={p.failed} total={p.total} width={140} /><span className="tabular-nums">{p.total ? `${p.done + p.failed} / ${p.total} タスク` : '送信中'}</span></span>
                 {p.failed > 0 && <span className="font-semibold" style={{ color: '#EF4444' }}>失敗 {p.failed}</span>}
-                <span>投入者: {nameOf(job.created_by)}</span>
-                <span className="tabular-nums">投入 {formatJst(job.created_at)}</span>
+                <span>実行者: {nameOf(job.created_by)}</span>
+                <span className="tabular-nums">開始 {formatJst(job.created_at)}</span>
                 <span className="tabular-nums">{job.item_count} 枚{showCost && <> · 実績 {formatCost(job.actual_cost_usd)}（見積 {formatCost(job.estimated_cost_usd)}）</>}</span>
                 <span className="tabular-nums" style={{ color: 'var(--text-tertiary)' }}>準備完了 {summary.ready} · 処理中 {summary.processing} · 待機 {summary.pending} · <span style={{ color: summary.failed ? '#EF4444' : undefined }}>失敗 {summary.failed}</span></span>
               </div>
@@ -459,12 +459,12 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       <div className={`flex-1 min-h-0 overflow-auto ${mode === 'node' ? 'px-3 py-3' : mode === 'app' ? 'px-5 py-4' : 'px-8 py-4'}`}>
         {!cutoutNode && results.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            このジョブには切り抜き（Remove Background）が無いため、生成結果の列だけを表示しています。
+            この処理には切り抜き（Remove Background）が無いため、生成結果の列だけを表示しています。
           </div>
         )}
         {cutoutNode && variants.length === 0 && (
           <div className="mb-3 rounded-lg px-3 py-2 text-[12px]" style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>
-            {isNode ? 'このキャンバスに Product Layout ノードが無いため、' : source ? `ワークフロー「${source.name}」に Product Layout ノードが無いため、` : '投入時のワークフローに Product Layout ノードが無いため、'}切り抜き列だけを表示しています。{isNode ? 'Product Layout ノードを切り抜きにつなぐとバリアントの列が増えます（切り抜きの再実行は不要）。' : '「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合の書き出しは切り抜きの透過 PNG）。'}
+            {isNode ? 'このキャンバスに Product Layout ノードが無いため、' : source ? `ワークフロー「${source.name}」に Product Layout ノードが無いため、` : '実行時のワークフローに Product Layout ノードが無いため、'}切り抜き列だけを表示しています。{isNode ? 'Product Layout ノードを切り抜きにつなぐとバリアントの列が増えます（切り抜きの再実行は不要）。' : '「レイアウト設定」からバリアントを追加すると、切り抜きを再実行せずにレイアウトを作れます（追加しない場合のダウンロードは切り抜きの透過 PNG）。'}
           </div>
         )}
         {isNode && variants.length > 0 && (
@@ -474,12 +474,12 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
         )}
         {!isNode && !source && job?.workflow_id && variants.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            元のワークフローを読み込めないため、投入時のレイアウトを表示しています（列が最新でない可能性があります）。
+            元のワークフローを読み込めないため、実行時のレイアウトを表示しています（列が最新でない可能性があります）。
           </div>
         )}
         {!isNode && source && variants.length > 0 && (
           <div className="mb-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（このジョブ画面での変更はノードに書き戻されます）' : '（編集できるのはワークフローの所有者と、編集を許可されたチームのメンバーだけ）'}。
+            バリアントはワークフロー「{source.name}」の Product Layout ノードと連動しています{target === 'workflow' ? '（この画面での変更はノードに書き戻されます）' : '（編集できるのはワークフローの所有者と、編集を許可されたチームのメンバーだけ）'}。
           </div>
         )}
         <ReviewTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} />
@@ -493,7 +493,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
         />
         {!isNode && (
           <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            タブで列（切り抜き・各バリアント{results.length ? '・生成結果' : ''}）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック、B で背景切替。チェックした写真は「再度切り抜く」「書き出し」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
+            タブで列（切り抜き・各バリアント{results.length ? '・生成結果' : ''}）を切り替えます。クリックで選択、ダブルクリックまたは Enter で拡大。矢印キーで移動、Space でチェック、B で背景切替。チェックした写真は「再度切り抜く」「ダウンロード」の対象になります。サムネイルは長辺 400px で描画し、保存して次回から再利用します。
           </p>
         )}
       </div>
