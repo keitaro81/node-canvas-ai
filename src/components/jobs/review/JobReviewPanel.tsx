@@ -4,7 +4,7 @@
 // レイアウト設定の引き出しは出さない（ノードで変える）、キーボードはノード内にフォーカスがある間だけ、余白を詰める。
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowSquareOut, CircleNotch } from '@phosphor-icons/react'
+import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 import { useBatchStore } from '../../../stores/batchStore'
 import { useAuthStore } from '../../../stores/authStore'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, fetchJobThumbs, fetchJobWorkflowSource, fetchWorkflowFull, saveWorkflowCanvasChecked, setJobLayoutOverrides, subscribeJobItems, type WorkflowSource } from '../../../lib/api/batchJobs'
@@ -418,7 +418,6 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
           <span className="tabular-nums">{job.item_count} 枚 · 準備完了 {summary.ready} · 処理中 {summary.processing}{summary.failed ? <> · <span style={{ color: '#EF4444' }}>失敗 {summary.failed}</span></> : null}</span>
           <span className="tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{nameOf(job.created_by)} · {formatJst(job.created_at)}{showCost ? ` · 実績 ${formatCost(job.actual_cost_usd)}` : ''}</span>
           <div className="flex-1" />
-          <button onClick={() => navigate(`/jobs/${job.id}`)} className="flex items-center gap-1 h-7 px-2 rounded-md hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="ジョブ管理画面で開く"><ArrowSquareOut size={12} />ジョブ管理で開く</button>
           <JobActions job={job} compact onChanged={() => { bump(); void loadAll() }} onDeleted={handleDeleted} />
         </div>
       ) : (
