@@ -100,7 +100,6 @@ export function ReviewTabs({ tabs, activeKey, onChange }: { tabs: Array<{ key: s
             title={t.size ? `${t.name}（${t.size}）` : t.name}
           >
             {t.name}
-            {t.size && <span className="text-[10px] tabular-nums" style={{ opacity: 0.7 }}>{t.size}</span>}
           </button>
         )
       })}
