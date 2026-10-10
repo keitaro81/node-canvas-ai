@@ -26,6 +26,7 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import type { WorkflowVisibility } from '../../lib/api/workflows'
 import { ActiveJobsIndicator } from '../jobs/ActiveJobsIndicator'
+import { formatRelativeJa } from '../../lib/batch/dates'
 
 type IconCmp = React.ComponentType<{ size?: number; weight?: 'regular' | 'fill' | 'bold'; style?: React.CSSProperties }>
 
@@ -66,13 +67,12 @@ function SaveStatus() {
   }
 
   if (lastSavedAt) {
-    const diff = now - lastSavedAt.getTime()
-    const mins = Math.floor(diff / 60000)
-    const label = mins < 1 ? 'たった今' : `${mins}分前`
+    const rel = formatRelativeJa(lastSavedAt.toISOString(), now)   // たった今 / n分前 / n時間前 / n日前
+    const label = rel === 'たった今' ? 'たった今保存' : `${rel}に保存`
     return (
       <span className="flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0" style={{ color: 'var(--success)' }}>
         <Check size={11} weight="bold" />
-        {!isMobile && `${label}に保存`}
+        {!isMobile && label}
       </span>
     )
   }

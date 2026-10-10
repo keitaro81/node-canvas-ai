@@ -44,6 +44,7 @@ import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
 import type { NodeType } from '../../types/nodes'
 import type { WorkflowRow } from '../../lib/api/workflows'
+import { formatRelativeJa } from '../../lib/batch/dates'
 
 // ─────────────────────────────────────────
 // ノードパレット定義
@@ -266,15 +267,6 @@ function NodePanel({ onClose }: { onClose: () => void }) {
 // ─────────────────────────────────────────
 // Workflowパネル
 // ─────────────────────────────────────────
-function formatRelativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'たった今'
-  if (mins < 60) return `${mins}分前`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}時間前`
-  return `${Math.floor(hours / 24)}日前`
-}
 
 function WorkflowPanel({ onClose }: { onClose: () => void }) {
   const {
@@ -446,7 +438,7 @@ function WorkflowPanel({ onClose }: { onClose: () => void }) {
                         {wf.name}
                       </div>
                       <div className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-                        {formatRelativeTime(wf.updated_at)}
+                        {formatRelativeJa(wf.updated_at)}
                       </div>
                     </>
                   )}
