@@ -9,7 +9,7 @@ import {
 } from '../../lib/batch/jobsQuery'
 import { formatJst } from '../../lib/batch/dates'
 import { formatCost } from '../../lib/batch/cost'
-import { JOB_STATUS_META, type BatchJobRow, type BatchJobStatus } from '../../types/batch'
+import { type BatchJobRow, type BatchJobStatus } from '../../types/batch'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
 
@@ -108,10 +108,7 @@ export function JobsPage() {
     <div className="flex flex-col h-full">
       {/* Page header */}
       <div className="flex items-center justify-between px-8 py-5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-        <div>
-          <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>履歴</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>App で処理した分の一覧（自分の分と、チームに共有された App の分。owner は全件）</p>
-        </div>
+        <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>履歴</h1>
         <div className="flex items-center gap-4 shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
           <span title="本日（日本時間）に処理した枚数と、ワークスペースの 1 日の上限">
             本日 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{usedToday}</b> / {dailyLimit} 枚
@@ -258,10 +255,10 @@ export function JobsPage() {
                 </div>
               )}
             </div>
-            <p className="mt-2 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-              状態の色: {(['processing', 'completed', 'partial_failed', 'cancelled'] as BatchJobStatus[]).map((s) => JOB_STATUS_META[s].label).join(' / ')}。
-              {realtimeOk === false ? 'リアルタイム接続ができないため、20 秒ごとに再取得しています。' : '進捗と状態は自動で更新されます。'}
-            </p>
+            {/* 説明文は出さない（2026-10-10）。Realtime が使えないときだけ、再取得の間隔を知らせる */}
+            {realtimeOk === false && (
+              <p className="mt-2 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>リアルタイム接続ができないため、20 秒ごとに再取得しています。</p>
+            )}
           </>
         )}
       </div>

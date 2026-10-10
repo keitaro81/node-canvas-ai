@@ -57,12 +57,7 @@ export function AppsPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-8 py-5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-        <div>
-          <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Apps</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-            App モードで使えるワークフロー。撮影後工程の App は写真を入れて一括実行し、結果まで App の中で確認できます
-          </p>
-        </div>
+        <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Apps</h1>
         <div className="flex items-center rounded-lg overflow-hidden shrink-0" style={{ border: '1px solid var(--border)' }}>
           {([['all', `すべて ${apps.length}`], ['batch', `撮影後工程 ${kindCounts.batch}`], ['generation', `生成 ${kindCounts.generation}`]] as Array<[KindFilter, string]>).map(([k, label]) => (
             <button key={k} onClick={() => setFilter(k)} className="h-8 px-3 text-[12px] font-medium transition-colors" style={{ background: filter === k ? 'var(--bg-elevated)' : 'transparent', color: filter === k ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}</button>
