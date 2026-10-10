@@ -3,7 +3,7 @@
 // 変更できるのはキャンバスを編集できる人だけ（所有者 / 編集を許可されたメンバーが編集を始めたとき）。それ以外は閲覧のみ。
 import { useMemo, useState } from 'react'
 import type { Edge } from '@xyflow/react'
-import { CaretDown, CaretRight, Plus, Trash } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, Plus, Trash, X } from '@phosphor-icons/react'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow, selectLockRequired } from '../../stores/workflowStore'
 import { LayoutParamsForm } from '../nodes/pp/LayoutParamsForm'
@@ -83,10 +83,9 @@ export function AppLayoutSettings() {
               <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{params.width}×{params.height}</span>
               <div className="flex-1" />
               {canEdit && (confirmId === n.id ? (
-                <span className="flex items-center gap-1 text-[11px]" onClick={(e) => e.stopPropagation()}>
-                  <span style={{ color: 'var(--text-secondary)' }}>削除しますか？</span>
-                  <button type="button" className="h-6 px-2 rounded text-white" style={{ background: '#EF4444' }} onClick={() => { removeNode(n.id); setConfirmId(null); if (openId === n.id) setOpenId(null) }}>削除</button>
-                  <button type="button" className="h-6 px-2 rounded" style={{ border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }} onClick={() => setConfirmId(null)}>やめる</button>
+                <span className="flex items-center gap-1 text-[11px] shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" className="h-6 px-2 rounded text-white whitespace-nowrap" style={{ background: '#EF4444' }} title="このバリアントを削除する" onClick={() => { removeNode(n.id); setConfirmId(null); if (openId === n.id) setOpenId(null) }}>削除</button>
+                  <button type="button" className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }} title="やめる" aria-label="やめる" onClick={() => setConfirmId(null)}><X size={12} /></button>
                 </span>
               ) : (
                 <button type="button" className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} title="このバリアント（Product Layout ノード）を削除" onClick={(e) => { e.stopPropagation(); setConfirmId(n.id) }}><Trash size={12} /></button>
