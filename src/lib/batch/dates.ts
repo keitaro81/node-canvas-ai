@@ -33,3 +33,18 @@ export function formatJst(iso: string | null | undefined): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : jstDateTimeLabel(d)
 }
+
+/** 相対表示（日本語）: 'たった今' / 'n分前' / 'n時間前' / 'n日前'。30 日以上前は 'YYYY-MM-DD'。不正なら '' */
+export function formatRelativeJa(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return ''
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const mins = Math.floor(Math.max(0, now - t) / 60000)
+  if (mins < 1) return 'たった今'
+  if (mins < 60) return `${mins}分前`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}時間前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}日前`
+  return jstDateTimeLabel(new Date(t)).slice(0, 10)
+}
