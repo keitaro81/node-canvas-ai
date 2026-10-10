@@ -4,9 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { AppWindow, CircleNotch, Images, Sparkle } from '@phosphor-icons/react'
 import { getTeamWorkflows, type WorkflowRow } from '../../lib/api/workflows'
-import { fetchJobCountsByWorkflow, type WorkflowJobCounts } from '../../lib/api/batchJobs'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { useBatchStore } from '../../stores/batchStore'
 import { appKindOf, APP_KIND_LABEL, type AppKind } from '../../lib/apps/appKind'
 import { formatJst, formatRelativeJa } from '../../lib/batch/dates'
 import { AppsSectionTabs } from './AppsSectionTabs'
@@ -17,9 +15,7 @@ type KindFilter = 'all' | AppKind
 export function AppsPage() {
   const navigate = useNavigate()
   const { workflows: mine, loadWorkflows } = useWorkflowStore()
-  const jobsVersion = useBatchStore((s) => s.jobsVersion)
   const [team, setTeam] = useState<WorkflowRow[]>([])
-  const [counts, setCounts] = useState<Record<string, WorkflowJobCounts>>({})
   const [filter, setFilter] = useState<KindFilter>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,13 +40,6 @@ export function AppsPage() {
       .sort((a, b) => (a.workflow.updated_at < b.workflow.updated_at ? 1 : -1))
   }, [mine, team])
 
-  // 撮影後工程 App のジョブ数（進行中・合計・最終投入）
-  const batchIds = useMemo(() => apps.filter((a) => a.kind === 'batch').map((a) => a.workflow.id).join(','), [apps])
-  useEffect(() => {
-    let alive = true
-    ;(batchIds ? fetchJobCountsByWorkflow(batchIds.split(',')) : Promise.resolve({} as Record<string, WorkflowJobCounts>)).then((c) => { if (alive) setCounts(c) }).catch(() => {})
-    return () => { alive = false }
-  }, [batchIds, jobsVersion])
 
   const visible = filter === 'all' ? apps : apps.filter((a) => a.kind === filter)
   const kindCounts = { batch: apps.filter((a) => a.kind === 'batch').length, generation: apps.filter((a) => a.kind === 'generation').length }
@@ -90,7 +79,6 @@ export function AppsPage() {
               <AppCard
                 key={a.workflow.id} entry={a}
                 now={now}
-                counts={counts[a.workflow.id] ?? null}
                 onOpenApp={() => navigate(`/app/${a.workflow.id}`)}
               />
             ))}
@@ -101,7 +89,7 @@ export function AppsPage() {
   )
 }
 
-function AppCard({ entry, now, counts, onOpenApp }: { entry: AppEntry; now: number; counts: WorkflowJobCounts | null; onOpenApp: () => void }) {
+function AppCard({ entry, now, onOpenApp }: { entry: AppEntry; now: number; onOpenApp: () => void }) {
   const { workflow: w, kind } = entry
   const accent = kind === 'batch' ? '#14B8A6' : '#8B5CF6'
   const Icon = kind === 'batch' ? Images : Sparkle
@@ -126,12 +114,7 @@ function AppCard({ entry, now, counts, onOpenApp }: { entry: AppEntry; now: numb
       </div>
       <div className="px-3 py-2.5 flex flex-col gap-1.5">
         <div className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-primary)' }} title={w.name}>{w.name}</div>
-        <div className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={`更新 ${formatJst(w.updated_at)}`}>更新 {formatRelativeJa(w.updated_at, now)}</div>
-        {kind === 'batch' && (
-          <div className="text-[11px] tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-            {counts ? <>履歴 {counts.total} 件{counts.active ? <span style={{ color: accent }}>・進行中 {counts.active}</span> : null}{counts.latestAt ? `・最終 ${formatRelativeJa(counts.latestAt, now)}` : ''}</> : '履歴 0 件'}
-          </div>
-        )}
+        <div className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={formatJst(w.updated_at)}>{formatRelativeJa(w.updated_at, now)}</div>
       </div>
     </div>
   )
