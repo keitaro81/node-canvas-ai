@@ -5,7 +5,7 @@ import { ITEM_STATUS_META } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
 import { CUTOUT_VARIANT_KEY, thumbKey, type ReviewVariant } from '../../../lib/review/model'
 import { BG_STYLE } from './reviewStyles'
-import { Switch } from '../../ui/Switch'
+import { CheckButton } from '../../ui/CheckButton'
 
 export const CARD_MIN_WIDTH = 220
 export const CARD_GAP = 12
@@ -115,16 +115,15 @@ function ReviewGridInner({ items, variants, activeKey, thumbs, bg, selected, onT
               <div className="absolute inset-0">
                 <Thumb thumb={thumbs[thumbKey(item.id, activeKey)]} item={item} />
               </div>
-              {/* チェックの切替: 右パネルと同じ丸いトグル。画像の左上に重ねる */}
-              <span className="absolute top-1.5 left-1.5 inline-flex p-1 rounded-full" style={{ background: 'rgba(255,255,255,0.9)' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                <Switch
-                  checked={checked}
-                  onChange={() => onToggle(item.id)}
-                  stopPropagation
-                  label={`${item.sku} をチェック`}
-                  title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / ダウンロードの対象'}
-                />
-              </span>
+              {/* チェック: App モードの画像選択と同じ丸いチェックボタン。画像の左上に重ねる */}
+              <CheckButton
+                className="absolute top-2 left-2"
+                checked={checked}
+                onChange={() => onToggle(item.id)}
+                stopPropagation
+                label={`${item.sku} をチェック`}
+                title={checked ? 'チェックを外す（Space）' : 'チェックする（Space）: 再度切り抜く / ダウンロードの対象'}
+              />
             </div>
             {/* 文字情報: 下に 1 行だけ（番号 + SKU、右にサイズ）。元のファイル名はツールチップ */}
             <div className="flex items-baseline gap-2 min-w-0 px-0.5">

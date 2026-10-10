@@ -5,7 +5,7 @@ import type { BatchItemRow } from '../../../types/batch'
 import type { ReviewBg, ThumbState } from '../../../lib/review/reviewStore'
 import type { FullResult } from '../../../lib/review/renderCore'
 import { BG_LABEL, BG_ORDER, BG_STYLE } from './reviewStyles'
-import { Switch } from '../../ui/Switch'
+import { CheckButton } from '../../ui/CheckButton'
 
 interface Props {
   item: BatchItemRow
@@ -111,7 +111,7 @@ export function ReviewLightbox(p: Props) {
       {/* footer */}
       <div className="flex items-center gap-3 px-4 h-14 shrink-0 text-[12px]" style={{ color: '#E5E7EB' }}>
         <div className="flex items-center gap-2 h-8 px-3 rounded-lg select-none" style={{ background: checked ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? 'var(--accent)' : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「ダウンロード」の対象（キー: Space）">
-          <Switch checked={checked} onChange={() => onToggleCheck()} label="この写真をチェック" />
+          <CheckButton checked={checked} onChange={() => onToggleCheck()} label="この写真をチェック" />
           <span className="font-medium">{checked ? 'チェック済み' : 'この写真をチェック'}</span>
         </div>
         {warnings.length > 0 && <span className="truncate" style={{ color: '#F59E0B' }} title={warnings.join('\n')}>⚠ {warnings.join(' / ')}</span>}
