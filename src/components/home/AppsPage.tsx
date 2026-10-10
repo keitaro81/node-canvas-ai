@@ -10,6 +10,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useBatchStore } from '../../stores/batchStore'
 import { appKindOf, APP_KIND_LABEL, type AppKind } from '../../lib/apps/appKind'
 import { formatJst } from '../../lib/batch/dates'
+import { AppsSectionTabs } from './AppsSectionTabs'
 
 interface AppEntry { workflow: WorkflowRow; kind: AppKind; mine: boolean }
 type KindFilter = 'all' | AppKind
@@ -57,7 +58,10 @@ export function AppsPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-8 py-5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-        <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Apps</h1>
+        <div className="flex items-center gap-4 min-w-0">
+          <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Apps</h1>
+          <AppsSectionTabs active="apps" />
+        </div>
         <div className="flex items-center rounded-lg overflow-hidden shrink-0" style={{ border: '1px solid var(--border)' }}>
           {([['all', `すべて ${apps.length}`], ['batch', `撮影後工程 ${kindCounts.batch}`], ['generation', `生成 ${kindCounts.generation}`]] as Array<[KindFilter, string]>).map(([k, label]) => (
             <button key={k} onClick={() => setFilter(k)} className="h-8 px-3 text-[12px] font-medium transition-colors" style={{ background: filter === k ? 'var(--bg-elevated)' : 'transparent', color: filter === k ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}</button>

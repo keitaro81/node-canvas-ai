@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import {
   FolderOpen,
   Globe,
@@ -11,7 +11,6 @@ import {
   CaretUpDown,
   User,
   UsersThree,
-  Queue,
   AppWindow,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
@@ -26,8 +25,10 @@ const NAV_ITEMS = [
   { to: '/apps', icon: AppWindow, label: 'Apps' },
   { to: '/community', icon: Globe, label: 'Community' },
   { to: '/history', icon: Clock, label: 'History' },
-  { to: '/jobs', icon: Queue, label: '履歴' },
 ]
+
+/** 履歴（/jobs）は Apps のタブなので、そこにいる間も Apps を選択状態にする */
+const isAppsSection = (pathname: string) => pathname === '/jobs' || pathname.startsWith('/jobs/')
 
 const MOBILE_NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
@@ -54,6 +55,7 @@ export function HomeLayout() {
   const isMobile = useIsMobile()
   const { createNewWorkflow, workflows } = useWorkflowStore()
   const activeJobCount = useBatchStore((s) => s.activeJobs.length)
+  const { pathname } = useLocation()
 
   async function handleNew() {
     await createNewWorkflow()
@@ -97,7 +99,7 @@ export function HomeLayout() {
                 <Icon
                   size={24}
                   weight="regular"
-                  style={{ color: isActive ? '#111111' : '#9CA3AF' }}
+                  style={{ color: isActive || (to === '/apps' && isAppsSection(pathname)) ? '#111111' : '#9CA3AF' }}
                 />
               )}
             </NavLink>
@@ -137,32 +139,35 @@ export function HomeLayout() {
 
         {/* Main nav */}
         <nav className="flex flex-col gap-0.5 px-2 pt-3">
-          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+          {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
+            const extra = to === '/apps' && isAppsSection(pathname)
+            return (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
-                  isActive ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  isActive || extra ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`
               }
               style={({ isActive }) => ({
-                background: isActive ? 'var(--bg-elevated)' : 'transparent',
+                background: isActive || extra ? 'var(--bg-elevated)' : 'transparent',
               })}
             >
               {({ isActive }) => (
                 <>
-                  <Icon size={15} weight={isActive ? 'fill' : 'regular'} />
+                  <Icon size={15} weight={isActive || extra ? 'fill' : 'regular'} />
                   {label}
-                  {to === '/jobs' && activeJobCount > 0 && (
-                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center tabular-nums" style={{ background: '#6366F1', color: '#fff' }} title="進行中の処理">
+                  {to === '/apps' && activeJobCount > 0 && (
+                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center tabular-nums" style={{ background: '#6366F1', color: '#fff' }} title="進行中の処理（履歴）">
                       {activeJobCount}
                     </span>
                   )}
                 </>
               )}
             </NavLink>
-          ))}
+            )
+          })}
         </nav>
 
         {/* Favorites */}

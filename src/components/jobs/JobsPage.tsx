@@ -12,6 +12,7 @@ import { formatCost } from '../../lib/batch/cost'
 import { type BatchJobRow, type BatchJobStatus } from '../../types/batch'
 import { JobStatusBadge, ProgressBar } from './badges'
 import { JobActions } from './JobActions'
+import { AppsSectionTabs } from '../home/AppsSectionTabs'
 
 const STATUS_OPTIONS: Array<[JobStatusFilter, string]> = [
   ['all', '状態: すべて'], ['active', '進行中'], ['completed', '完了'], ['partial_failed', '一部失敗'], ['cancelled', 'キャンセル済み'],
@@ -108,7 +109,10 @@ export function JobsPage() {
     <div className="flex flex-col h-full">
       {/* Page header */}
       <div className="flex items-center justify-between px-8 py-5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-        <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>履歴</h1>
+        <div className="flex items-center gap-4 min-w-0">
+          <h1 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>Apps</h1>
+          <AppsSectionTabs active="history" />
+        </div>
         <div className="flex items-center gap-4 shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
           <span title="本日（日本時間）に処理した枚数と、ワークスペースの 1 日の上限">
             本日 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{usedToday}</b> / {dailyLimit} 枚
