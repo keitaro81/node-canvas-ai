@@ -1315,7 +1315,7 @@ function CapsuleStagePanel({
 
 function MediaUnavailable({ compact }: { compact?: boolean }) {
   return (
-    <div className={`flex flex-col items-center justify-center gap-2 rounded-lg ${compact ? 'w-full h-full text-[10px]' : 'text-[12px]'}`} style={compact ? { color: 'var(--text-tertiary)', background: 'var(--bg-elevated)' } : { width: 'min(420px, 80vw)', height: 240, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
+    <div className={`flex flex-col items-center justify-center gap-2 rounded-lg ${compact ? 'w-full h-full text-[10px]' : 'text-[12px]'}`} style={compact ? { color: 'var(--text-tertiary)', background: 'var(--bg-placeholder)' } : { width: 'min(420px, 80vw)', height: 240, color: 'var(--text-tertiary)', background: 'var(--bg-placeholder)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
       <ImageIcon size={compact ? 16 : 28} />
       {!compact && <span>ファイルを読み込めません（保持期限が切れて削除された可能性があります）</span>}
     </div>

@@ -8,6 +8,7 @@
 :root {
   /* Canvas */
   --bg-canvas:   #EDECEA;
+  --bg-placeholder: #DEDEDE;   /* 空のサムネイル（未生成 / リンク切れ）の地色 */
   --bg-dots:     #D8D6D2;
 
   /* Surfaces */
@@ -53,6 +54,7 @@
 ───────────────────────────────────────── */
 .dark {
   --bg-canvas:   #0A0A0B;
+  --bg-placeholder: #26262B;
   --bg-dots:     #1A1A1E;
 
   --bg-surface:  #111113;
