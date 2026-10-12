@@ -26,7 +26,7 @@ export function MediaImg({ src, alt = '', className, style, video, muted, loop, 
   const { url, onError, failed } = useSignedMedia(src)
   if (failed || !url) {
     return fallback !== undefined ? <>{fallback}</> : (
-      <div className={`flex items-center justify-center ${fallbackClassName ?? className ?? ''}`} style={{ ...style, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
+      <div className={`flex items-center justify-center ${fallbackClassName ?? className ?? ''}`} style={{ ...style, color: 'var(--text-tertiary)', background: 'var(--bg-placeholder)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
         <ImageSquare size={20} />
       </div>
     )

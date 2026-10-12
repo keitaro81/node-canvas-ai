@@ -126,7 +126,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
       {/* Thumbnail box */}
       <div
         className="relative w-full overflow-hidden rounded-xl transition-all duration-150"
-        style={{ aspectRatio: '16/10', background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
+        style={{ aspectRatio: '16/10', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }}
         onMouseEnter={(e) => { if (!isDisabled) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
@@ -147,7 +147,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
         {/* サムネイルが無い / 読めないときは Apps のカードと同じ グレー + アイコン */}
         {!thumbnailUrl && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <ImageSquare size={32} style={{ color: 'var(--border-active)' }} />
+            <ImageSquare size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.6 }} />
           </div>
         )}
 

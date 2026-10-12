@@ -107,10 +107,10 @@ function AppCard({ entry, now, onOpenApp }: { entry: AppEntry; now: number; onOp
       title={`${w.name} を開く`}
     >
       {/* カード全体が App を開くリンク（「App で開く」「キャンバス」のボタンは置かない。キャンバスは My Projects から） */}
-      <div className="relative w-full" style={{ aspectRatio: '16 / 9', background: 'var(--bg-canvas)' }}>
+      <div className="relative w-full" style={{ aspectRatio: '16 / 9', background: 'var(--bg-placeholder)' }}>
         {thumbUrl && !thumbFailed
           ? <img src={thumbUrl} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} onError={onThumbError} />
-          : <div className="absolute inset-0 flex items-center justify-center"><Icon size={32} style={{ color: 'var(--border-active)' }} /></div>}
+          : <div className="absolute inset-0 flex items-center justify-center"><Icon size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.6 }} /></div>}
         <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 h-6 rounded-full text-[11px] font-medium" style={{ background: 'rgba(0,0,0,0.55)', color: '#fff' }}>
           <Icon size={12} style={{ color: accent }} />{APP_KIND_LABEL[kind]}
         </span>
