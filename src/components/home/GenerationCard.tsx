@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Play, Download, ArrowsOut, X, Trash, CircleNotch } from '@phosphor-icons/react'
+import { Play, Download, ArrowsOut, X, Trash, CircleNotch, ImageSquare } from '@phosphor-icons/react'
 import type { GenerationWithWorkflow } from '../../lib/api/generations'
 import { deleteGeneration } from '../../lib/api/generations'
 import { downloadFile } from '../../lib/downloadFile'
@@ -40,7 +40,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
   const rawUrl = generation.output_url!
   const isVideo = isVideoUrl(rawUrl) || generation.node_type === 'video-generation'
   // 非公開バケット化: 表示は署名URL（読込口で署名済み）、失効時は onError で再署名
-  const { url: signedUrl, onError, freshUrl } = useSignedMedia(rawUrl)
+  const { url: signedUrl, onError, freshUrl, failed: mediaFailed } = useSignedMedia(rawUrl)
   const url = signedUrl ?? rawUrl
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -87,7 +87,12 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
       >
         {/* Media thumbnail */}
         <div className="relative w-full overflow-hidden" style={{ aspectRatio: '1/1', background: '#0A0A0B' }}>
-          {isVideo ? (
+          {mediaFailed ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
+              <ImageSquare size={28} />
+              <span>表示できません</span>
+            </div>
+          ) : isVideo ? (
             <>
               <video
                 src={url}
@@ -186,7 +191,12 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
             style={{ maxWidth: '90vw', maxHeight: '90vh' }}
             onClick={(e) => e.stopPropagation()}
           >
-            {isVideo ? (
+            {mediaFailed ? (
+              <div className="flex flex-col items-center justify-center gap-2 text-[13px]" style={{ width: 'min(480px, 90vw)', height: 320, color: 'var(--text-tertiary)', background: '#0A0A0B' }}>
+                <ImageSquare size={40} />
+                <span>ファイルを読み込めません（保持期限が切れて削除された可能性があります）</span>
+              </div>
+            ) : isVideo ? (
               <video
                 src={url}
                 controls

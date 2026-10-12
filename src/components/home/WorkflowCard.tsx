@@ -53,7 +53,9 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
     ?? ((workflow as { is_public?: boolean }).is_public ? 'public' : 'private')
   const rawThumbnailUrl = thumbnailOverride ?? (workflow as { thumbnail_url?: string | null }).thumbnail_url
   // 非公開バケット化: サムネは署名URL（読込口で署名済み）、失効時は onError で再署名
-  const { url: thumbnailUrl, onError: onThumbError } = useSignedMedia(rawThumbnailUrl)
+  // 再署名しても読めない（保持期限で消えた等）ときは既定のグラデーションに戻し、壊れた画像は出さない
+  const { url: signedThumbUrl, onError: onThumbError, failed: thumbFailed } = useSignedMedia(rawThumbnailUrl)
+  const thumbnailUrl = thumbFailed ? null : signedThumbUrl
   const isVideo = thumbnailUrl ? isVideoUrl(thumbnailUrl) : false
   // モバイルでAppモードなしのカードはグレーアウト（クリック不可）
   const isDisabled = isMobile && hasAppMode === false
