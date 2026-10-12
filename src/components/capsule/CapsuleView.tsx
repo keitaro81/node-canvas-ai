@@ -11,6 +11,7 @@ import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { downloadFile } from '../../lib/downloadFile'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
+import { MediaImg } from '../ui/MediaImg'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -1312,8 +1313,18 @@ function CapsuleStagePanel({
 // ────────────────────────────────────────────
 
 
+function MediaUnavailable({ compact }: { compact?: boolean }) {
+  return (
+    <div className={`flex flex-col items-center justify-center gap-2 rounded-lg ${compact ? 'w-full h-full text-[10px]' : 'text-[12px]'}`} style={compact ? { color: 'var(--text-tertiary)', background: 'var(--bg-elevated)' } : { width: 'min(420px, 80vw)', height: 240, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
+      <ImageIcon size={compact ? 16 : 28} />
+      {!compact && <span>ファイルを読み込めません（保持期限が切れて削除された可能性があります）</span>}
+    </div>
+  )
+}
+
 function ImagePreview({ src }: { src: string }) {
-  const { url, onError } = useSignedMedia(src)
+  const { url, onError, failed } = useSignedMedia(src)
+  if (failed) return <MediaUnavailable />
   return (
     <div className="relative group/img max-w-full max-h-full">
       <img src={url ?? src} alt="Generated" className="max-w-full max-h-full rounded-lg block" style={{ objectFit: 'contain' }} onError={onError} />
@@ -1338,7 +1349,7 @@ function VideoPreview({ src }: { src: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(true)
   const [muted, setMuted] = useState(false)
-  const { url, onError } = useSignedMedia(src)
+  const { url, onError, failed } = useSignedMedia(src)
 
   function togglePlay() {
     const v = videoRef.current
@@ -1354,6 +1365,7 @@ function VideoPreview({ src }: { src: string }) {
     setMuted(v.muted)
   }
 
+  if (failed) return <MediaUnavailable />
   return (
     <div className="relative group/vid max-w-full max-h-full">
       <video
@@ -1777,10 +1789,11 @@ function DisplayNodeThumbnailGrid({
                   </div>
                 </div>
               ) : outputUrl ? (
-                <img
+                <MediaImg
                   src={outputUrl}
                   alt="Generated"
                   className="w-full h-full object-cover cursor-pointer"
+                  fallback={<MediaUnavailable compact />}
                   style={{ transition: 'opacity 0.15s' }}
                   onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
                   onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
@@ -1988,7 +2001,7 @@ function MobileStagePreview({
                 onPause={() => setIsPlaying(false)}
               />
             ) : (
-              <img src={url} alt="Generated" className="block max-w-full max-h-full rounded-xl object-contain" />
+              <MediaImg src={url} alt="Generated" className="block max-w-full max-h-full rounded-xl object-contain" fallback={<MediaUnavailable />} />
             )}
           </div>
 
@@ -2119,7 +2132,7 @@ function MobileStagePreview({
                   ) : item.url && item.isVideo ? (
                     <video src={item.url} className="w-full h-full object-cover" muted playsInline />
                   ) : item.url ? (
-                    <img src={item.url} alt="" className="w-full h-full object-cover" />
+                    <MediaImg src={item.url} alt="" className="w-full h-full object-cover" fallback={<MediaUnavailable compact />} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center opacity-30">
                       <ImageIcon size={16} />
