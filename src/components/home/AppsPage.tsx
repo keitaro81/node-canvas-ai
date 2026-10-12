@@ -8,6 +8,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { appKindOf, APP_KIND_LABEL, type AppKind } from '../../lib/apps/appKind'
 import { formatJst, formatRelativeJa } from '../../lib/batch/dates'
 import { AppsSectionTabs } from './AppsSectionTabs'
+import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 interface AppEntry { workflow: WorkflowRow; kind: AppKind; mine: boolean }
 type KindFilter = 'all' | AppKind
@@ -93,6 +94,8 @@ function AppCard({ entry, now, onOpenApp }: { entry: AppEntry; now: number; onOp
   const { workflow: w, kind } = entry
   const accent = kind === 'batch' ? '#14B8A6' : '#8B5CF6'
   const Icon = kind === 'batch' ? Images : Sparkle
+  // サムネイルは署名 URL。失効なら 1 回だけ再署名し、それでも読めない（保持期限切れで消えた等）ときは既定のアイコンに戻す
+  const { url: thumbUrl, onError: onThumbError, failed: thumbFailed } = useSignedMedia(w.thumbnail_url)
   return (
     <div
       role="link"
@@ -105,8 +108,8 @@ function AppCard({ entry, now, onOpenApp }: { entry: AppEntry; now: number; onOp
     >
       {/* カード全体が App を開くリンク（「App で開く」「キャンバス」のボタンは置かない。キャンバスは My Projects から） */}
       <div className="relative w-full" style={{ aspectRatio: '16 / 9', background: 'var(--bg-canvas)' }}>
-        {w.thumbnail_url
-          ? <img src={w.thumbnail_url} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} />
+        {thumbUrl && !thumbFailed
+          ? <img src={thumbUrl} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} onError={onThumbError} />
           : <div className="absolute inset-0 flex items-center justify-center"><Icon size={32} style={{ color: 'var(--border-active)' }} /></div>}
         <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 h-6 rounded-full text-[11px] font-medium" style={{ background: 'rgba(0,0,0,0.55)', color: '#fff' }}>
           <Icon size={12} style={{ color: accent }} />{APP_KIND_LABEL[kind]}
