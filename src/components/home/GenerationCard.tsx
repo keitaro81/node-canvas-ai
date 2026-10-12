@@ -86,10 +86,10 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
         onClick={() => setLightboxOpen(true)}
       >
         {/* Media thumbnail */}
-        <div className="relative w-full overflow-hidden" style={{ aspectRatio: '1/1', background: '#0A0A0B' }}>
+        <div className="relative w-full overflow-hidden" style={{ aspectRatio: '1/1', background: 'var(--bg-canvas)' }}>
           {mediaFailed ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }} title="ファイルを読み込めません（保持期限が切れて削除された可能性があります）">
-              <ImageSquare size={28} />
+              <ImageSquare size={32} style={{ color: 'var(--border-active)' }} />
               <span>表示できません</span>
             </div>
           ) : isVideo ? (

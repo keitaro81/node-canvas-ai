@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
-import { DotsThree, Globe, Lock, Play, PencilSimple, Trash, Copy, Stack, UsersThree } from '@phosphor-icons/react'
+import { DotsThree, Globe, ImageSquare, Lock, Play, PencilSimple, Trash, Copy, Stack, UsersThree } from '@phosphor-icons/react'
 import type { WorkflowRow } from '../../lib/api/workflows'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
@@ -33,17 +33,6 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-const PLACEHOLDER_GRADIENTS = [
-  'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-  'linear-gradient(135deg, #1a0a2e 0%, #2d1b69 50%, #11998e 100%)',
-  'linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #6d28d9 100%)',
-  'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
-  'linear-gradient(135deg, #1a1a2e 0%, #6d28d9 50%, #ec4899 100%)',
-]
-
-function getGradient(id: string): string {
-  return PLACEHOLDER_GRADIENTS[id.charCodeAt(0) % PLACEHOLDER_GRADIENTS.length]
-}
 
 export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorLabel, onDelete, onRename, onClone }: WorkflowCardProps) {
   const navigate = useNavigate()
@@ -137,7 +126,7 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
       {/* Thumbnail box */}
       <div
         className="relative w-full overflow-hidden rounded-xl transition-all duration-150"
-        style={{ aspectRatio: '16/10', background: getGradient(workflow.id), border: '1px solid var(--border)' }}
+        style={{ aspectRatio: '16/10', background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
         onMouseEnter={(e) => { if (!isDisabled) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-active)' }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
       >
@@ -155,9 +144,10 @@ export function WorkflowCard({ workflow, thumbnailOverride, hasAppMode, creatorL
             </div>
           </>
         )}
+        {/* サムネイルが無い / 読めないときは Apps のカードと同じ グレー + アイコン */}
         {!thumbnailUrl && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-lg opacity-30" style={{ background: 'var(--accent)' }} />
+            <ImageSquare size={32} style={{ color: 'var(--border-active)' }} />
           </div>
         )}
 
