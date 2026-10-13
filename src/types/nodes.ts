@@ -111,6 +111,10 @@ export interface VideoGenerationNodeData {
   requestEndpoint: string | null  // fal.ai endpoint used (required for recovery)
   activeDisplayNodeId: string | null  // DisplayNode being written to (for recovery)
   capsuleFields?: Record<string, CapsuleFieldDef>
+  /** 参照カット（in-image-cuts）のうち「正面」にする接続元ノード id。未指定なら先頭（Kling 3.0 elements） */
+  cutsFrontalNodeId?: string | null
+  /** マルチショット（Kling 3.0 multi_prompt）。空なら通常の 1 プロンプト生成 */
+  shots?: Array<{ prompt: string; duration: number }>
 }
 
 export interface ListNodeData {

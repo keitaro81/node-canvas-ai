@@ -42,7 +42,14 @@ export interface VideoGenerationRequest {
   imageUrl?: string;               // image-to-video / video-to-video 参照画像URL
   endImageUrl?: string;            // 補完モード用の終了フレームURL
   videoUrl?: string;               // video-to-video 用の入力動画URL
+  elements?: VideoElementRef[];    // 参照カット（Kling 3.0 elements）: 被写体ごとに 正面 1 枚 + 別角度 1〜3 枚
+  shots?: VideoShot[];             // マルチショット（Kling 3.0 multi_prompt）: 指定時は prompt を各ショットの前置きにして multi_prompt を送る
 }
+
+/** 参照カット 1 被写体ぶん（Kling 3.0 の element）。プロンプトでは @Element1 のように参照する */
+export interface VideoElementRef { frontalUrl: string; referenceUrls: string[] }
+/** マルチショットの 1 ショット（1〜15 秒） */
+export interface VideoShot { prompt: string; duration: number }
 
 export interface VideoGenerationResult {
   id: string;
@@ -75,6 +82,7 @@ export interface VideoModelDefinition {
   supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];
   supportedFps?: number[];           // 例: [24, 25, 48, 50]（省略時はfps設定不可）
   endImageParam?: string;            // 終了フレームのパラメータ名（補完モード対応モデルのみ）
+  startImageParam?: string;          // 開始フレームのパラメータ名（省略時 image_url。Kling 3.0 は start_image_url）
 }
 
 // AIProvider インターフェースにビデオメソッドを追加するための型
