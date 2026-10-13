@@ -1,4 +1,5 @@
 import { fal } from './fal-client';
+import { buildKlingElements, buildMultiPrompt } from './videoShots';
 import type {
   VideoProvider,
   VideoGenerationRequest,
@@ -68,10 +69,11 @@ const VIDEO_MODELS: VideoModelDefinition[] = [
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
     supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    features: ['audio'],
+    features: ['audio', 'elements', 'multi-shot'],   // elements = 参照カット（正面 + 別角度）、multi-shot = multi_prompt
     paramStyle: 'kling',
     supportedModes: ['text-to-video', 'image-to-video'],
     endImageParam: 'end_image_url',
+    startImageParam: 'start_image_url',               // fal docs（2026-10）: v3 の image-to-video は start_image_url
   },
   {
     id: 'kling-o3-pro-i2v',
@@ -224,11 +226,23 @@ async function buildInput(
       prompt: request.prompt,
       duration: safeDuration,
     }
-    if (aspectRatio) input.aspect_ratio = aspectRatio
-    if (request.imageUrl) input.image_url = request.imageUrl
+    // Kling 3.0 の image-to-video は aspect_ratio を受けず開始画像の比率になる（fal docs）。それ以外は従来どおり送る
+    const omitAspect = !!modelDef.startImageParam && !!request.imageUrl
+    if (aspectRatio && !omitAspect) input.aspect_ratio = aspectRatio
+    if (request.imageUrl) input[modelDef.startImageParam ?? 'image_url'] = request.imageUrl
     if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
     if (request.seed != null) input.seed = request.seed
     if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
+    // 参照カット（Kling 3.0 elements）: 人物と服の見え方を動画全体で保つ
+    if (modelDef.features.includes('elements')) {
+      const elements = buildKlingElements(request.elements)
+      if (elements.length) input.elements = elements
+    }
+    // マルチショット: prompt の代わりに multi_prompt（API は両方は不可）。全体の長さはショットの合計
+    if (modelDef.features.includes('multi-shot')) {
+      const multi = buildMultiPrompt(request.shots, request.prompt)
+      if (multi) { delete input.prompt; input.multi_prompt = multi.multi_prompt; input.duration = multi.duration }
+    }
     return input
   }
 

@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
-import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus, X } from 'lucide-react'
+import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus, X, Images, Clapperboard, Trash2 } from 'lucide-react'
 import type { Edge } from '@xyflow/react'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -8,7 +8,8 @@ import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
-import type { VideoGenerationRequest, VideoGenerationProgress } from '../../lib/ai/types'
+import type { VideoGenerationRequest, VideoGenerationProgress, VideoShot } from '../../lib/ai/types'
+import { cutsToElement, shotsTotalSeconds, MAX_ELEMENT_REFS, SHOT_MAX, SHOT_MIN, TOTAL_MAX, TOTAL_MIN } from '../../lib/ai/videoShots'
 import { saveGeneration, updateGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl, signOwnUpload } from '../../lib/api/storage'
@@ -36,6 +37,7 @@ function isNetworkTimeout(message: string): boolean {
     lower.includes('err_timed_out') || lower.includes('econnreset')
 }
 
+const EMPTY_SHOTS: VideoShot[] = []
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
 const v2vModels = allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
 const nonV2vModels = allVideoModels.filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
@@ -62,6 +64,16 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const hasConnectedImageNode = rfEdges.some((e) => e.target === id && e.targetHandle === 'in-image')
 
+  // 参照カット（in-image-cuts に複数接続）: Kling 3.0 の elements。正面 1 枚 + 別角度 最大 3 枚
+  const connectedCuts = rfEdges
+    .filter((e) => e.target === id && e.targetHandle === 'in-image-cuts')
+    .map((e) => { const n = rfNodes.find((x) => x.id === e.source); return n ? { nodeId: n.id, url: getImageUrlFromNodeData(n.data) ?? '', label: ((n.data as Record<string, unknown>).label as string) || n.id } : null })
+    .filter((c): c is { nodeId: string; url: string; label: string } => !!c)
+  const { element: cutsElement, ignored: ignoredCuts } = cutsToElement(connectedCuts, nodeData.cutsFrontalNodeId)
+  const frontalNodeId = connectedCuts.find((c) => c.url && c.nodeId === nodeData.cutsFrontalNodeId)?.nodeId ?? connectedCuts.find((c) => c.url)?.nodeId ?? null
+  const hasImageInput = hasConnectedImageNode || connectedCuts.length > 0
+  const shots: VideoShot[] = nodeData.shots ?? EMPTY_SHOTS
+
   // 接続されている終了フレーム画像URLをリアクティブに取得
   const connectedEndImageUrl = (() => {
     const endImageEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-image-end')
@@ -86,7 +98,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const availableModels = isV2VMode
     ? v2vModels
     : nonV2vModels.filter((m) =>
-        hasConnectedImageNode
+        hasImageInput
           ? m.supportedModes.includes('image-to-video')
           : !m.supportedModes.every((mode) => mode === 'image-to-video')
       )
@@ -97,6 +109,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   })()
 
   const supportsEndImage = !!currentModel?.endImageParam
+  const supportsElements = !!currentModel?.features.includes('elements')
+  const supportsShots = !!currentModel?.features.includes('multi-shot')
+  // 開始フレーム: in-image があればそれ、無ければ参照カットの正面（カットだけつないでも動かせる）
+  const startImageUrl = connectedImageUrl ?? (supportsElements ? cutsElement?.frontalUrl ?? null : null)
+  const activeShots = useMemo(() => (supportsShots ? shots.filter((x) => x.prompt.trim() !== '') : EMPTY_SHOTS), [supportsShots, shots])
+  const shotsSeconds = shotsTotalSeconds(activeShots)
 
   const getConnectedPrompt = useCallback((): string | null => {
     const { edges, nodes } = useCanvasStore.getState()
@@ -122,17 +140,22 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    const prompt = getConnectedPrompt()
-    if (!prompt) {
-      upd(updateNode, id, { status: 'failed', error: 'プロンプトを入力してください' })
+    const connectedPrompt = getConnectedPrompt()
+    if (!connectedPrompt && activeShots.length === 0) {
+      upd(updateNode, id, { status: 'failed', error: 'プロンプトを入力してください（マルチショットのときは各ショットの指示でも可）' })
       return
     }
+    const prompt = connectedPrompt ?? ''
     if (hasConnectedImageNode && !connectedImageUrl) {
       upd(updateNode, id, { status: 'failed', error: '参照画像をアップロードしてください' })
       return
     }
+    if (connectedCuts.length > 0 && !cutsElement) {
+      upd(updateNode, id, { status: 'failed', error: '参照カットの画像を用意してください' })
+      return
+    }
 
-    const mode = connectedVideoUrl ? 'video-to-video' : connectedImageUrl ? 'image-to-video' : 'text-to-video'
+    const mode = connectedVideoUrl ? 'video-to-video' : startImageUrl ? 'image-to-video' : 'text-to-video'
     const modelForMode = currentModel
 
     const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
@@ -220,8 +243,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       seed: nodeData.seed,
       mode,
       ...(mode === 'video-to-video' && connectedVideoUrl ? { videoUrl: connectedVideoUrl, ...(connectedImageUrl ? { imageUrl: connectedImageUrl } : {}) } : {}),
-      ...(mode === 'image-to-video' && connectedImageUrl ? { imageUrl: connectedImageUrl } : {}),
+      ...(mode === 'image-to-video' && startImageUrl ? { imageUrl: startImageUrl } : {}),
       ...(supportsEndImage && connectedEndImageUrl ? { endImageUrl: connectedEndImageUrl } : {}),
+      ...(supportsElements && cutsElement ? { elements: [cutsElement] } : {}),
+      ...(activeShots.length ? { shots: activeShots } : {}),
     }
 
     // count 分を並列生成
@@ -262,7 +287,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             duration: nodeData.duration,
             resolution: nodeData.resolution,
             aspectRatio: nodeData.aspectRatio,
-            ...(mode === 'image-to-video' ? { imageUrl: connectedImageUrl } : {}),
+            ...(mode === 'image-to-video' ? { imageUrl: startImageUrl } : {}),
+            ...(supportsElements && cutsElement ? { cuts: 1 + cutsElement.referenceUrls.length } : {}),
+            ...(activeShots.length ? { shots: activeShots.length } : {}),
           }
           // History とサムネイルを即座に保存（アップロード失敗やページ離脱でも確実に記録される）
           if (i === 0) useWorkflowStore.getState().updateThumbnail(workflowId!, result.videoUrl)
@@ -346,7 +373,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
       ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
-  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, getConnectedPrompt, updateNode])
+  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, getConnectedPrompt, updateNode, activeShots, connectedCuts.length, cutsElement, startImageUrl, supportsElements])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -506,67 +533,33 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         </button>
       </div>
 
-      {/* Text input handle */}
-      <Handle
-        id="in-text"
-        type="target"
-        position={Position.Left}
-        style={{
-          top: '28%',
-          width: 20,
-          height: 20,
-          background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
-          border: 'none',
-          borderRadius: 0,
-        }}
-      />
-
-      {/* Start Image input handle */}
-      <Handle
-        id="in-image"
-        type="target"
-        position={Position.Left}
-        style={{
-          top: supportsEndImage ? '48%' : '55%',
-          width: 20,
-          height: 20,
-          background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
-          border: 'none',
-          borderRadius: 0,
-        }}
-      />
-
-      {/* End Image input handle（補完モード対応モデルのみ） */}
-      {supportsEndImage && (
-        <Handle
-          id="in-image-end"
-          type="target"
-          position={Position.Left}
-          style={{
-            top: '63%',
-            width: 20,
-            height: 20,
-            background: 'radial-gradient(circle, #A78BFA 3px, var(--bg-surface) 3px 5px, transparent 5px)',
-            border: 'none',
-            borderRadius: 0,
-          }}
-        />
-      )}
-
-      {/* Video input handle */}
-      <Handle
-        id="in-video"
-        type="target"
-        position={Position.Left}
-        style={{
-          top: supportsEndImage ? '78%' : '75%',
-          width: 20,
-          height: 20,
-          background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
-          border: 'none',
-          borderRadius: 0,
-        }}
-      />
+      {/* 左の入力ハンドル: テキスト / 開始画像 / 終了画像（対応モデル）/ 参照カット（Kling 3.0）/ 動画。表示する数に応じて等間隔 */}
+      {(() => {
+        const list: Array<{ id: string; color: string; title: string }> = [
+          { id: 'in-text', color: '#6366F1', title: 'プロンプト' },
+          { id: 'in-image', color: '#8B5CF6', title: '開始フレーム' },
+          ...(supportsEndImage ? [{ id: 'in-image-end', color: '#A78BFA', title: '終了フレーム' }] : []),
+          ...(supportsElements ? [{ id: 'in-image-cuts', color: '#F472B6', title: `参照カット（正面 1 + 別角度 最大 ${MAX_ELEMENT_REFS}）` }] : []),
+          { id: 'in-video', color: '#EC4899', title: '参照動画' },
+        ]
+        return list.map((h, i) => (
+          <Handle
+            key={h.id}
+            id={h.id}
+            type="target"
+            position={Position.Left}
+            title={h.title}
+            style={{
+              top: `${Math.round(18 + (i * 64) / (list.length - 1))}%`,
+              width: 20,
+              height: 20,
+              background: `radial-gradient(circle, ${h.color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`,
+              border: 'none',
+              borderRadius: 0,
+            }}
+          />
+        ))
+      })()}
 
       {/* Body */}
       <div className="px-3 py-3 flex flex-col gap-2">
@@ -581,7 +574,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             参照動画あり → Video to Video
           </div>
         )}
-        {!connectedVideoUrl && hasConnectedImageNode && connectedEndImageUrl && (
+        {!connectedVideoUrl && hasImageInput && connectedEndImageUrl && (
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
             style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#A78BFA' }}
@@ -590,13 +583,95 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             補完モード（Start → End）
           </div>
         )}
-        {!connectedVideoUrl && hasConnectedImageNode && !connectedEndImageUrl && (
+        {!connectedVideoUrl && hasImageInput && !connectedEndImageUrl && (
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
             style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', color: '#8B5CF6' }}
           >
             <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]" />
-            参照画像あり → Image to Video
+            {hasConnectedImageNode ? '参照画像あり → Image to Video' : '参照カットの正面を開始フレームにして Image to Video'}
+          </div>
+        )}
+
+        {/* 参照カット（Kling 3.0 elements）: つないだカットの一覧と「正面」の選択 */}
+        {supportsElements && connectedCuts.length > 0 && (
+          <div className="rounded-md px-2 py-1.5 flex flex-col gap-1.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+              <Images size={11} />参照カット {connectedCuts.length} 枚
+              <span className="ml-auto font-normal" style={{ color: 'var(--text-tertiary)' }}>正面 1 + 別角度 {Math.min(MAX_ELEMENT_REFS, Math.max(0, connectedCuts.length - 1))}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1">
+              {connectedCuts.map((c) => {
+                const isFrontal = c.nodeId === frontalNodeId
+                return (
+                  <button
+                    key={c.nodeId}
+                    type="button"
+                    className="relative rounded overflow-hidden nodrag"
+                    style={{ aspectRatio: '3 / 4', background: 'var(--bg-placeholder)', outline: isFrontal ? '2px solid #F472B6' : '1px solid var(--border)', outlineOffset: -1 }}
+                    title={isFrontal ? '正面（エレメントの主カット）' : 'クリックして正面にする'}
+                    onClick={() => upd(updateNode, id, { cutsFrontalNodeId: c.nodeId })}
+                    disabled={isGenerating}
+                  >
+                    {c.url ? <img src={c.url} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} /> : null}
+                    {isFrontal && <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] font-semibold text-white" style={{ background: '#F472B6' }}>正面</span>}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
+              同じ人物・同じ服のカットだけをつなぎます（別人を混ぜると顔がすり替わります）。プロンプトでは @Element1 で参照できます。
+              {ignoredCuts > 0 ? ` 別角度は ${MAX_ELEMENT_REFS} 枚までなので ${ignoredCuts} 枚は使われません。` : ''}
+            </div>
+          </div>
+        )}
+
+        {/* マルチショット（Kling 3.0 multi_prompt）: ショットごとの指示と秒数。空なら通常の 1 プロンプト */}
+        {supportsShots && !connectedVideoUrl && (
+          <div className="rounded-md px-2 py-1.5 flex flex-col gap-1.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+              <Clapperboard size={11} />マルチショット
+              <span className="ml-auto font-normal tabular-nums" style={{ color: shotsSeconds > TOTAL_MAX || (activeShots.length > 0 && shotsSeconds < TOTAL_MIN) ? '#F59E0B' : 'var(--text-tertiary)' }}>{activeShots.length ? `合計 ${shotsSeconds} 秒（${TOTAL_MIN}〜${TOTAL_MAX}）` : '未使用'}</span>
+            </div>
+            {shots.map((sh, i) => (
+              <div key={i} className="flex items-start gap-1">
+                <textarea
+                  value={sh.prompt}
+                  onChange={(e) => upd(updateNode, id, { shots: shots.map((x, j) => (j === i ? { ...x, prompt: e.target.value } : x)) })}
+                  placeholder={`ショット ${i + 1} の動き（例: ゆっくり正面を向く）`}
+                  rows={2}
+                  className="flex-1 min-w-0 rounded px-2 py-1 text-[11px] resize-none nodrag nowheel focus:outline-none"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  disabled={isGenerating}
+                />
+                <select
+                  value={sh.duration}
+                  onChange={(e) => upd(updateNode, id, { shots: shots.map((x, j) => (j === i ? { ...x, duration: Number(e.target.value) } : x)) })}
+                  className="h-7 rounded px-1 text-[11px] nodrag appearance-none"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  disabled={isGenerating}
+                  title="このショットの秒数"
+                >
+                  {Array.from({ length: SHOT_MAX - SHOT_MIN + 1 }, (_, k) => SHOT_MIN + k).map((d) => <option key={d} value={d}>{d}s</option>)}
+                </select>
+                <button type="button" className="w-7 h-7 rounded flex items-center justify-center nodrag hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} title="このショットを削除" onClick={() => upd(updateNode, id, { shots: shots.filter((_, j) => j !== i) })} disabled={isGenerating}><Trash2 size={11} /></button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="h-7 rounded text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]"
+              style={{ border: '1px dashed var(--border-active)', color: 'var(--text-secondary)' }}
+              onClick={() => upd(updateNode, id, { shots: [...shots, { prompt: '', duration: 3 }] })}
+              disabled={isGenerating}
+            >
+              <Plus size={10} />ショットを追加
+            </button>
+            {activeShots.length > 0 && (
+              <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
+                つないだプロンプトは共通の説明として各ショットの先頭に付きます。動画の長さはショットの合計になります（Duration の設定は使いません）。
+              </div>
+            )}
           </div>
         )}
 
@@ -642,7 +717,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         {currentModel && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Duration: {nodeData.duration}s</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Duration: {activeShots.length ? `${shotsSeconds}s（ショットの合計）` : `${nodeData.duration}s`}</label>
               <CapsuleFieldToggle fieldId="duration" visibility={getCapsuleVisibility('duration')} onChange={handleCapsuleChange} />
             </div>
             <select
@@ -650,7 +725,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
               value={nodeData.duration}
               onChange={(e) => upd(updateNode, id, { duration: e.target.value })}
-              disabled={isGenerating}
+              disabled={isGenerating || activeShots.length > 0}
             >
               {currentModel.supportedDurations.map((d) => (
                 <option key={d} value={d}>{d === 'auto' ? 'auto' : `${d}秒`}</option>
