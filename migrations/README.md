@@ -28,3 +28,4 @@
 > 着手順2の設計根拠はメモリ `project_team_quota_design.md` を参照。
 
 > **0008 ✅ 適用完了（2026-06-15・本番/staging とも (A)+(B) 適用＝private 化済み・ログアウトで raw 公開URL が 404 を実地確認）**。2部構成・段階適用だった: (A) 認証 SELECT ポリシーを先に両DBへ → 新コードをデプロイし **public のまま検証** → (B) `storage.buckets.public=false`（カットオーバー、ファイル内でコメントアウト・別途実行）。署名URLは public バケットでも動くため後方互換。ロールバックは `public=true` に戻すだけ（データ変更なし）。設計はメモリ `project_ga_security_audit.md` の着手順5「バケット非公開化 L1」。
+- `0018_batch_items_cuts.sql` — 商品動画: batch_items.cuts（jsonb）。staging → 本番の順に SQL Editor で適用（2026-10-13）

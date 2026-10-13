@@ -23,6 +23,8 @@ import {
 import { estimateExportBytes, exportColumnsFor, exportFileCount, exportJobZip, exportTargets, type ExportScope } from '../../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from '../badges'
 import { JobActions } from '../JobActions'
+import { VideoReviewPanel } from '../../app/VideoReviewPanel'
+import { videoNodeOf } from '../../../lib/video/productVideo'
 import { ACCENT } from './reviewStyles'
 import { ReviewGrid } from './ReviewGrid'
 import { ReviewTabs, ReviewToolbar } from './ReviewToolbar'
@@ -404,6 +406,9 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       </div>
     )
   }
+  // 商品動画のジョブ（2026-10-13）: 確認グリッドではなく動画の結果欄を出す（履歴ページ / 一括結果ノード / App で共通）
+  if (videoNodeOf(job.workflow_snapshot)) return <VideoReviewPanel jobId={jobId} compact={isNode} onDeleted={onDeleted} />
+
   const p = jobProgress(job)
   const summary = { ready: items.filter((i) => i.status === 'ready').length, processing: items.filter((i) => i.status === 'processing').length, pending: items.filter((i) => i.status === 'pending').length, failed: counts.failed }
   const handleDeleted = () => { if (onDeleted) onDeleted(); else navigate('/jobs') }

@@ -14,3 +14,12 @@ describe('pricing', () => {
     expect(pricingFor('fal-ai/nano-banana-2x')).toBeNull()
   })
 })
+
+describe('pricing（動画）', () => {
+  it('Kling v3 Pro は動画の秒数 × 単価、結合は無料', () => {
+    expect(estimateTaskCost('fal-ai/kling-video/v3/pro/image-to-video', 120, { duration: '3' })).toBe(0.3)
+    expect(estimateTaskCost('fal-ai/kling-video/v3/pro/image-to-video', null, { duration: 10 })).toBe(1)
+    expect(estimatePlannedTaskCost('fal-ai/kling-video/v3/pro/image-to-video')).toBe(0.3)   // duration 不明 → 想定 3 秒
+    expect(estimateTaskCost('fal-ai/ffmpeg-api/merge-videos', 4)).toBe(0)
+  })
+})

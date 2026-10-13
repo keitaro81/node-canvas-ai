@@ -10,6 +10,7 @@ import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_fal
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 import { backgroundSourcesOf, promptForGenerator } from '../../src/lib/batch/background'
 import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../../src/lib/ai/imageGenModels'
+import { CUT_ROLES, CUT_ROLE_LABEL, KLING_V3_I2V_ENDPOINT, MERGE_VIDEOS_ENDPOINT, cutOf, elementCutsOf, shotPrompt, shotTaskNodeId, videoNodeOf, type CutRole, type ItemCut } from '../../src/lib/video/productVideo'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -57,7 +58,7 @@ export interface SnapshotNode { id: string; type?: string; data?: any }
 export interface SnapshotEdge { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
 export interface WorkflowSnapshot { nodes?: SnapshotNode[]; edges?: SnapshotEdge[] }
 
-export type PlannedKind = 'cutout' | 'imageGen' | 'imageEdit'
+export type PlannedKind = 'cutout' | 'imageGen' | 'imageEdit' | 'videoShot' | 'videoMerge'
 export interface PlannedTask {
   nodeId: string
   scope: 'item' | 'job'
@@ -65,7 +66,7 @@ export interface PlannedTask {
   input: Record<string, unknown>   // アイテムごとのタスクは image_url / image_urls を投入時に足す
   kind: PlannedKind
   stage: number                    // アイテムごと: 1 = 元の写真を入力、2 = 1 段目の結果を入力。ジョブごとは 1
-  dependsOn: string | null         // 2 段目が待つ前段のノード id
+  dependsOn: string | string[] | null   // 2 段目が待つ前段のノード id（商品動画の結合は複数のショットを待つ）
   label: string                    // ノード名（見積の内訳・結果タブ）
   dualOutput: boolean              // 切り抜き: マスクと透過画像の両方を受け取る（後段が切り抜き画像を使う）
 }
@@ -90,6 +91,26 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   }
   const tasks: PlannedTask[] = []
   const warnings: string[] = []
+
+  // 商品訴求動画（2026-10-13）: Product Video ノードがある写しは、ショット（Kling v3 Pro・写真ごと）＋ 結合（ffmpeg・写真ごと・全ショット待ち）だけを実行する
+  const video = videoNodeOf({ nodes })
+  if (video) {
+    if (nodes.some((n) => n?.data?.type === 'removeBackground' || n?.data?.type === 'imageGen')) {
+      warnings.push('商品動画のワークフローでは Remove Background / Image Generation は一括実行の対象外です（動画のショットと結合だけを実行します）')
+    }
+    const shotIds: string[] = []
+    video.params.shots.forEach((shot, i) => {
+      const nodeId = shotTaskNodeId(video.id, i)
+      shotIds.push(nodeId)
+      tasks.push({
+        nodeId, scope: 'item', endpoint: KLING_V3_I2V_ENDPOINT, kind: 'videoShot', stage: 1, dependsOn: null, dualOutput: false,
+        label: `${video.label} ${i + 1}: ${CUT_ROLE_LABEL[shot.role]}`,
+        input: { prompt: shotPrompt(video.params, shot), duration: String(shot.duration), generate_audio: false, negative_prompt: video.params.negativePrompt, __shot: { index: i, role: shot.role, duration: shot.duration } },
+      })
+    })
+    tasks.push({ nodeId: video.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, kind: 'videoMerge', stage: 2, dependsOn: shotIds, dualOutput: false, label: `${video.label}（結合）`, input: {} })
+    return { tasks, warnings }
+  }
 
   // 画像の出どころ（結果ノードは透過して生成器へ）
   const producerOf = (sourceId: string): { kind: 'batchInput' | 'ai' | 'other'; nodeId: string } => {
@@ -198,21 +219,26 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   return { tasks, warnings }
 }
 
-/** タスクが待つ前段のノード id（input.__depends_on） */
-export function dependencyOf(task: { input?: Record<string, unknown> | null }): string | null {
+/** タスクが待つ前段のノード id（input.__depends_on。文字列 1 つか配列） */
+export function dependenciesOf(task: { input?: Record<string, unknown> | null }): string[] {
   const d = task.input?.__depends_on
-  return typeof d === 'string' && d ? d : null
+  if (Array.isArray(d)) return d.filter((x): x is string => typeof x === 'string' && !!x)
+  return typeof d === 'string' && d ? [d] : []
+}
+/** 前段が 1 つのときのノード id（従来の切り抜き → 生成）。複数なら最初の 1 つ */
+export function dependencyOf(task: { input?: Record<string, unknown> | null }): string | null {
+  return dependenciesOf(task)[0] ?? null
 }
 
-/** 未投入タスクのうち、いま投入できるもの / 前段の失敗で投入できないもの / 前段待ちのもの に分ける（純関数） */
+/** 未投入タスクのうち、いま投入できるもの / 前段の失敗で投入できないもの / 前段待ちのもの に分ける（純関数）。前段が複数なら全部の完了を待つ */
 export function selectSubmittable<T extends { id: string; item_id: string | null; node_id: string; status: string; input?: Record<string, unknown> | null }>(pending: T[], all: T[]): { ready: T[]; blockedByFailure: T[]; waiting: T[] } {
   const ready: T[] = [], blockedByFailure: T[] = [], waiting: T[] = []
   for (const t of pending) {
-    const dep = dependencyOf(t)
-    if (!dep) { ready.push(t); continue }
-    const depTask = all.find((x) => x.item_id === t.item_id && x.node_id === dep)
-    if (!depTask || depTask.status === 'failed' || depTask.status === 'cancelled') blockedByFailure.push(t)
-    else if (depTask.status === 'completed') ready.push(t)
+    const deps = dependenciesOf(t)
+    if (!deps.length) { ready.push(t); continue }
+    const depTasks = deps.map((dep) => all.find((x) => x.item_id === t.item_id && x.node_id === dep))
+    if (depTasks.some((d) => !d || d.status === 'failed' || d.status === 'cancelled')) blockedByFailure.push(t)
+    else if (depTasks.every((d) => d!.status === 'completed')) ready.push(t)
     else waiting.push(t)
   }
   return { ready, blockedByFailure, waiting }
@@ -257,8 +283,12 @@ export function extOf(path: string): string {
 export function originalPath(teamId: string, jobId: string, itemId: string, srcPath: string): string {
   return `${teamId}/${jobId}/${itemId}/original.${extOf(srcPath)}`
 }
+/** 商品動画のカット（役割ごと）のジョブ階層での保存先 */
+export function cutPath(teamId: string, jobId: string, itemId: string, role: string, srcPath: string): string {
+  return `${teamId}/${jobId}/${itemId}/cut-${role}.${extOf(srcPath)}`
+}
 export function resultPath(task: { team_id: string; job_id: string; item_id: string | null; node_id: string }, contentType: string): string {
-  const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg'
+  const ext = contentType.startsWith('video/') || contentType.includes('mp4') ? 'mp4' : contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg'
   return `${task.team_id}/${task.job_id}/${task.item_id ?? 'job'}/${task.node_id}-result.${ext}`
 }
 
@@ -311,7 +341,8 @@ export async function falCancel(falKey: string, endpoint: string, requestId: str
 
 // ───────────────────────── create ─────────────────────────
 
-export interface CreateItemInput { index: number; originalName: string; sku: string; interactivePath: string; width?: number; height?: number }
+export interface CreateCutInput { role: string; path: string; width?: number; height?: number; name?: string }
+export interface CreateItemInput { index: number; originalName: string; sku: string; interactivePath: string; width?: number; height?: number; cuts?: CreateCutInput[] }
 export interface CreateBody { name?: string; items?: CreateItemInput[]; workflowSnapshot?: WorkflowSnapshot; dryRun?: boolean; workflowId?: string | null }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -331,9 +362,16 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const m = await memberOf(admin, userId)
   if (!m) return fail(403, 'not_a_member', { message: 'チームに所属していません' })
   const items = Array.isArray(body?.items) ? body.items : []
+  const videoNode = videoNodeOf(body?.workflowSnapshot)
   for (const it of items) {
     if (!it || typeof it.originalName !== 'string' || typeof it.sku !== 'string' || typeof it.interactivePath !== 'string') return fail(400, 'invalid_item')
     if (!it.interactivePath.startsWith(`${m.teamId}/`)) return fail(400, 'invalid_item_path', { message: '他チームのファイルは使えません' })
+    // 商品動画: 役割ごとのカット。正面は必須で、他チームのファイルは不可
+    if (it.cuts !== undefined) {
+      if (!Array.isArray(it.cuts) || it.cuts.some((c) => !c || typeof c.path !== 'string' || !CUT_ROLES.some((r) => r.id === c.role))) return fail(400, 'invalid_item_cuts', { message: 'カットの指定が不正です' })
+      if (it.cuts.some((c) => !c.path.startsWith(`${m.teamId}/`))) return fail(400, 'invalid_item_path', { message: '他チームのファイルは使えません' })
+      if (videoNode && !it.cuts.some((c) => c.role === 'front')) return fail(400, 'front_cut_required', { message: `${it.sku}: 正面のカットが必要です` })
+    } else if (videoNode) return fail(400, 'cuts_required', { message: '商品動画には役割ごとのカットが必要です' })
   }
 
   const { data: team } = await admin.from('teams').select('daily_item_limit, show_cost').eq('id', m.teamId).maybeSingle()
@@ -346,19 +384,27 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const plan = planTasks(body?.workflowSnapshot)
   const itemTasks = plan.tasks.filter((t) => t.scope === 'item')
   const jobTasks = plan.tasks.filter((t) => t.scope === 'job')
-  const estimatedCostUsd = Math.round((items.length * itemTasks.reduce((s, t) => s + estimatePlannedTaskCost(t.endpoint), 0) + jobTasks.reduce((s, t) => s + estimatePlannedTaskCost(t.endpoint), 0)) * 10000) / 10000
+  // 件数: 写真ごとは枚数、ジョブごとは 1。商品動画のショットは「その役割のカットがある SKU」の数（無いショットは飛ばす）
+  const countOf = (t: PlannedTask): number => {
+    if (t.scope !== 'item') return 1
+    if (t.kind !== 'videoShot') return items.length
+    const role = (t.input.__shot as { role?: CutRole } | undefined)?.role
+    return role ? items.filter((it) => !!cutOf((it.cuts ?? []) as ItemCut[], role)).length : 0
+  }
   const limits = { dailyLimit, usedToday, remaining: Math.max(0, dailyLimit - usedToday), activeJobs: activeJobs ?? 0, maxActiveJobs: MAX_ACTIVE_JOBS, maxItemsPerJob: MAX_ITEMS_PER_JOB }
   const breakdown = plan.tasks.map((t) => {
-    const unitUsd = estimatePlannedTaskCost(t.endpoint)
-    const count = t.scope === 'item' ? items.length : 1
+    const unitUsd = estimatePlannedTaskCost(t.endpoint, t.input)
+    const count = countOf(t)
     return { nodeId: t.nodeId, label: t.label, kind: t.kind, scope: t.scope, stage: t.stage, count, unitUsd, totalUsd: Math.round(unitUsd * count * 10000) / 10000, endpoint: t.endpoint }
   })
+  const estimatedCostUsd = Math.round(breakdown.reduce((s, b) => s + b.totalUsd, 0) * 10000) / 10000
+  const totalTasks = breakdown.reduce((s, b) => s + b.count, 0)
   const perItemGenerations = breakdown.filter((b) => b.kind === 'imageEdit').reduce((n, b) => n + b.count, 0)
   const maxStage = Math.max(1, ...plan.tasks.map((t) => t.stage))
   const planInfo = {
-    itemTasks: itemTasks.length, jobTasks: jobTasks.length, totalTasks: items.length * itemTasks.length + jobTasks.length,
-    estimatedCostUsd, estimatedSeconds: Math.ceil(items.length * 2 * maxStage + jobTasks.length * 10), showCost: !!team?.show_cost, warnings: plan.warnings,
-    breakdown, perItemGenerations, maxStage,
+    itemTasks: itemTasks.length, jobTasks: jobTasks.length, totalTasks,
+    estimatedCostUsd, estimatedSeconds: videoNode ? 240 + items.length * 10 : Math.ceil(items.length * 2 * maxStage + jobTasks.length * 10), showCost: !!team?.show_cost, warnings: plan.warnings,
+    breakdown, perItemGenerations, maxStage, video: !!videoNode,
   }
   if (body?.dryRun) return ok({ limits, plan: planInfo })
 
@@ -378,6 +424,7 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
     job_id: job.id, team_id: m.teamId, sort_order: Number.isInteger(it.index) ? it.index : i + 1,
     original_filename: it.originalName, sku: it.sku, interactive_path: it.interactivePath,
     width: it.width ?? null, height: it.height ?? null, status: 'pending',
+    ...(it.cuts ? { cuts: it.cuts.map((c) => ({ role: c.role, path: c.path, width: c.width ?? null, height: c.height ?? null, name: c.name ?? null })) } : {}),
   }))
   const { data: inserted, error: itemErr } = await admin.from('batch_items').insert(rows).select('id, sort_order')
   if (itemErr) {
@@ -419,6 +466,29 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
   let copied = 0
   const copyFailures: string[] = []
   await Promise.all(items.filter((i) => !i.source_path && i.interactive_path && i.status !== 'failed').slice(0, chunk).map(async (it) => {
+    const cuts = Array.isArray(it.cuts) ? (it.cuts as ItemCut[]) : null
+    if (cuts && cuts.length) {
+      // 商品動画: 役割ごとのカットを全部ジョブ階層へコピーし、正面を元画像（source_path）にする
+      const copiedCuts: ItemCut[] = []
+      for (const c of cuts) {
+        const dest = cutPath(job.team_id, job.id, it.id, c.role, c.path)
+        const { error } = await admin.storage.from(BATCH_BUCKET).copy(c.path, dest)
+        if (error && !/already exists|duplicate/i.test(String(error.message))) {
+          copyFailures.push(`${it.sku} (${c.role}): ${error.message}`)
+          await admin.from('batch_items').update({ status: 'failed', warnings: [`カット（${c.role}）のコピーに失敗: ${error.message}`], updated_at: new Date().toISOString() }).eq('id', it.id)
+          it.status = 'failed'
+          return
+        }
+        copiedCuts.push({ ...c, path: dest })
+      }
+      const front = cutOf(copiedCuts, 'front')
+      const dest = front?.path ?? copiedCuts[0].path
+      await admin.from('batch_items').update({ source_path: dest, cuts: copiedCuts, updated_at: new Date().toISOString() }).eq('id', it.id)
+      it.source_path = dest
+      it.cuts = copiedCuts
+      copied++
+      return
+    }
     const dest = originalPath(job.team_id, job.id, it.id, it.interactive_path)
     const { error } = await admin.storage.from(BATCH_BUCKET).copy(it.interactive_path, dest)
     if (error && !/already exists|duplicate/i.test(String(error.message))) {
@@ -441,7 +511,17 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
       for (const it of items) {
         if (!it.source_path || it.status === 'failed') continue
         if (existing.has(`${t.nodeId}|${it.id}`)) continue
-        newRows.push({ job_id: job.id, item_id: it.id, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: t.stage, __depends_on: t.dependsOn, __dual: t.dualOutput, __label: t.label }, status: 'pending' })
+        // 商品動画: その役割のカットが無いショットは作らない（飛ばす）。結合は、その SKU で作るショットだけを待つ
+        let dependsOn: string | string[] | null = t.dependsOn
+        if (t.kind === 'videoShot') {
+          const role = (t.input.__shot as { role?: CutRole } | undefined)?.role
+          if (!role || !cutOf((it.cuts ?? []) as ItemCut[], role)) continue
+        } else if (t.kind === 'videoMerge') {
+          const shotIds = plan.tasks.filter((x) => x.kind === 'videoShot' && cutOf((it.cuts ?? []) as ItemCut[], (x.input.__shot as { role: CutRole }).role)).map((x) => x.nodeId)
+          if (!shotIds.length) continue
+          dependsOn = shotIds
+        }
+        newRows.push({ job_id: job.id, item_id: it.id, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: t.stage, __depends_on: dependsOn, __dual: t.dualOutput, __label: t.label }, status: 'pending' })
       }
     } else if (!existing.has(`${t.nodeId}|`)) {
       newRows.push({ job_id: job.id, item_id: null, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: 1, __depends_on: null, __dual: false, __label: t.label }, status: 'pending' })
@@ -490,7 +570,7 @@ async function submitPendingTasks(admin: Admin, opts: BatchOpts, job: { id: stri
   const { data: allData } = await admin.from('batch_tasks').select('*').eq('job_id', job.id).order('created_at')
   const all = (allData ?? []) as any[]
   let pending = all.filter((t) => t.status === 'pending')
-  if (only) pending = pending.filter((t) => t.item_id === only.itemId && dependencyOf(t) === only.dependsOn)
+  if (only) pending = pending.filter((t) => t.item_id === only.itemId && dependenciesOf(t).includes(only.dependsOn))
   const { ready, blockedByFailure } = selectSubmittable(pending, all)
   const result: SubmitRun = { submitted: 0, failedSubmits: 0, propagatedFailures: 0, waiting: 0 }
   for (const t of blockedByFailure) {
@@ -499,28 +579,14 @@ async function submitPendingTasks(admin: Admin, opts: BatchOpts, job: { id: stri
   }
   const webhook = webhookUrlFor(opts, job, disableWebhook)
   const itemsById = new Map(items.map((i) => [i.id, i]))
-  const needItems = ready.some((t) => t.item_id && !dependencyOf(t)) && items.length === 0
+  const needItems = ready.some((t) => t.item_id && (!dependenciesOf(t).length || t.input?.__kind === 'videoShot')) && items.length === 0
   if (needItems) {
     const { data: its } = await admin.from('batch_items').select('*').eq('job_id', job.id)
     for (const i of (its ?? []) as any[]) itemsById.set(i.id, i)
   }
   await mapLimit(ready.slice(0, chunk), SUBMIT_CONCURRENCY, async (task) => {
-    const input = falInputOf(task)
-    if (task.item_id) {
-      const dep = dependencyOf(task)
-      let path: string | null = null
-      if (!dep) path = itemsById.get(task.item_id)?.source_path ?? null
-      else {
-        const depTask = all.find((x) => x.item_id === task.item_id && x.node_id === dep)
-        const meta = (depTask?.result_meta ?? {}) as { cutout_path?: string | null }
-        path = (task.input?.__kind === 'imageEdit' ? (meta.cutout_path ?? depTask?.result_path) : depTask?.result_path) ?? null
-      }
-      if (!path) return
-      const signed = await signOriginal(admin, path)
-      if (!signed) return
-      if (task.input?.__kind === 'imageEdit') input.image_urls = [signed]
-      else input.image_url = signed
-    }
+    const input = await buildTaskInput(admin, task, task.item_id ? itemsById.get(task.item_id) ?? null : null, all)
+    if (!input) return
     // 投入権を取る（attempts の CAS）。再開・失敗分の再実行が別のブラウザから同時に走っても同じタスクを二重に投入しない
     const attempts = (task.attempts ?? 0) + 1
     const { data: claimed } = await admin.from('batch_tasks').update({ attempts }).eq('id', task.id).eq('status', 'pending').eq('attempts', task.attempts ?? 0).select('id')
@@ -544,6 +610,68 @@ async function submitPendingTasks(admin: Admin, opts: BatchOpts, job: { id: stri
   return result
 }
 
+/** 複数パスの署名 URL（まとめて） */
+async function signMany(admin: Admin, paths: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  const unique = Array.from(new Set(paths.filter((p) => !!p)))
+  if (!unique.length) return out
+  const { data } = await admin.storage.from(BATCH_BUCKET).createSignedUrls(unique, SIGNED_URL_TTL)
+  for (const r of (data ?? []) as Array<{ path?: string | null; signedUrl?: string | null }>) if (r.path && r.signedUrl) out[r.path] = r.signedUrl
+  return out
+}
+
+/**
+ * タスクを fal に送る入力を組み立てる（投入・再投入で共通）。
+ * - 切り抜き / 生成: 1 段目 = 元の写真、2 段目 = 前段の結果（切り抜き → 生成 は透過画像）
+ * - 動画ショット: 役割のカットを開始フレーム、正面 + 別角度をエレメントに
+ * - 結合: 完了したショットの結果を順に video_urls へ
+ * 入力が揃わなければ null（投入しない）
+ */
+export async function buildTaskInput(admin: Admin, task: any, item: any | null, all: any[]): Promise<Record<string, unknown> | null> {
+  const input = falInputOf(task)
+  if (!task.item_id) return input
+  const kind = task.input?.__kind as string | undefined
+  if (kind === 'videoShot') {
+    const cuts = Array.isArray(item?.cuts) ? (item.cuts as ItemCut[]) : []
+    const role = (task.input?.__shot as { role?: CutRole } | undefined)?.role
+    const start = role ? cutOf(cuts, role) : null
+    const { frontal, references } = elementCutsOf(cuts)
+    if (!start || !frontal) return null
+    const signed = await signMany(admin, [start.path, frontal.path, ...references.map((c) => c.path)])
+    if (!signed[start.path] || !signed[frontal.path]) return null
+    input.start_image_url = signed[start.path]
+    const refs = references.map((c) => signed[c.path]).filter((u): u is string => !!u)
+    input.elements = [refs.length ? { frontal_image_url: signed[frontal.path], reference_image_urls: refs } : { frontal_image_url: signed[frontal.path] }]
+    return input
+  }
+  if (kind === 'videoMerge') {
+    const deps = dependenciesOf(task)
+    const depTasks = all
+      .filter((x) => x.item_id === task.item_id && deps.includes(x.node_id) && x.status === 'completed' && x.result_path)
+      .sort((a, b) => ((a.input?.__shot?.index ?? 0) as number) - ((b.input?.__shot?.index ?? 0) as number))
+    if (depTasks.length !== deps.length) return null
+    const signed = await signMany(admin, depTasks.map((t) => t.result_path as string))
+    const urls = depTasks.map((t) => signed[t.result_path as string]).filter((u): u is string => !!u)
+    if (urls.length !== depTasks.length) return null
+    input.video_urls = urls
+    return input
+  }
+  const dep = dependencyOf(task)
+  let path: string | null = null
+  if (!dep) path = item?.source_path ?? null
+  else {
+    const depTask = all.find((x) => x.item_id === task.item_id && x.node_id === dep)
+    const meta = (depTask?.result_meta ?? {}) as { cutout_path?: string | null }
+    path = (kind === 'imageEdit' ? (meta.cutout_path ?? depTask?.result_path) : depTask?.result_path) ?? null
+  }
+  if (!path) return null
+  const signed = await signOriginal(admin, path)
+  if (!signed) return null
+  if (kind === 'imageEdit') input.image_urls = [signed]
+  else input.image_url = signed
+  return input
+}
+
 /** 前段の完了を受けて、同じ写真の後段を投入する（Webhook / 照合から） */
 async function submitDependents(admin: Admin, opts: BatchOpts, task: { job_id: string; item_id: string | null; node_id: string }, disableWebhook: boolean): Promise<void> {
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, webhook_secret, status').eq('id', task.job_id).maybeSingle()
@@ -555,7 +683,7 @@ async function submitDependents(admin: Admin, opts: BatchOpts, task: { job_id: s
 async function propagateFailure(admin: Admin, task: { job_id: string; item_id: string | null; node_id: string }): Promise<void> {
   const { data: deps } = await admin.from('batch_tasks').select('id, input').eq('job_id', task.job_id).eq('status', 'pending')
   for (const d of (deps ?? []) as any[]) {
-    if (dependencyOf(d) !== task.node_id) continue
+    if (!dependenciesOf(d).includes(task.node_id)) continue
     const { data: row } = await admin.from('batch_tasks').select('item_id').eq('id', d.id).maybeSingle()
     if (row?.item_id !== task.item_id) continue
     await admin.rpc('apply_batch_task_result', { p_task_id: d.id, p_outcome: 'failed', p_error: '前段の処理が失敗したため実行できません' })
@@ -585,7 +713,9 @@ export function pickResultFile(endpoint: string, payload: unknown): { url: strin
   if (engine) {
     try { const f = pickEngineResult(engine, payload); return { url: f.url, kind: f.kind, width: f.width, height: f.height } } catch { return null }
   }
-  const p = (payload && typeof payload === 'object' ? payload : {}) as { images?: Array<{ url?: string; width?: number; height?: number }>; image?: { url?: string; width?: number; height?: number } }
+  const p = (payload && typeof payload === 'object' ? payload : {}) as { images?: Array<{ url?: string; width?: number; height?: number }>; image?: { url?: string; width?: number; height?: number }; video?: { url?: string; width?: number; height?: number } }
+  // 動画（Kling のショット / ffmpeg の結合）は video
+  if (p.video?.url) return { url: p.video.url, kind: 'video', width: p.video.width, height: p.video.height }
   const img = p.images?.[0] ?? p.image
   return img?.url ? { url: img.url, kind: 'image', width: img.width, height: img.height } : null
 }
@@ -607,7 +737,7 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
     }
     const res = await fetch(file.url).catch(() => null)
     if (!res || !res.ok) return { action: 'result_fetch_failed', applied: false }   // submitted のまま → 照合で再取得
-    const contentType = res.headers.get('content-type') ?? 'image/png'
+    const contentType = res.headers.get('content-type') ?? (file.kind === 'video' ? 'video/mp4' : 'image/png')
     const dest = resultPath(task, contentType)
     const buf = await res.arrayBuffer()
     const { error: upErr } = await admin.storage.from(BATCH_BUCKET).upload(dest, buf, { contentType, upsert: true })
@@ -627,7 +757,7 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
         }
       }
     }
-    const cost = estimateTaskCost(task.endpoint, outcome.inferenceTime ?? null)
+    const cost = estimateTaskCost(task.endpoint, outcome.inferenceTime ?? null, task.input)
     const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'completed', p_result_path: dest, p_result_meta: meta, p_cost_usd: cost })
     if (applied) await submitDependents(admin, opts, task, disableWebhook)
     return { action: 'completed', applied: !!applied }
@@ -635,15 +765,13 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
 
   // 失敗
   if ((task.attempts ?? 0) < MAX_ATTEMPTS) {
-    const input = falInputOf(task)
-    if (task.item_id) {
-      const { data: it } = await admin.from('batch_items').select('source_path').eq('id', task.item_id).maybeSingle()
-      const signed = it?.source_path ? await signOriginal(admin, it.source_path) : null
-      if (!signed) {
-        const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: '再投入に必要な元画像がありません' })
-        return { action: 'failed', applied: !!applied }
-      }
-      input.image_url = signed
+    let item: any = null
+    if (task.item_id) { const { data: it } = await admin.from('batch_items').select('*').eq('id', task.item_id).maybeSingle(); item = it ?? null }
+    const { data: siblings } = await admin.from('batch_tasks').select('*').eq('job_id', task.job_id)
+    const input = await buildTaskInput(admin, task, item, (siblings ?? []) as any[])
+    if (!input) {
+      const { data: applied } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: '再投入に必要な入力がありません' })
+      return { action: 'failed', applied: !!applied }
     }
     const { data: job } = await admin.from('batch_jobs').select('id, webhook_secret').eq('id', task.job_id).maybeSingle()
     const r = await falSubmit(opts.falKey, task.endpoint, input, job ? webhookUrlFor(opts, job, disableWebhook) : undefined)
@@ -826,7 +954,7 @@ export function planRerun(
 /** 再実行する切り抜きの後段（__depends_on がそのノード）のタスク。結果が古くなるので一緒に未投入へ戻す（前段完了時に submitDependents が投入する） */
 export function dependentTaskIds(tasks: Array<{ id: string; item_id: string | null; input?: Record<string, unknown> | null }>, nodeId: string, itemIds: string[]): string[] {
   const set = new Set(itemIds)
-  return tasks.filter((t) => !!t.item_id && set.has(t.item_id) && dependencyOf(t) === nodeId).map((t) => t.id)
+  return tasks.filter((t) => !!t.item_id && set.has(t.item_id) && dependenciesOf(t).includes(nodeId)).map((t) => t.id)
 }
 
 export interface RerunBody { jobId?: string; nodeId?: string; itemIds?: string[]; params?: unknown }

@@ -17,7 +17,7 @@ type Phase = 'estimating' | 'confirm' | 'creating' | 'submitting' | 'done' | 'er
 interface ApiError extends Error { code?: string; status?: number; details?: Record<string, unknown> }
 
 const ROW = 'flex items-center justify-between text-[12px] py-1'
-const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: '画像生成（写真ごと）', imageGen: '背景生成（1 回）' }
+const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: '画像生成（写真ごと）', imageGen: '背景生成（1 回）', videoShot: '動画ショット（SKU ごと）', videoMerge: '結合（SKU ごと）' }
 
 /**
  * 一括実行の確認 → 作成 → 投入（仕様 4-7 / 4-8）。Batch Input ノードの「一括実行…」から開く。
@@ -121,7 +121,7 @@ export function BatchSubmitDialog() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close() }}>
       <div role="dialog" aria-modal="true" className="w-[480px] max-w-[92vw] rounded-xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{items.length} 枚を処理します</h2>
+          <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{items.length} {plan?.video ? '件' : '枚'}を処理します</h2>
           <button onClick={close} disabled={busy} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-elevated)] disabled:opacity-40" style={{ color: 'var(--text-secondary)' }} title="閉じる"><X size={14} /></button>
         </div>
 
@@ -193,7 +193,7 @@ export function BatchSubmitDialog() {
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={close} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>キャンセル</button>
               <button onClick={() => void start()} disabled={!items.length || !plan?.totalTasks} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-                {items.length} 枚の処理を始める
+                {items.length} {plan?.video ? '件' : '枚'}の処理を始める
               </button>
             </div>
           </>

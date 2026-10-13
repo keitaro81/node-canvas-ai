@@ -46,6 +46,7 @@ import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../../lib/layout/nodeIo'
 import { BatchInputNode } from '../nodes/BatchInputNode'
 import { BatchResultsNode } from '../nodes/BatchResultsNode'
+import { ProductVideoNode } from '../nodes/ProductVideoNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
@@ -78,6 +79,7 @@ const nodeTypes: NodeTypes = {
   batchInputNode: BatchInputNode,
   exportNode: ExportNode,
   batchResultsNode: BatchResultsNode,
+  productVideoNode: ProductVideoNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -102,6 +104,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   batchInput:      'batchInputNode',
   export:          'exportNode',
   batchResults:    'batchResultsNode',
+  productVideo:    'productVideoNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {

@@ -2,7 +2,7 @@
 // 自分のものとチームに共有されたものから集めて一覧にする。カードをクリックすると App モードで開く（ボタンは置かない。キャンバスは My Projects から）。
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { AppWindow, CircleNotch, Images, Sparkle } from '@phosphor-icons/react'
+import { AppWindow, CircleNotch, Images, Sparkle, FilmSlate } from '@phosphor-icons/react'
 import { getTeamWorkflows, type WorkflowRow } from '../../lib/api/workflows'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { appKindOf, APP_KIND_LABEL, type AppKind } from '../../lib/apps/appKind'
@@ -43,7 +43,7 @@ export function AppsPage() {
 
 
   const visible = filter === 'all' ? apps : apps.filter((a) => a.kind === filter)
-  const kindCounts = { batch: apps.filter((a) => a.kind === 'batch').length, generation: apps.filter((a) => a.kind === 'generation').length }
+  const kindCounts = { batch: apps.filter((a) => a.kind === 'batch').length, generation: apps.filter((a) => a.kind === 'generation').length, video: apps.filter((a) => a.kind === 'video').length }
 
   return (
     <div className="flex flex-col h-full">
@@ -53,7 +53,7 @@ export function AppsPage() {
           <AppsSectionTabs active="apps" />
         </div>
         <div className="flex items-center rounded-lg overflow-hidden shrink-0" style={{ border: '1px solid var(--border)' }}>
-          {([['all', `すべて ${apps.length}`], ['batch', `撮影後工程 ${kindCounts.batch}`], ['generation', `生成 ${kindCounts.generation}`]] as Array<[KindFilter, string]>).map(([k, label]) => (
+          {([['all', `すべて ${apps.length}`], ['batch', `撮影後工程 ${kindCounts.batch}`], ['video', `商品動画 ${kindCounts.video}`], ['generation', `生成 ${kindCounts.generation}`]] as Array<[KindFilter, string]>).map(([k, label]) => (
             <button key={k} onClick={() => setFilter(k)} className="h-8 px-3 text-[12px] font-medium transition-colors" style={{ background: filter === k ? 'var(--bg-elevated)' : 'transparent', color: filter === k ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}</button>
           ))}
         </div>
@@ -92,8 +92,8 @@ export function AppsPage() {
 
 function AppCard({ entry, now, onOpenApp }: { entry: AppEntry; now: number; onOpenApp: () => void }) {
   const { workflow: w, kind } = entry
-  const accent = kind === 'batch' ? '#14B8A6' : '#8B5CF6'
-  const Icon = kind === 'batch' ? Images : Sparkle
+  const accent = kind === 'batch' ? '#14B8A6' : kind === 'video' ? '#EC4899' : '#8B5CF6'
+  const Icon = kind === 'batch' ? Images : kind === 'video' ? FilmSlate : Sparkle
   // サムネイルは署名 URL。失効なら 1 回だけ再署名し、それでも読めない（保持期限切れで消えた等）ときは既定のアイコンに戻す
   const { url: thumbUrl, onError: onThumbError, failed: thumbFailed } = useSignedMedia(w.thumbnail_url)
   return (

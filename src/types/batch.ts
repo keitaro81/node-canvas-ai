@@ -42,11 +42,13 @@ export interface BatchItemRow {
   review: BatchReview
   reviewed_by: string | null
   warnings: string[]
+  /** 商品動画: 役割ごとの着用カット（0018）。切り抜きのジョブでは null */
+  cuts?: Array<{ role: string; path: string; width?: number | null; height?: number | null; name?: string | null }> | null
   created_at: string
   updated_at: string
 }
 
-export const ITEM_COLUMNS = 'id, job_id, team_id, sort_order, original_filename, sku, source_path, interactive_path, width, height, status, review, reviewed_by, warnings, created_at, updated_at'
+export const ITEM_COLUMNS = 'id, job_id, team_id, sort_order, original_filename, sku, source_path, interactive_path, width, height, status, review, reviewed_by, warnings, cuts, created_at, updated_at'
 
 export interface ReviewCounts { ok: number; ng: number; unreviewed: number }
 

@@ -30,6 +30,8 @@ export const ALLOWED_MODEL_PREFIXES = [
   'fal-ai/llava-next',
   // 撮影後工程
   ...BG_REMOVAL_PREFIXES,
+  // 商品訴求動画（2026-10-13）: ショットの結合（サーバーの batch からも falFetch → isAllowedTarget を通る）
+  'fal-ai/ffmpeg-api',
 ]
 
 /** URL のパスからモデルパス（先頭の / を除いたもの）を返す。 */
