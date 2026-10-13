@@ -30,6 +30,7 @@ import {
   DownloadSimple,
   UploadSimple,
   SquaresFour,
+  FilmSlate,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
@@ -87,6 +88,7 @@ const PALETTE = [
       { type: 'batchInput' as NodeType, label: 'Batch Input', description: '複数の商品画像を受け取り 1 枚ずつ流す（最大 50）', icon: <Images size={15} />, color: '#14B8A6' },
       { type: 'export' as NodeType, label: 'Export', description: '規定の名前と形式で書き出し（ZIP）', icon: <DownloadSimple size={15} />, color: '#14B8A6' },
       { type: 'batchResults' as NodeType, label: 'Batch Results', description: '一括実行のジョブと結果（切り抜き・バリアント・生成結果）をこのキャンバスで確認', icon: <SquaresFour size={15} />, color: '#14B8A6' },
+      { type: 'productVideo' as NodeType, label: 'Product Video', description: '着用カットから商品訴求動画（Kling v3 Pro）。ショット構成を決め、実行は App で', icon: <FilmSlate size={15} />, color: '#EC4899' },
     ],
   },
 ]
@@ -105,6 +107,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   batchInput: 'batchInputNode',
   export: 'exportNode',
   batchResults: 'batchResultsNode',
+  productVideo: 'productVideoNode',
 }
 
 let nodeIdCounter = 1000

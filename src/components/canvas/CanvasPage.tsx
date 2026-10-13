@@ -7,6 +7,7 @@ import { StatusBar } from '../layout/StatusBar'
 import { Header } from '../layout/Header'
 import { CapsuleView } from '../capsule/CapsuleView'
 import { BatchAppView } from '../app/BatchAppView'
+import { VideoAppView } from '../app/VideoAppView'
 import { appKindOf } from '../../lib/apps/appKind'
 import { BatchSubmitDialog } from '../jobs/BatchSubmitDialog'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
@@ -162,7 +163,7 @@ export function CanvasPage({ initialMode }: { initialMode?: 'app' } = {}) {
             {/* {canEditNow && <RightPanel />} */}
           </main>
         </div>
-        {(appMode === 'capsule' || isMobile) && (appKind === 'batch' ? <BatchAppView /> : <CapsuleView />)}
+        {(appMode === 'capsule' || isMobile) && (appKind === 'video' ? <VideoAppView /> : appKind === 'batch' ? <BatchAppView /> : <CapsuleView />)}
       </div>
 
       {!isMobile && <StatusBar />}

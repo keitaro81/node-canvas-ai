@@ -22,6 +22,7 @@ export type NodeType =
   | 'batchInput'
   | 'export'
   | 'batchResults'
+  | 'productVideo'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -88,6 +89,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   batchInput:      '#14B8A6',
   export:          '#14B8A6',
   batchResults:    '#14B8A6',
+  productVideo:    '#EC4899',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -252,6 +254,19 @@ export interface BatchInputParams {
 export type BatchItemStatus = 'pending' | 'uploading' | 'ready' | 'error'
 
 /** BatchInputNode が保持するアイテム（画像 1 枚）。File 本体は保存しない。 */
+/** 商品訴求動画ノード（2026-10-13）: ショット構成のテンプレートと設定。実行は App（SKU ごとのカットを入れて一括）で行う */
+export interface ProductVideoNodeData {
+  type: 'productVideo'
+  label: string
+  params: {
+    templateId: string
+    shots: Array<{ role: 'front' | 'right' | 'left' | 'back' | 'detail' | 'full'; duration: number; motion: string }>
+    basePrompt: string
+    negativePrompt: string
+  }
+  status: 'idle'
+}
+
 export interface BatchItem {
   id: string
   index: number                    // 並び順（1 始まり）。{index} トークンに使う
