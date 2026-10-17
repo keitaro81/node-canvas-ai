@@ -35,10 +35,10 @@ export const VIDEO_TEMPLATES: VideoTemplateDef[] = [
   {
     id: 'turntable12', label: 'ターンテーブル 12 秒', description: '正面 → 右側面 → 背面 → 左側面 → 正面（各 3 秒・始点と終点を写真で指定）',
     shots: [
-      { role: 'front', endRole: 'right', duration: 3, motion: 'The model turns smoothly in place a quarter turn toward the side shown in the final frame, ending exactly in that pose; feet stay planted, arms relaxed.' },
-      { role: 'right', endRole: 'back', duration: 3, motion: 'The model keeps turning smoothly in the same direction another quarter turn until the back faces the camera, ending exactly in the pose of the final frame.' },
-      { role: 'back', endRole: 'left', duration: 3, motion: 'The model keeps turning smoothly in the same direction another quarter turn to the other side, ending exactly in the pose of the final frame.' },
-      { role: 'left', endRole: 'front', duration: 3, motion: 'The model completes the turn smoothly in the same direction to face the camera again, ending exactly in the pose of the final frame.' },
+      { role: 'front', endRole: 'right', duration: 3, motion: 'Facing the camera, the model makes a short quarter turn to one side and stops in profile exactly as in the final frame. The back is never shown; feet stay planted, arms relaxed.' },
+      { role: 'right', endRole: 'back', duration: 3, motion: 'Seen in profile, the model keeps turning away from the camera, a short quarter turn, until the back faces the camera exactly as in the final frame. The face turns away from the camera and the front of the body is never shown.' },
+      { role: 'back', endRole: 'left', duration: 3, motion: 'Seen from behind, the model pivots a short quarter turn in place and ends up in profile exactly as in the final frame. Throughout the turn the face stays hidden from the camera and the back rotates into the side; the model never turns to face the camera. Feet stay planted.' },
+      { role: 'left', endRole: 'front', duration: 3, motion: 'Seen in profile, the model makes a short quarter turn toward the camera and stops facing it exactly as in the final frame. The back is never shown.' },
     ],
   },
   {
@@ -140,7 +140,9 @@ export function shotRoleLabel(shot: VideoShotSpec): string {
 /** ショットのプロンプト = 共通の説明 + エレメント参照 + 動き */
 export function shotPrompt(params: ProductVideoParams, shot: VideoShotSpec): string {
   const base = params.basePrompt.trim()
-  return `${base ? base + '\n' : ''}@Element1 wearing the garment. ${shot.motion.trim()}`.trim()
+  // 終了カットあり: 本番で「右側面 → 背面」が正面を経由して回った（2026-10-17）ので、最短で・途切れずに終点へ向かう指示を常に添える
+  const toEnd = shot.endRole ? ' One continuous take with no cuts: the pose changes directly into the final frame by the shortest movement.' : ''
+  return `${base ? base + '\n' : ''}@Element1 wearing the garment. ${shot.motion.trim()}${toEnd}`.trim()
 }
 
 /** タスクの node_id: ショットは <videoNodeId>:shot:<index>、結合はノード id そのもの */

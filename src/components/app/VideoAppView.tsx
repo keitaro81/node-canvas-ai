@@ -39,7 +39,6 @@ export function VideoAppView() {
   const [selectedId, setSelectedId] = useState<string | null>(jobParam)
   const [error, setError] = useState<string | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
-  const [resetKey, setResetKey] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -62,7 +61,7 @@ export function VideoAppView() {
     const { nodes: ns, edges } = useCanvasStore.getState()
     openSubmitDialogWith({
       items, snapshot: buildWorkflowSnapshot(ns, edges), workflowId,
-      onDone: (jobId) => { setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
+      onDone: (jobId) => { setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },   // 入れた写真は残す（ユーザー要望 2026-10-17: 続けて別の構成で作れるように）
     })
   }, [openSubmitDialogWith, workflowId, bump])
 
@@ -84,7 +83,7 @@ export function VideoAppView() {
         <p className="text-[11px] mb-3" style={{ color: 'var(--text-tertiary)' }}>
           SKU ごとに着用カットを役割の枠に入れると、App「{workflowName}」の構成（{video.params.shots.length} ショット・約 {totalSeconds(video.params.shots)} 秒・無音）で 1 本の動画を作ります。
         </p>
-        <AppVideoCutsInput key={resetKey} nodeId={video.id} shots={video.params.shots} canSubmit={!!workflowId} onSubmit={submit} />
+        <AppVideoCutsInput nodeId={video.id} shots={video.params.shots} canSubmit={!!workflowId} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${video.id}`} />
       </aside>
       <section className={`flex-1 min-w-0 min-h-0 flex flex-col ${isMobile ? 'border-t' : ''}`} style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-2 px-5 shrink-0 border-b" style={{ height: 44, borderColor: 'var(--border)', background: 'var(--bg-surface)' }}>
