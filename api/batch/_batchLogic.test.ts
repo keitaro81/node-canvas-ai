@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkLimits, cutPath, sumUsedTodayByKind, dependenciesOf, dependencyOf, dependentTaskIds, extOf, falInputOf, jstDayRangeUtc, originalPath, pickCutoutImage, pickResultFile, planRerun, planRetry, planTasks, resultPath, selectSubmittable, MAX_ITEMS_PER_JOB } from './_batchLogic'
+import { checkLimits, cutPath, sumUsedTodayByKind, dependenciesOf, dependencyOf, dependentTaskIds, extOf, falInputOf, jstDayRangeUtc, originalPath, pickCutoutImage, pickResultFile, planRerun, planRetry, planTasks, resultPath, selectSubmittable, MAX_ITEMS_PER_JOB, falErrorDetail } from './_batchLogic'
 
 describe('planTasks（写しから AI 処理を抽出）', () => {
   const snapshot = {
@@ -308,7 +308,7 @@ describe('商品動画（Product Video ノードの写し）', () => {
     const { tasks, warnings } = planTasks(snap)
     expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}`)).toEqual(['pv:shot:0:videoShot:1', 'pv:shot:1:videoShot:1', 'pv:shot:2:videoShot:1', 'pv:videoMerge:2'])
     expect(tasks[0].endpoint).toBe('fal-ai/kling-video/v3/pro/image-to-video')
-    expect(tasks[0].input).toMatchObject({ duration: '3', generate_audio: false, negative_prompt: 'blur', __shot: { index: 0, role: 'right', duration: 3 } })
+    expect(tasks[0].input).toMatchObject({ duration: '3', generate_audio: false, negative_prompt: 'blur', __shot: { index: 0, role: 'right', endRole: null, duration: 3 } })
     expect(String(tasks[0].input.prompt)).toMatch(/^Studio\.\n@Element1 wearing the garment\. The model stands in profile/)
     expect(tasks[3]).toMatchObject({ endpoint: 'fal-ai/ffmpeg-api/merge-videos', dependsOn: ['pv:shot:0', 'pv:shot:1', 'pv:shot:2'], label: '商品動画（結合）' })
     expect(warnings.some((w) => w.includes('対象外'))).toBe(true)
@@ -329,5 +329,22 @@ describe('商品動画（Product Video ノードの写し）', () => {
     expect(pickResultFile('fal-ai/ffmpeg-api/merge-videos', { video: { url: 'https://x/m.mp4' }, metadata: {} })?.kind).toBe('video')
     expect(resultPath({ team_id: 't', job_id: 'j', item_id: 'i', node_id: 'pv' }, 'video/mp4')).toBe('t/j/i/pv-result.mp4')
     expect(cutPath('t', 'j', 'i', 'front', 't/interactive/pv/items/app-x-front.JPEG')).toBe('t/j/i/cut-front.jpg')
+  })
+})
+
+describe('商品動画（ターンテーブル: 始点と終点）', () => {
+  it('終了カット付きのショットは __shot.endRole を持ち、見出しに矢印が入る', () => {
+    const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'turntable12' } } }], edges: [] })
+    expect(tasks.filter((t) => t.kind === 'videoShot').map((t) => (t.input.__shot as { role: string; endRole: string | null }).endRole)).toEqual(['right', 'back', 'left', 'front'])
+    expect(tasks[0].label).toBe('Product Video 1: 正面 → 右側面')
+    expect(tasks.find((t) => t.kind === 'videoMerge')?.dependsOn).toEqual(['pv:shot:0', 'pv:shot:1', 'pv:shot:2', 'pv:shot:3'])
+  })
+})
+
+describe('fal のエラー本文', () => {
+  it('detail 配列の msg をつなぎ、無ければ status だけ', () => {
+    expect(falErrorDetail({ detail: [{ type: 'too_short', loc: ['body', 'video_urls'], msg: 'List should have at least 2 items after validation, not 1' }] }, 422)).toBe('fal エラー (422): List should have at least 2 items after validation, not 1')
+    expect(falErrorDetail({ detail: 'bad input' }, 400)).toBe('fal エラー (400): bad input')
+    expect(falErrorDetail(null, 422)).toBe('fal エラー (422)')
   })
 })

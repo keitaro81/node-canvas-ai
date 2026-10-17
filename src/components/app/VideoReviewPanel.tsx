@@ -5,7 +5,7 @@ import { CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, subscribeJobItems } from '../../lib/api/batchJobs'
 import { signBatchPaths } from '../../lib/cutout/store'
 import { useBatchStore } from '../../stores/batchStore'
-import { parseShotTaskNodeId, videoNodeOf, CUT_ROLE_LABEL, type CutRole } from '../../lib/video/productVideo'
+import { parseShotTaskNodeId, videoNodeOf, shotRoleLabel, type VideoShotSpec } from '../../lib/video/productVideo'
 import { isActiveJob, jobProgress } from '../../lib/batch/jobsQuery'
 import { ITEM_STATUS_META, type BatchItemRow, type BatchJobDetail, type BatchTaskRow } from '../../types/batch'
 import { JobActions } from '../jobs/JobActions'
@@ -152,12 +152,13 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                   <div className="grid grid-cols-3 gap-1">
                     {shots.map((s) => {
                       const info = parseShotTaskNodeId(s.node_id)!
-                      const role = (s.input?.__shot as { role?: CutRole } | undefined)?.role
+                      const shot = s.input?.__shot as VideoShotSpec | undefined
+                      const roleLabel = shot ? shotRoleLabel(shot) : ''
                       const url = s.result_path ? signed[s.result_path] : null
                       return (
-                        <div key={s.id} className="relative rounded overflow-hidden" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${info.index + 1}: ${role ? CUT_ROLE_LABEL[role] : ''}${s.error ? ` / ${s.error}` : ''}`}>
+                        <div key={s.id} className="relative rounded overflow-hidden" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${info.index + 1}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
                           {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : s.status === 'submitted' ? '生成中' : '待機'}</div>}
-                          <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{info.index + 1} {role ? CUT_ROLE_LABEL[role] : ''}</span>
+                          <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{info.index + 1} {roleLabel}</span>
                         </div>
                       )
                     })}

@@ -17,7 +17,8 @@ export const FRONTAL_ROLE: CutRole = 'front'
 /** エレメントの別角度に使う優先順（最大 3 枚） */
 export const REFERENCE_PRIORITY: CutRole[] = ['right', 'left', 'back', 'full', 'detail']
 
-export interface VideoShotSpec { role: CutRole; duration: number; motion: string }
+/** 1 ショット。endRole を指定すると「開始カット → 終了カット」の間を AI が埋める（回転など到達点を保証したい動き向け。2026-10-17） */
+export interface VideoShotSpec { role: CutRole; duration: number; motion: string; endRole?: CutRole | null }
 
 export interface VideoTemplateDef { id: string; label: string; description: string; shots: VideoShotSpec[] }
 export const VIDEO_TEMPLATES: VideoTemplateDef[] = [
@@ -29,6 +30,15 @@ export const VIDEO_TEMPLATES: VideoTemplateDef[] = [
       { role: 'back', duration: 3, motion: 'Seen from behind, the model slowly turns the head to glance over the shoulder; hair moves slightly.' },
       { role: 'detail', duration: 3, motion: 'Close-up of the garment. Very subtle motion only: slow breathing and a slight shift of weight; every detail stays exactly as it is.' },
       { role: 'front', duration: 3, motion: 'The model slowly turns about 45 degrees to show the side silhouette, then turns back; arms stay relaxed.' },
+    ],
+  },
+  {
+    id: 'turntable12', label: 'ターンテーブル 12 秒', description: '正面 → 右側面 → 背面 → 左側面 → 正面（各 3 秒・始点と終点を写真で指定）',
+    shots: [
+      { role: 'front', endRole: 'right', duration: 3, motion: 'The model turns smoothly in place to show the right side, ending exactly in the pose of the final frame; feet stay planted, arms relaxed.' },
+      { role: 'right', endRole: 'back', duration: 3, motion: 'The model keeps turning smoothly in the same direction until the back is to the camera, ending exactly in the pose of the final frame.' },
+      { role: 'back', endRole: 'left', duration: 3, motion: 'The model keeps turning smoothly in the same direction to show the left side, ending exactly in the pose of the final frame.' },
+      { role: 'left', endRole: 'front', duration: 3, motion: 'The model completes the turn smoothly to face the camera again, ending exactly in the pose of the final frame.' },
     ],
   },
   {
@@ -64,7 +74,11 @@ export function normalizeShots(raw: unknown): VideoShotSpec[] {
   if (!Array.isArray(raw)) return []
   return raw
     .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
-    .map((s) => ({ role: isRole(s.role) ? s.role : FRONTAL_ROLE, duration: clampDur(s.duration), motion: typeof s.motion === 'string' ? s.motion : '' }))
+    .map((s) => {
+      const role = isRole(s.role) ? s.role : FRONTAL_ROLE
+      const endRole = isRole(s.endRole) && s.endRole !== role ? s.endRole : null
+      return { role, duration: clampDur(s.duration), motion: typeof s.motion === 'string' ? s.motion : '', ...(endRole ? { endRole } : {}) }
+    })
     .slice(0, MAX_SHOTS)
 }
 
@@ -110,9 +124,17 @@ export function elementCutsOf(cuts: ItemCut[] | null | undefined): { frontal: It
   return { frontal, references }
 }
 
-/** このショットを 1 SKU で作れるか（その役割のカットがあるか）。無いショットは飛ばして残りで組む（2026-10-13 決定） */
+/** このショットを 1 SKU で作れるか: 開始の役割（と、終了カットがあるならその役割）のカットが揃っているか */
+export function shotAvailable(shot: VideoShotSpec, cuts: ItemCut[] | null | undefined): boolean {
+  return !!cutOf(cuts, shot.role) && (!shot.endRole || !!cutOf(cuts, shot.endRole))
+}
+/** 作れるショットの index。無いショットは飛ばして残りで組む（2026-10-13 決定） */
 export function shotsAvailableFor(shots: VideoShotSpec[], cuts: ItemCut[] | null | undefined): number[] {
-  return shots.map((s, i) => (cutOf(cuts, s.role) ? i : -1)).filter((i) => i >= 0)
+  return shots.map((s, i) => (shotAvailable(s, cuts) ? i : -1)).filter((i) => i >= 0)
+}
+/** ショットの見出し（例: 右側面 / 正面 → 右側面） */
+export function shotRoleLabel(shot: VideoShotSpec): string {
+  return shot.endRole ? `${CUT_ROLE_LABEL[shot.role]} → ${CUT_ROLE_LABEL[shot.endRole]}` : CUT_ROLE_LABEL[shot.role]
 }
 
 /** ショットのプロンプト = 共通の説明 + エレメント参照 + 動き */

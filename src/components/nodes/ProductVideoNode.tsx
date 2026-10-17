@@ -56,8 +56,13 @@ function ProductVideoNodeInner({ id, data, selected }: NodeProps) {
             <div key={i} className="rounded-md px-2 py-1.5 flex flex-col gap-1" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-semibold tabular-nums w-4" style={{ color: 'var(--text-tertiary)' }}>{i + 1}</span>
-                <select className="h-7 rounded px-1.5 text-[11px] nodrag appearance-none flex-1" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} value={shot.role} onChange={(e) => setShot(i, { role: e.target.value as VideoShotSpec['role'] })} title="このショットの開始フレームにするカットの役割">
+                <select className="h-7 rounded px-1.5 text-[11px] nodrag appearance-none flex-1 min-w-0" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} value={shot.role} onChange={(e) => setShot(i, { role: e.target.value as VideoShotSpec['role'], ...(shot.endRole === e.target.value ? { endRole: null } : {}) })} title="開始カット（このショットはこの写真から動き出す）">
                   {CUT_ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>→</span>
+                <select className="h-7 rounded px-1.5 text-[11px] nodrag appearance-none flex-1 min-w-0" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: shot.endRole ? 'var(--text-primary)' : 'var(--text-tertiary)' }} value={shot.endRole ?? ''} onChange={(e) => setShot(i, { endRole: (e.target.value || null) as VideoShotSpec['endRole'] })} title="終了カット（任意）: 指定すると始点と終点を写真で決め、その間の動き（回転など）を AI が埋める。到達する姿勢が保証される">
+                  <option value="">終了なし</option>
+                  {CUT_ROLES.filter((r) => r.id !== shot.role).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
                 </select>
                 <select className="h-7 rounded px-1 text-[11px] nodrag appearance-none" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} value={shot.duration} onChange={(e) => setShot(i, { duration: Number(e.target.value) })} title="秒数">
                   {Array.from({ length: SHOT_DURATION_MAX - SHOT_DURATION_MIN + 1 }, (_, k) => SHOT_DURATION_MIN + k).map((d) => <option key={d} value={d}>{d}s</option>)}
@@ -92,7 +97,7 @@ function ProductVideoNodeInner({ id, data, selected }: NodeProps) {
           <textarea value={params.negativePrompt} onChange={(e) => set({ negativePrompt: e.target.value })} rows={2} className={`${FIELD} resize-none nowheel`} style={FIELD_STYLE} onKeyDown={(e) => e.stopPropagation()} />
         </div>
         <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
-          費用の目安: 1 SKU あたり約 ${(seconds * 0.1).toFixed(2)}（{seconds} 秒 × $0.10）。役割のカットが無いショットは飛ばします。正面のカットは必須です。
+          費用の目安: 1 SKU あたり約 ${(seconds * 0.1).toFixed(2)}（{seconds} 秒 × $0.10）。役割のカット（終了カットを指定したショットは両方）が無いショットは飛ばします。正面のカットは必須です。
         </div>
       </div>
     </div>
