@@ -35,10 +35,10 @@ export const VIDEO_TEMPLATES: VideoTemplateDef[] = [
   {
     id: 'turntable12', label: 'ターンテーブル 12 秒', description: '正面 → 右側面 → 背面 → 左側面 → 正面（各 3 秒・始点と終点を写真で指定）',
     shots: [
-      { role: 'front', endRole: 'right', duration: 3, motion: 'The model turns smoothly in place to show the right side, ending exactly in the pose of the final frame; feet stay planted, arms relaxed.' },
-      { role: 'right', endRole: 'back', duration: 3, motion: 'The model keeps turning smoothly in the same direction until the back is to the camera, ending exactly in the pose of the final frame.' },
-      { role: 'back', endRole: 'left', duration: 3, motion: 'The model keeps turning smoothly in the same direction to show the left side, ending exactly in the pose of the final frame.' },
-      { role: 'left', endRole: 'front', duration: 3, motion: 'The model completes the turn smoothly to face the camera again, ending exactly in the pose of the final frame.' },
+      { role: 'front', endRole: 'right', duration: 3, motion: 'The model turns smoothly in place a quarter turn toward the side shown in the final frame, ending exactly in that pose; feet stay planted, arms relaxed.' },
+      { role: 'right', endRole: 'back', duration: 3, motion: 'The model keeps turning smoothly in the same direction another quarter turn until the back faces the camera, ending exactly in the pose of the final frame.' },
+      { role: 'back', endRole: 'left', duration: 3, motion: 'The model keeps turning smoothly in the same direction another quarter turn to the other side, ending exactly in the pose of the final frame.' },
+      { role: 'left', endRole: 'front', duration: 3, motion: 'The model completes the turn smoothly in the same direction to face the camera again, ending exactly in the pose of the final frame.' },
     ],
   },
   {
