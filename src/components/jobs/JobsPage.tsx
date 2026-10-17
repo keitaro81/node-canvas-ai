@@ -35,6 +35,8 @@ export function JobsPage() {
   const jobsVersion = useBatchStore((s) => s.jobsVersion)
   const usedToday = useBatchStore((s) => s.usedToday)
   const dailyLimit = useBatchStore((s) => s.dailyLimit)
+  const usedVideosToday = useBatchStore((s) => s.usedVideosToday)
+  const dailyVideoLimit = useBatchStore((s) => s.dailyVideoLimit)
   const showCost = useBatchStore((s) => s.showCost)
   const memberNames = useBatchStore((s) => s.memberNames)
   const bump = useBatchStore((s) => s.bump)
@@ -116,6 +118,9 @@ export function JobsPage() {
         <div className="flex items-center gap-4 shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
           <span title="本日（日本時間）に処理した枚数と、ワークスペースの 1 日の上限">
             本日 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{usedToday}</b> / {dailyLimit} 枚
+          </span>
+          <span title="本日（日本時間）に作った商品動画の本数と、1 日の上限（画像とは別）">
+            動画 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{usedVideosToday}</b> / {dailyVideoLimit} 本
           </span>
           <span title="同時に進められる処理は 2 つまで（チーム全体。共有されていない分も数えます）">
             進行中 <b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{activeCount}</b> / 2

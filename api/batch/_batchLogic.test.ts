@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkLimits, cutPath, dependenciesOf, dependencyOf, dependentTaskIds, extOf, falInputOf, jstDayRangeUtc, originalPath, pickCutoutImage, pickResultFile, planRerun, planRetry, planTasks, resultPath, selectSubmittable, MAX_ITEMS_PER_JOB } from './_batchLogic'
+import { checkLimits, cutPath, sumUsedTodayByKind, dependenciesOf, dependencyOf, dependentTaskIds, extOf, falInputOf, jstDayRangeUtc, originalPath, pickCutoutImage, pickResultFile, planRerun, planRetry, planTasks, resultPath, selectSubmittable, MAX_ITEMS_PER_JOB } from './_batchLogic'
 
 describe('planTasks（写しから AI 処理を抽出）', () => {
   const snapshot = {
@@ -55,6 +55,14 @@ describe('checkLimits（4-7）', () => {
     expect(checkLimits({ ...base, usedToday: 290 })).toMatchObject({ ok: false, code: 'daily_limit', status: 429 })
     expect(checkLimits({ ...base, usedToday: 280 })).toEqual({ ok: true })
     expect(checkLimits({ ...base, newItems: 0 })).toMatchObject({ ok: false, code: 'no_items' })
+  })
+  it('商品動画は本で数え、本日の利用数は種類ごとに分ける（0019）', () => {
+    const r = checkLimits({ dailyLimit: 20, usedToday: 19, activeJobs: 0, newItems: 2, unit: '本' })
+    expect(r).toMatchObject({ ok: false, code: 'daily_limit' }); expect((r as { message: string }).message).toContain('20 本')
+    const jobs = [{ item_count: 10, status: 'completed', kind: 'cutout' }, { item_count: 3, status: 'completed', kind: 'video' }, { item_count: 5, status: 'cancelled', kind: 'video' }, { item_count: 7, status: 'processing', kind: null }]
+    expect(sumUsedTodayByKind(jobs, 'cutout')).toBe(17)
+    expect(sumUsedTodayByKind(jobs, 'video')).toBe(3)
+    expect(sumUsedTodayByKind(null, 'video')).toBe(0)
   })
 })
 

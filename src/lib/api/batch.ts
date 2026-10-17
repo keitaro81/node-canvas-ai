@@ -23,7 +23,7 @@ async function call<T>(action: string, body: unknown): Promise<T> {
   return json as T
 }
 
-export interface BatchLimits { dailyLimit: number; usedToday: number; remaining: number; activeJobs: number; maxActiveJobs: number; maxItemsPerJob: number }
+export interface BatchLimits { dailyLimit: number; usedToday: number; remaining: number; activeJobs: number; maxActiveJobs: number; maxItemsPerJob: number; kind?: 'cutout' | 'video'; unit?: string }
 export interface BatchPlanBreakdown { nodeId: string; label: string; kind: 'cutout' | 'imageGen' | 'imageEdit' | 'videoShot' | 'videoMerge'; scope: 'item' | 'job'; stage: number; count: number; unitUsd: number; totalUsd: number; endpoint: string }
 export interface BatchPlanInfo {
   itemTasks: number; jobTasks: number; totalTasks: number; estimatedCostUsd: number; estimatedSeconds: number; showCost: boolean; warnings: string[]

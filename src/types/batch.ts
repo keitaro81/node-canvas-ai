@@ -21,11 +21,12 @@ export interface BatchJobRow {
   actual_cost_usd: number
   created_at: string
   updated_at: string
-  workflow_id: string | null      // 投入元ワークフロー（0014）。一覧から App で開くのに使う
+  workflow_id: string | null      // 投入元ワークフロー（0014）。一覧から App で開くのに使う  /** 処理の種類（0019）: cutout = 写真（枚）/ video = 商品動画（本）。古い行は無い */
+  kind?: 'cutout' | 'video' | null
 }
 
 /** 一覧・詳細で読む列（workflow_snapshot は大きいので読まない） */
-export const JOB_COLUMNS = 'id, team_id, created_by, name, status, item_count, task_count, completed_tasks, failed_tasks, estimated_cost_usd, actual_cost_usd, created_at, updated_at, workflow_id'
+export const JOB_COLUMNS = 'id, team_id, created_by, name, status, item_count, task_count, completed_tasks, failed_tasks, estimated_cost_usd, actual_cost_usd, created_at, updated_at, workflow_id, kind'
 
 export interface BatchItemRow {
   id: string

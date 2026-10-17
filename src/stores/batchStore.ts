@@ -4,7 +4,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { BatchJobRow } from '../types/batch'
-import { disconnectRealtime, fetchActiveJobs, fetchTeamBatchLimits, fetchTeamBatchSettings, fetchUsedToday, subscribeTeamJobs } from '../lib/api/batchJobs'
+import { disconnectRealtime, fetchActiveJobs, fetchTeamBatchLimits, fetchTeamBatchSettings, fetchUsedToday, fetchUsedVideosToday, subscribeTeamJobs } from '../lib/api/batchJobs'
 import { initialGate, nextGate, shouldSubscribeJobs, type GateState } from '../lib/batch/realtimeGate'
 import { batchReconcile, submitJobFully } from '../lib/api/batch'
 import { getTeamInfo } from '../lib/api/team'
@@ -30,6 +30,8 @@ interface BatchState {
   userId: string | null
   role: 'owner' | 'member' | null
   dailyLimit: number
+  dailyVideoLimit: number        // 商品動画の 1 日の上限（本・0019）
+  usedVideosToday: number
   showCost: boolean
   usedToday: number
   activeCount: number            // チーム全体の進行中ジョブ数（見えないジョブも含む）
@@ -119,6 +121,8 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   userId: null,
   role: null,
   dailyLimit: 300,
+  dailyVideoLimit: 20,
+  usedVideosToday: 0,
   showCost: false,
   usedToday: 0,
   activeCount: 0,
@@ -196,8 +200,9 @@ export const useBatchStore = create<BatchState>((set, get) => ({
       if (get().teamId !== teamId) return
       // 利用枚数と進行中数はチーム全体（RPC）。RPC が無い環境では見えるジョブから数える
       const usedToday = limits ? limits.usedToday : await fetchUsedToday(teamId)
+      const usedVideosToday = limits ? limits.usedVideosToday : await fetchUsedVideosToday(teamId)
       const activeCount = limits ? limits.activeJobs : activeJobs.length
-      set({ dailyLimit: limits?.dailyLimit ?? settings.dailyLimit, showCost: settings.showCost, activeJobs, usedToday, activeCount, jobsVersion: get().jobsVersion + 1 })
+      set({ dailyLimit: limits?.dailyLimit ?? settings.dailyLimit, dailyVideoLimit: limits?.dailyVideoLimit ?? settings.dailyVideoLimit, showCost: settings.showCost, activeJobs, usedToday, usedVideosToday, activeCount, jobsVersion: get().jobsVersion + 1 })
       syncRealtime()   // 進行中ジョブの有無で購読の要否が変わる
     } catch (e) {
       console.warn('[batch] refresh failed:', e)

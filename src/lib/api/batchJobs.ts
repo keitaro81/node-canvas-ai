@@ -31,18 +31,25 @@ function asItems(rows: unknown): BatchItemRow[] {
   })
 }
 
-export interface TeamBatchSettings { dailyLimit: number; showCost: boolean }
+export interface TeamBatchSettings { dailyLimit: number; dailyVideoLimit: number; showCost: boolean }
 
 export async function fetchTeamBatchSettings(teamId: string): Promise<TeamBatchSettings> {
-  const { data } = await sb.from('teams').select('daily_item_limit, show_cost').eq('id', teamId).maybeSingle() as { data: { daily_item_limit?: number; show_cost?: boolean } | null }
-  return { dailyLimit: typeof data?.daily_item_limit === 'number' ? data.daily_item_limit : 300, showCost: !!data?.show_cost }
+  const { data } = await sb.from('teams').select('daily_item_limit, daily_video_limit, show_cost').eq('id', teamId).maybeSingle() as { data: { daily_item_limit?: number; daily_video_limit?: number; show_cost?: boolean } | null }
+  return { dailyLimit: typeof data?.daily_item_limit === 'number' ? data.daily_item_limit : 300, dailyVideoLimit: typeof data?.daily_video_limit === 'number' ? data.daily_video_limit : 20, showCost: !!data?.show_cost }
 }
 
-/** 本日（JST）の利用枚数（サーバーの checkLimits と同じ規則） */
+/** 本日（JST）の利用枚数（写真の処理。サーバーの checkLimits と同じ規則） */
 export async function fetchUsedToday(teamId: string): Promise<number> {
   const { start, end } = jstDayRangeUtc()
-  const { data } = await sb.from('batch_jobs').select('item_count, status').eq('team_id', teamId).gte('created_at', start).lt('created_at', end)
-  return sumUsedToday((data ?? []) as Array<{ item_count: number; status: string }>)
+  const { data } = await sb.from('batch_jobs').select('item_count, status, kind').eq('team_id', teamId).gte('created_at', start).lt('created_at', end)
+  return sumUsedToday((data ?? []) as Array<{ item_count: number; status: string; kind?: string | null }>, 'cutout')
+}
+
+/** 本日（JST）に作った商品動画の本数（0019） */
+export async function fetchUsedVideosToday(teamId: string): Promise<number> {
+  const { start, end } = jstDayRangeUtc()
+  const { data } = await sb.from('batch_jobs').select('item_count, status, kind').eq('team_id', teamId).gte('created_at', start).lt('created_at', end)
+  return sumUsedToday((data ?? []) as Array<{ item_count: number; status: string; kind?: string | null }>, 'video')
 }
 
 export async function fetchActiveJobs(teamId: string): Promise<BatchJobRow[]> {
@@ -119,12 +126,12 @@ export interface WorkflowSource {
 }
 
 /** 本日の利用枚数・進行中ジョブ数・上限（チーム全体。見えないジョブも数える。0016 の RPC。無ければ null） */
-export interface TeamBatchLimits { usedToday: number; activeJobs: number; dailyLimit: number }
+export interface TeamBatchLimits { usedToday: number; activeJobs: number; dailyLimit: number; usedVideosToday: number; dailyVideoLimit: number }
 export async function fetchTeamBatchLimits(): Promise<TeamBatchLimits | null> {
   const { data, error } = await sb.rpc('team_batch_limits')
   if (error || !data) return null
-  const r = data as { used_today?: number; active_jobs?: number; daily_limit?: number }
-  return { usedToday: r.used_today ?? 0, activeJobs: r.active_jobs ?? 0, dailyLimit: r.daily_limit ?? 300 }
+  const r = data as { used_today?: number; active_jobs?: number; daily_limit?: number; used_videos_today?: number; daily_video_limit?: number }
+  return { usedToday: r.used_today ?? 0, activeJobs: r.active_jobs ?? 0, dailyLimit: r.daily_limit ?? 300, usedVideosToday: r.used_videos_today ?? 0, dailyVideoLimit: r.daily_video_limit ?? 20 }
 }
 
 /** ワークフロー全体（canvas_data ごと）。表示と書き戻しに使う。RLS で読めなければ null（406 は出ない） */
