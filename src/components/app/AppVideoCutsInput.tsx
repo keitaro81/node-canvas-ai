@@ -35,7 +35,7 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pending = useRef<{ cardId: string; role: CutRole } | null>(null)
   // 構成で使う役割を先に、使わない役割は折りたたみ側に
-  const usedRoles = useMemo(() => { const set = new Set<CutRole>([FRONTAL_ROLE, ...shots.map((s) => s.role)]); return CUT_ROLES.filter((r) => set.has(r.id)) }, [shots])
+  const usedRoles = useMemo(() => { const set = new Set<CutRole>([FRONTAL_ROLE, ...shots.map((s) => s.role), ...shots.map((s) => s.endRole).filter((r): r is CutRole => !!r)]); return CUT_ROLES.filter((r) => set.has(r.id)) }, [shots])
   const otherRoles = useMemo(() => CUT_ROLES.filter((r) => !usedRoles.some((u) => u.id === r.id)), [usedRoles])
 
   const patchSlot = useCallback((cardId: string, role: CutRole, patch: Partial<CutSlot>) => {
@@ -109,6 +109,7 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
       <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => { onFilePicked(e.target.files); e.target.value = '' }} />
       {cards.map((card) => {
         const available = shotsAvailableFor(shots, CUT_ROLES.map((r) => card.cuts[r.id]).filter((s) => s.status === 'ready' && s.path).map((s) => ({ role: s.role, path: s.path as string })))
+        const noShots = available.length === 0 && card.cuts[FRONTAL_ROLE].status === 'ready'   // 正面は入れたのに作れるショットが無い（空のカードでは出さない）
         const renderSlot = (roleDef: typeof CUT_ROLES[number], small: boolean) => {
           const slot = card.cuts[roleDef.id]
           const Icon = ROLE_ICON[roleDef.id]
@@ -153,7 +154,7 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
                 placeholder="SKU（商品コード）"
                 title="SKU。動画のファイル名になります"
               />
-              <span className="text-[10px] tabular-nums shrink-0" style={{ color: 'var(--text-tertiary)' }}>{available.length} / {shots.length} ショット</span>
+              <span className="text-[10px] tabular-nums shrink-0" style={{ color: noShots ? '#EF4444' : 'var(--text-tertiary)' }} title={noShots ? 'この構成で作れるショットがありません。必要なカット（終了カットを指定したショットは両方）を入れてください' : 'この SKU で作るショット数 / 構成のショット数'}>{available.length} / {shots.length} ショット</span>
               {cards.length > 1 && <button type="button" className="w-6 h-6 rounded flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} title="この SKU を外す" onClick={() => setCards((list) => list.filter((c) => c.id !== card.id))}><Trash size={12} /></button>}
             </div>
             <div className="grid grid-cols-3 gap-1.5">{usedRoles.map((r) => renderSlot(r, false))}</div>

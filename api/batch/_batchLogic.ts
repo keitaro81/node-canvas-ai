@@ -10,7 +10,7 @@ import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_fal
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 import { backgroundSourcesOf, promptForGenerator } from '../../src/lib/batch/background'
 import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../../src/lib/ai/imageGenModels'
-import { CUT_ROLES, CUT_ROLE_LABEL, KLING_V3_I2V_ENDPOINT, MERGE_VIDEOS_ENDPOINT, cutOf, elementCutsOf, shotPrompt, shotTaskNodeId, videoNodeOf, type CutRole, type ItemCut } from '../../src/lib/video/productVideo'
+import { CUT_ROLES, KLING_V3_I2V_ENDPOINT, MERGE_VIDEOS_ENDPOINT, cutOf, elementCutsOf, shotAvailable, shotPrompt, shotRoleLabel, shotTaskNodeId, videoNodeOf, type CutRole, type ItemCut, type VideoShotSpec } from '../../src/lib/video/productVideo'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -105,8 +105,8 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       shotIds.push(nodeId)
       tasks.push({
         nodeId, scope: 'item', endpoint: KLING_V3_I2V_ENDPOINT, kind: 'videoShot', stage: 1, dependsOn: null, dualOutput: false,
-        label: `${video.label} ${i + 1}: ${CUT_ROLE_LABEL[shot.role]}`,
-        input: { prompt: shotPrompt(video.params, shot), duration: String(shot.duration), generate_audio: false, negative_prompt: video.params.negativePrompt, __shot: { index: i, role: shot.role, duration: shot.duration } },
+        label: `${video.label} ${i + 1}: ${shotRoleLabel(shot)}`,
+        input: { prompt: shotPrompt(video.params, shot), duration: String(shot.duration), generate_audio: false, negative_prompt: video.params.negativePrompt, __shot: { index: i, role: shot.role, endRole: shot.endRole ?? null, duration: shot.duration } },
       })
     })
     tasks.push({ nodeId: video.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, kind: 'videoMerge', stage: 2, dependsOn: shotIds, dualOutput: false, label: `${video.label}（結合）`, input: {} })
@@ -335,8 +335,19 @@ export async function falStatus(falKey: string, endpoint: string, requestId: str
 export async function falResponse(falKey: string, endpoint: string, requestId: string): Promise<{ ok: boolean; httpStatus: number; payload?: unknown }> {
   // 結果は …/requests/<id>（fal SDK の queue.result と同じ。/response は 405 になる）
   const res = await falFetch(falKey, 'GET', `https://queue.fal.run/${appRootOf(endpoint)}/requests/${requestId}`)
-  if (!res.ok) return { ok: false, httpStatus: res.status }
-  return { ok: true, httpStatus: res.status, payload: await res.json().catch(() => null) }
+  const payload = await res.json().catch(() => null)
+  return { ok: res.ok, httpStatus: res.status, payload }
+}
+
+/** fal のエラー本文（{ detail: [{ msg }] } / { detail: string }）を 1 行の失敗理由にする */
+export function falErrorDetail(payload: unknown, httpStatus: number): string {
+  const d = (payload as { detail?: unknown } | null)?.detail
+  if (Array.isArray(d)) {
+    const msgs = d.map((x) => (x && typeof x === 'object' && typeof (x as { msg?: unknown }).msg === 'string' ? (x as { msg: string }).msg : null)).filter((m): m is string => !!m)
+    if (msgs.length) return `fal エラー (${httpStatus}): ${msgs.join(' / ')}`
+  }
+  if (typeof d === 'string' && d) return `fal エラー (${httpStatus}): ${d}`
+  return `fal エラー (${httpStatus})`
 }
 
 export async function falCancel(falKey: string, endpoint: string, requestId: string): Promise<boolean> {
@@ -396,12 +407,14 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const plan = planTasks(body?.workflowSnapshot)
   const itemTasks = plan.tasks.filter((t) => t.scope === 'item')
   const jobTasks = plan.tasks.filter((t) => t.scope === 'job')
-  // 件数: 写真ごとは枚数、ジョブごとは 1。商品動画のショットは「その役割のカットがある SKU」の数（無いショットは飛ばす）
+  // 件数: 写真ごとは枚数、ジョブごとは 1。商品動画のショットは「カットが揃っている SKU」の数（無いショットは飛ばす）、結合は「作るショットが 1 つでもある SKU」の数
+  const shotsOf = (it: { cuts?: unknown }) => itemTasks.filter((x) => x.kind === 'videoShot' && shotAvailable(x.input.__shot as VideoShotSpec, (it.cuts ?? []) as ItemCut[]))
   const countOf = (t: PlannedTask): number => {
     if (t.scope !== 'item') return 1
+    if (t.kind === 'videoMerge') return items.filter((it) => shotsOf(it).length > 0).length
     if (t.kind !== 'videoShot') return items.length
-    const role = (t.input.__shot as { role?: CutRole } | undefined)?.role
-    return role ? items.filter((it) => !!cutOf((it.cuts ?? []) as ItemCut[], role)).length : 0
+    const shot = t.input.__shot as VideoShotSpec | undefined
+    return shot ? items.filter((it) => shotAvailable(shot, (it.cuts ?? []) as ItemCut[])).length : 0
   }
   const limits = { dailyLimit, usedToday, remaining: Math.max(0, dailyLimit - usedToday), activeJobs: activeJobs ?? 0, maxActiveJobs: MAX_ACTIVE_JOBS, maxItemsPerJob: MAX_ITEMS_PER_JOB, kind, unit }
   const breakdown = plan.tasks.map((t) => {
@@ -526,10 +539,10 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
         // 商品動画: その役割のカットが無いショットは作らない（飛ばす）。結合は、その SKU で作るショットだけを待つ
         let dependsOn: string | string[] | null = t.dependsOn
         if (t.kind === 'videoShot') {
-          const role = (t.input.__shot as { role?: CutRole } | undefined)?.role
-          if (!role || !cutOf((it.cuts ?? []) as ItemCut[], role)) continue
+          const shot = t.input.__shot as VideoShotSpec | undefined
+          if (!shot || !shotAvailable(shot, (it.cuts ?? []) as ItemCut[])) continue
         } else if (t.kind === 'videoMerge') {
-          const shotIds = plan.tasks.filter((x) => x.kind === 'videoShot' && cutOf((it.cuts ?? []) as ItemCut[], (x.input.__shot as { role: CutRole }).role)).map((x) => x.nodeId)
+          const shotIds = plan.tasks.filter((x) => x.kind === 'videoShot' && shotAvailable(x.input.__shot as VideoShotSpec, (it.cuts ?? []) as ItemCut[])).map((x) => x.nodeId)
           if (!shotIds.length) continue
           dependsOn = shotIds
         }
@@ -597,6 +610,17 @@ async function submitPendingTasks(admin: Admin, opts: BatchOpts, job: { id: stri
     for (const i of (its ?? []) as any[]) itemsById.set(i.id, i)
   }
   await mapLimit(ready.slice(0, chunk), SUBMIT_CONCURRENCY, async (task) => {
+    // 商品動画: 作るショットが 1 本だけの SKU は結合せず、そのショットの動画をそのまま結果にする（fal の merge-videos は 2 本以上が必須で、1 本だと 422 で失敗する）
+    if (task.input?.__kind === 'videoMerge' && dependenciesOf(task).length === 1) {
+      const attempts = (task.attempts ?? 0) + 1
+      const { data: claimed } = await admin.from('batch_tasks').update({ attempts, status: 'submitted', fal_request_id: null, submitted_at: new Date().toISOString(), error: null }).eq('id', task.id).eq('status', 'pending').eq('attempts', task.attempts ?? 0).select('id')
+      if (!claimed?.length) return
+      if (task.item_id) await admin.from('batch_items').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', task.item_id).eq('status', 'pending')
+      const r = await completeMergeByCopy(admin, task, all)
+      if (r.action === 'completed') result.submitted++
+      else result.failedSubmits++
+      return
+    }
     const input = await buildTaskInput(admin, task, task.item_id ? itemsById.get(task.item_id) ?? null : null, all)
     if (!input) return
     // 投入権を取る（attempts の CAS）。再開・失敗分の再実行が別のブラウザから同時に走っても同じタスクを二重に投入しない
@@ -645,13 +669,15 @@ export async function buildTaskInput(admin: Admin, task: any, item: any | null, 
   const kind = task.input?.__kind as string | undefined
   if (kind === 'videoShot') {
     const cuts = Array.isArray(item?.cuts) ? (item.cuts as ItemCut[]) : []
-    const role = (task.input?.__shot as { role?: CutRole } | undefined)?.role
-    const start = role ? cutOf(cuts, role) : null
+    const shot = task.input?.__shot as { role?: CutRole; endRole?: CutRole | null } | undefined
+    const start = shot?.role ? cutOf(cuts, shot.role) : null
+    const end = shot?.endRole ? cutOf(cuts, shot.endRole) : null   // 終了カット（任意）: 始点と終点を写真で指定し、間を AI が埋める
     const { frontal, references } = elementCutsOf(cuts)
-    if (!start || !frontal) return null
-    const signed = await signMany(admin, [start.path, frontal.path, ...references.map((c) => c.path)])
-    if (!signed[start.path] || !signed[frontal.path]) return null
+    if (!start || !frontal || (shot?.endRole && !end)) return null
+    const signed = await signMany(admin, [start.path, frontal.path, ...(end ? [end.path] : []), ...references.map((c) => c.path)])
+    if (!signed[start.path] || !signed[frontal.path] || (end && !signed[end.path])) return null
     input.start_image_url = signed[start.path]
+    if (end) input.end_image_url = signed[end.path]
     const refs = references.map((c) => signed[c.path]).filter((u): u is string => !!u)
     input.elements = [refs.length ? { frontal_image_url: signed[frontal.path], reference_image_urls: refs } : { frontal_image_url: signed[frontal.path] }]
     return input
@@ -685,6 +711,25 @@ export async function buildTaskInput(admin: Admin, task: any, item: any | null, 
 }
 
 /** 前段の完了を受けて、同じ写真の後段を投入する（Webhook / 照合から） */
+/** 結合の代わりに、唯一のショットの動画を結果パスへコピーして完了にする（タスクは submitted 済みであること） */
+async function completeMergeByCopy(admin: Admin, task: any, all: any[]): Promise<{ action: string; applied: boolean }> {
+  const dep = dependenciesOf(task)[0]
+  const shot = all.find((x) => x.item_id === task.item_id && x.node_id === dep && x.status === 'completed' && x.result_path)
+  const failWith = async (error: string) => { const { data } = await admin.rpc('apply_batch_task_result', { p_task_id: task.id, p_outcome: 'failed', p_error: error }); return { action: 'failed', applied: !!data } }
+  if (!shot) return failWith('結合するショットの結果がありません')
+  const meta = (shot.result_meta ?? {}) as { contentType?: string; bytes?: number | null; width?: number | null; height?: number | null }
+  const contentType = meta.contentType ?? 'video/mp4'
+  const dest = resultPath(task, contentType)
+  await admin.storage.from(BATCH_BUCKET).remove([dest])   // 再実行で残っていても上書きできるように
+  const { error } = await admin.storage.from(BATCH_BUCKET).copy(shot.result_path as string, dest)
+  if (error) return failWith(`ショットの動画を結果にできません: ${error.message}`)
+  const { data: applied } = await admin.rpc('apply_batch_task_result', {
+    p_task_id: task.id, p_outcome: 'completed', p_result_path: dest, p_cost_usd: 0,
+    p_result_meta: { kind: 'video', width: meta.width ?? null, height: meta.height ?? null, contentType, bytes: meta.bytes ?? null, inferenceTime: 0, copiedFrom: shot.node_id },
+  })
+  return { action: 'completed', applied: !!applied }
+}
+
 async function submitDependents(admin: Admin, opts: BatchOpts, task: { job_id: string; item_id: string | null; node_id: string }, disableWebhook: boolean): Promise<void> {
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, webhook_secret, status').eq('id', task.job_id).maybeSingle()
   if (!job || job.status === 'cancelled') return
@@ -873,6 +918,7 @@ export async function batchReconcile(admin: Admin, userId: string, opts: BatchOp
       else {
         const resp = await falResponse(opts.falKey, task.endpoint, task.fal_request_id)
         if (resp.ok) r = await finalizeTask(admin, opts, task.id, { ok: true, payload: resp.payload, inferenceTime: st.inferenceTime ?? null })
+        else if (resp.httpStatus === 400 || resp.httpStatus === 422) r = await finalizeTask(admin, opts, task.id, { ok: false, error: falErrorDetail(resp.payload, resp.httpStatus) })   // 入力の検証エラー等 = 確定した失敗
         else if (ageSec > RESULT_EXPIRY_SEC) r = await finalizeTask(admin, opts, task.id, { ok: false, error: '結果の保持期限が切れました' })
         else { counts.skipped++; continue }
       }
