@@ -39,3 +39,11 @@ describe('productVideo', () => {
     expect(videoNodeOf({ nodes: [{ id: 'bi', data: { type: 'batchInput' } }] })).toBeNull()
   })
 })
+
+describe('終了カットありのプロンプト', () => {
+  it('最短で途切れずに終点へ向かう指示が付く（無しのショットには付かない）', () => {
+    const params = normalizeProductVideoParams({ templateId: 'custom', basePrompt: 'Studio.', shots: [{ role: 'right', endRole: 'back', duration: 3, motion: 'turns away.' }, { role: 'detail', duration: 3, motion: 'breathes.' }] })
+    expect(shotPrompt(params, params.shots[0])).toBe('Studio.\n@Element1 wearing the garment. turns away. One continuous take with no cuts: the pose changes directly into the final frame by the shortest movement.')
+    expect(shotPrompt(params, params.shots[1])).toBe('Studio.\n@Element1 wearing the garment. breathes.')
+  })
+})

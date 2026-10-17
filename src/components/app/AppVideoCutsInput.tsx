@@ -1,5 +1,5 @@
 // 商品動画 App の「カットを入れる」欄（2026-10-13）: SKU ごとのカードに、役割（正面 / 右側面 / 左側面 / 背面 / ディテール / 全身）の枠を並べ、
-// 写真をドロップ / クリックで入れる。ファイル名からは判定しない（ユーザー決定）。写真はこの画面だけで持ち、投入した処理には残る。
+// 写真をドロップ / クリックで入れる。ファイル名からは判定しない（ユーザー決定）。入れた写真は処理の後も残し、このブラウザ（localStorage）に記憶して再読み込み後も復元する（2026-10-17 ユーザー要望）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CircleNotch, Plus, Trash, X } from '@phosphor-icons/react'
 import { CutRoleIcon } from './CutRoleIcon'
@@ -20,14 +20,42 @@ interface Props {
   shots: VideoShotSpec[]          // ノードのショット構成（使う役割の枠を出す）
   canSubmit: boolean
   onSubmit: (items: CreateItemInput[]) => void
+  storageKey?: string | null      // カードの記憶キー（ワークフロー + ノード）。無ければ記憶しない
+}
+
+// ── ブラウザへの記憶（入れた写真のパスと SKU だけ。アップロード中・失敗は保存しない） ──
+const STORAGE_PREFIX = 'nc:video-cuts:'
+interface SavedCard { id: string; sku: string; cuts: Array<{ role: CutRole; path: string; width?: number; height?: number; name?: string }> }
+const loadCards = (key: string | null | undefined): SkuCard[] | null => {
+  if (!key) return null
+  try {
+    const raw = localStorage.getItem(STORAGE_PREFIX + key)
+    if (!raw) return null
+    const data = JSON.parse(raw) as { v?: number; cards?: SavedCard[] }
+    if (!Array.isArray(data.cards) || data.cards.length === 0) return null
+    const known = new Set<string>(CUT_ROLES.map((r) => r.id))
+    return data.cards.slice(0, MAX_SKUS).map((c) => {
+      const cuts = emptyCuts()
+      for (const s of c.cuts ?? []) if (s && known.has(s.role) && typeof s.path === 'string') cuts[s.role] = { role: s.role, path: s.path, width: s.width, height: s.height, name: s.name, status: 'ready' }
+      return { id: String(c.id), sku: String(c.sku ?? ''), cuts }
+    })
+  } catch { return null }
+}
+const saveCards = (key: string | null | undefined, cards: SkuCard[]) => {
+  if (!key) return
+  try {
+    const data = { v: 1, cards: cards.map((c) => ({ id: c.id, sku: c.sku, cuts: CUT_ROLES.map((r) => c.cuts[r.id]).filter((s) => s.status === 'ready' && s.path).map((s) => ({ role: s.role, path: s.path as string, width: s.width, height: s.height, name: s.name })) })) }
+    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(data))
+  } catch { /* 容量不足・プライベートモードなどは無視 */ }
 }
 
 const emptyCuts = (): Record<CutRole, CutSlot> => Object.fromEntries(CUT_ROLES.map((r) => [r.id, { role: r.id, status: 'empty' }])) as Record<CutRole, CutSlot>
 const safeName = (name: string) => name.replace(/[^\w.-]+/g, '_').slice(-80)
 const newCard = (n: number): SkuCard => ({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, sku: `SKU-${String(n).padStart(3, '0')}`, cuts: emptyCuts() })
 
-export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props) {
-  const [cards, setCards] = useState<SkuCard[]>(() => [newCard(1)])   // 最初から 1 件のカードを出す
+export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageKey }: Props) {
+  const [cards, setCards] = useState<SkuCard[]>(() => loadCards(storageKey) ?? [newCard(1)])   // 記憶があれば復元、無ければ 1 件のカード
+  useEffect(() => { saveCards(storageKey, cards) }, [cards, storageKey])
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pending = useRef<{ cardId: string; role: CutRole } | null>(null)
@@ -81,7 +109,18 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
     const paths = readyKey ? readyKey.split('|') : []
     if (!paths.length) return
     let alive = true
-    signBatchPaths(paths).then((map) => { if (alive) setThumbs((t) => ({ ...t, ...map })) }).catch(() => {})
+    signBatchPaths(paths).then((map) => {
+      if (!alive) return
+      setThumbs((t) => ({ ...t, ...map }))
+      // 署名できなかったパス = ファイルが無い（記憶から復元したが消えていた等）→ その枠を「見つかりません」にして入れ直してもらう
+      const missing = new Set(paths.filter((p) => !map[p]))
+      if (missing.size) setCards((list) => list.map((c) => {
+        let changed = false
+        const cuts = { ...c.cuts }
+        for (const r of CUT_ROLES) { const sl = cuts[r.id]; if (sl.status === 'ready' && sl.path && missing.has(sl.path)) { cuts[r.id] = { ...sl, status: 'error', error: '写真が見つかりません', path: null, file: undefined }; changed = true } }
+        return changed ? { ...c, cuts } : c
+      }))
+    }).catch(() => {})
     return () => { alive = false }
   }, [readyKey])
 
@@ -132,14 +171,14 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => onDrop(e, card.id, role)}
             >
-              {thumb && isReady ? <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} /> : null}
+              {thumb && isReady ? <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} onError={() => patchSlot(card.id, role, { status: 'error', error: '写真が見つかりません', path: null, file: undefined })} /> : null}
               {slot.status === 'uploading' && <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.6)' }}><CircleNotch size={16} className="animate-spin" /></div>}
               {!isReady && slot.status !== 'uploading' && (
                 <div className="flex flex-col items-center gap-0.5" style={{ color: slot.status === 'error' ? '#EF4444' : 'var(--text-secondary)' }}>
                   <CutRoleIcon role={role} size={small ? 18 : 24} />
                   <span className="text-[10px] font-medium">{roleDef.label}{required ? ' *' : ''}</span>
                   {sharedWith && <span className="text-[9px]" style={{ color: 'var(--text-tertiary)' }}>ショット {sharedWith} と同じ写真</span>}
-                  {slot.status === 'error' && <span className="text-[9px]">失敗</span>}
+                  {slot.status === 'error' && <span className="text-[9px]">{slot.error === '写真が見つかりません' ? '見つかりません・入れ直し' : '失敗'}</span>}
                 </div>
               )}
               {/* 左上: この枠の意味（始点 / 終点 / 参照 / 主カット） */}
@@ -211,9 +250,14 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
           </div>
         )
       })}
-      <button type="button" className="h-8 rounded-lg text-[12px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ border: '1px dashed var(--border-active)', color: 'var(--text-secondary)' }} onClick={addCard} disabled={cards.length >= MAX_SKUS}>
-        <Plus size={12} />SKU を追加
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" className="flex-1 h-8 rounded-lg text-[12px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ border: '1px dashed var(--border-active)', color: 'var(--text-secondary)' }} onClick={addCard} disabled={cards.length >= MAX_SKUS}>
+          <Plus size={12} />SKU を追加
+        </button>
+        {(cards.length > 1 || cards.some((c) => CUT_ROLES.some((r) => c.cuts[r.id].status !== 'empty'))) && (
+          <button type="button" className="h-8 px-2 rounded-lg text-[11px] hover:bg-[var(--bg-elevated)] shrink-0" style={{ color: 'var(--text-tertiary)' }} title="カードと入れた写真をすべて外して最初から（投入済みの処理には影響しません）" onClick={() => setCards([newCard(1)])}>すべて外す</button>
+        )}
+      </div>
       <button
         className="h-9 w-full rounded-lg text-[12px] font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
         style={{ background: ACCENT }}
