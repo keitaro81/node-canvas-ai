@@ -31,15 +31,12 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pending = useRef<{ cardId: string; role: CutRole } | null>(null)
-  // 構成で使う役割を「ショットの流れ」の順（始点 → 終点の初出順）に。正面は必須なので構成に無くても先頭に。使わない役割は補足カット（参照用）として下に
-  const usedRoles = useMemo(() => {
-    const order: CutRole[] = []
-    const push = (r: CutRole | null | undefined) => { if (r && !order.includes(r)) order.push(r) }
-    for (const s of shots) { push(s.role); push(s.endRole) }
-    if (!order.includes(FRONTAL_ROLE)) order.unshift(FRONTAL_ROLE)
-    return order.map((id) => CUT_ROLES.find((r) => r.id === id)!)
-  }, [shots])
-  const otherRoles = useMemo(() => CUT_ROLES.filter((r) => !usedRoles.some((u) => u.id === r.id)), [usedRoles])
+  // ショットで使う役割（始点・終点）。正面は必須なので、どのショットにも無ければ「主カット」の枠を別に出す。残りは補足カット（参照用）として下に
+  const rolesInShots = useMemo(() => { const set = new Set<CutRole>(); for (const s of shots) { set.add(s.role); if (s.endRole) set.add(s.endRole) } return set }, [shots])
+  const frontInShots = rolesInShots.has(FRONTAL_ROLE)
+  // 役割が最初に出るショットの番号（2 回目以降の枠には「ショット n と同じ写真」と添えて、別の写真が要ると思われないように）
+  const firstShotOfRole = useMemo(() => { const m = new Map<CutRole, number>(); shots.forEach((s, i) => { if (!m.has(s.role)) m.set(s.role, i); if (s.endRole && !m.has(s.endRole)) m.set(s.endRole, i) }); return m }, [shots])
+  const otherRoles = useMemo(() => CUT_ROLES.filter((r) => !rolesInShots.has(r.id) && r.id !== FRONTAL_ROLE), [rolesInShots])
 
   const patchSlot = useCallback((cardId: string, role: CutRole, patch: Partial<CutSlot>) => {
     setCards((list) => list.map((c) => (c.id === cardId ? { ...c, cuts: { ...c.cuts, [role]: { ...c.cuts[role], ...patch } } } : c)))
@@ -112,40 +109,70 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
       <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => { onFilePicked(e.target.files); e.target.value = '' }} />
       {cards.map((card) => {
         const ready = (r: CutRole) => card.cuts[r].status === 'ready'
+        const anyReady = CUT_ROLES.some((r) => ready(r.id))
         const available = shotsAvailableFor(shots, CUT_ROLES.map((r) => card.cuts[r.id]).filter((s) => s.status === 'ready' && s.path).map((s) => ({ role: s.role, path: s.path as string })))
         const noShots = available.length === 0 && ready(FRONTAL_ROLE)   // 正面は入れたのに作れるショットが無い（空のカードでは出さない）
-        const renderSlot = (roleDef: typeof CUT_ROLES[number], supplementary: boolean) => {
-          const slot = card.cuts[roleDef.id]
-          const required = roleDef.id === FRONTAL_ROLE
+        // 1 枠 = 1 役割の写真。同じ役割が複数のショットに出るときは同じ写真を共有する（どの枠から入れても同じ）
+        const renderSlot = (role: CutRole, tag: '始点' | '終点' | '参照' | '主カット', small = false, shotIndex?: number) => {
+          const roleDef = CUT_ROLES.find((r) => r.id === role)!
+          const slot = card.cuts[role]
+          const required = role === FRONTAL_ROLE
+          const supplementary = tag === '参照'
           const thumb = slot.path ? thumbs[slot.path] : null
+          const isReady = slot.status === 'ready'
+          const firstShot = shotIndex !== undefined ? firstShotOfRole.get(role) : undefined
+          const sharedWith = firstShot !== undefined && firstShot < (shotIndex ?? 0) ? firstShot + 1 : null   // 前のショットと同じ写真を共有
           return (
             <div
-              key={roleDef.id}
-              className={`relative rounded-lg flex flex-col items-center justify-center text-center cursor-pointer select-none ${supplementary ? 'h-[72px]' : 'h-[96px]'}`}
-              style={{ background: 'var(--bg-placeholder)', border: `1px ${slot.status === 'ready' ? 'solid' : 'dashed'} ${required && slot.status !== 'ready' ? ACCENT : 'var(--border-active)'}`, overflow: 'hidden' }}
-              title={supplementary ? `${roleDef.label}（補足カット・参照用）: ${roleDef.hint}。動画の角度には使いません` : `${roleDef.label}: ${roleDef.hint}`}
-              onClick={() => pick(card.id, roleDef.id)}
+              key={`${role}-${tag}`}
+              className={`relative rounded-lg flex flex-col items-center justify-center text-center cursor-pointer select-none ${small ? 'h-[72px]' : 'h-[92px]'}`}
+              style={{ background: 'var(--bg-placeholder)', border: `1px ${isReady ? 'solid' : 'dashed'} ${required && !isReady ? ACCENT : 'var(--border-active)'}`, overflow: 'hidden' }}
+              title={supplementary ? `${roleDef.label}（補足カット・参照用）: ${roleDef.hint}。動画の角度には使いません` : `${tag}: ${roleDef.label}。${roleDef.hint}`}
+              onClick={() => pick(card.id, role)}
               onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => onDrop(e, card.id, roleDef.id)}
+              onDrop={(e) => onDrop(e, card.id, role)}
             >
-              {thumb && slot.status === 'ready' ? <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} /> : null}
+              {thumb && isReady ? <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} /> : null}
               {slot.status === 'uploading' && <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.6)' }}><CircleNotch size={16} className="animate-spin" /></div>}
-              {slot.status !== 'ready' && slot.status !== 'uploading' && (
+              {!isReady && slot.status !== 'uploading' && (
                 <div className="flex flex-col items-center gap-0.5" style={{ color: slot.status === 'error' ? '#EF4444' : 'var(--text-secondary)' }}>
-                  <CutRoleIcon role={roleDef.id} size={supplementary ? 18 : 24} />
+                  <CutRoleIcon role={role} size={small ? 18 : 24} />
                   <span className="text-[10px] font-medium">{roleDef.label}{required ? ' *' : ''}</span>
+                  {sharedWith && <span className="text-[9px]" style={{ color: 'var(--text-tertiary)' }}>ショット {sharedWith} と同じ写真</span>}
                   {slot.status === 'error' && <span className="text-[9px]">失敗</span>}
                 </div>
               )}
-              {supplementary && (
-                <span className="absolute top-0.5 left-0.5 px-1 rounded text-[9px]" style={slot.status === 'ready' ? { background: 'rgba(0,0,0,0.55)', color: '#fff' } : { background: 'var(--bg-surface)', color: 'var(--text-tertiary)', border: '1px solid var(--border)' }}>参照</span>
-              )}
-              {slot.status === 'ready' && (
+              {/* 左上: この枠の意味（始点 / 終点 / 参照 / 主カット） */}
+              <span className="absolute top-1 left-1 px-1 rounded text-[9px] leading-4" style={isReady ? { background: 'rgba(0,0,0,0.55)', color: '#fff' } : { background: 'var(--bg-surface)', color: 'var(--text-tertiary)', border: '1px solid var(--border)' }}>{tag}</span>
+              {isReady && (
                 <>
-                  <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] font-semibold text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{roleDef.label}</span>
-                  <button type="button" className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(0,0,0,0.55)' }} title="このカットを外す" onClick={(e) => { e.stopPropagation(); patchSlot(card.id, roleDef.id, { status: 'empty', path: null, name: undefined, width: undefined, height: undefined, file: undefined }) }}><X size={10} /></button>
+                  <span className="absolute bottom-1 left-1 px-1 rounded text-[9px] font-semibold text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{roleDef.label}</span>
+                  <button type="button" className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(0,0,0,0.55)' }} title="このカットを外す（同じ役割の枠すべてから外れます）" onClick={(e) => { e.stopPropagation(); patchSlot(card.id, role, { status: 'empty', path: null, name: undefined, width: undefined, height: undefined, file: undefined }) }}><X size={10} /></button>
                 </>
               )}
+            </div>
+          )
+        }
+        // ショットの枠組み: 番号と秒数の見出し + 始点 [→ 終点]。カットが揃ったショットだけ番号に色、揃っていなければ飛ばす
+        const shotBox = (s: VideoShotSpec, i: number) => {
+          const ok = available.includes(i)
+          const missing = [s.role, ...(s.endRole ? [s.endRole] : [])].filter((r) => !ready(r)).map((r) => CUT_ROLE_LABEL[r])
+          return (
+            <div key={i} className={`rounded-xl p-1.5 flex flex-col gap-1 ${s.endRole ? 'col-span-2' : ''}`} style={{ border: `1px solid ${ok ? 'var(--border-active)' : 'var(--border)'}`, background: 'var(--bg-surface)' }} title={ok ? `ショット ${i + 1}: ${shotRoleLabel(s)}・${s.duration} 秒` : `ショット ${i + 1}（${shotRoleLabel(s)}）: ${missing.join('・')} のカットが無いと飛ばします`}>
+              <div className="flex items-center gap-1 px-0.5 text-[10px]">
+                <span className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] tabular-nums shrink-0" style={{ background: ok ? ACCENT : 'var(--border)', color: ok ? '#fff' : 'var(--text-tertiary)' }}>{i + 1}</span>
+                <span className="font-medium truncate" style={{ color: ok ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{shotRoleLabel(s)}</span>
+                <span className="ml-auto tabular-nums shrink-0" style={{ color: 'var(--text-tertiary)' }}>{s.duration} 秒{!ok && anyReady ? '・飛ばします' : ''}</span>
+              </div>
+              <div className="relative grid gap-1.5" style={{ gridTemplateColumns: s.endRole ? '1fr 1fr' : '1fr' }}>
+                {renderSlot(s.role, '始点', false, i)}
+                {s.endRole && (
+                  <>
+                    <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }} title="始点の写真から終点の写真へ動かします"><ArrowRight size={10} weight="bold" /></span>
+                    {renderSlot(s.endRole, '終点', false, i)}
+                  </>
+                )}
+              </div>
             </div>
           )
         }
@@ -163,31 +190,22 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit }: Props)
               <span className="text-[10px] tabular-nums shrink-0" style={{ color: noShots ? '#EF4444' : 'var(--text-tertiary)' }} title={noShots ? 'この構成で作れるショットがありません。必要なカット（終了カットを指定したショットは両方）を入れてください' : 'この SKU で作るショット数 / 構成のショット数'}>{available.length} / {shots.length} ショット</span>
               {cards.length > 1 && <button type="button" className="w-6 h-6 rounded flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} title="この SKU を外す" onClick={() => setCards((list) => list.filter((c) => c.id !== card.id))}><Trash size={12} /></button>}
             </div>
-            {/* ショットの流れ: 番号付きで 始点 → 終点。カットが揃ったショットだけ色が付き、揃っていないショットは飛ばす（役割名を押すとそのカットを選べる） */}
-            <div className="flex flex-wrap items-center gap-1">
-              {shots.map((s, i) => {
-                const ok = available.includes(i)
-                const missing = [s.role, ...(s.endRole ? [s.endRole] : [])].filter((r) => !ready(r)).map((r) => CUT_ROLE_LABEL[r])
-                const chip = (role: CutRole) => (
-                  <button type="button" className="hover:underline" style={{ color: ready(role) ? 'var(--text-primary)' : 'var(--text-tertiary)', fontWeight: ready(role) ? 500 : 400 }} title={ready(role) ? `${CUT_ROLE_LABEL[role]}: 入っています` : `${CUT_ROLE_LABEL[role]}: 押して写真を選ぶ`} onClick={() => pick(card.id, role)}>{CUT_ROLE_LABEL[role]}</button>
-                )
-                return (
-                  <span key={i} className="inline-flex items-center gap-1 h-5 pl-0.5 pr-1.5 rounded-full text-[10px]" style={{ background: 'var(--bg-surface)', border: `1px solid ${ok ? 'var(--border-active)' : 'var(--border)'}` }} title={ok ? `ショット ${i + 1}: ${shotRoleLabel(s)}・${s.duration} 秒` : `ショット ${i + 1}（${shotRoleLabel(s)}）は飛ばします: ${missing.join('・')} のカットがありません`}>
-                    <span className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] tabular-nums" style={{ background: ok ? ACCENT : 'var(--border)', color: ok ? '#fff' : 'var(--text-tertiary)' }}>{i + 1}</span>
-                    {chip(s.role)}
-                    {s.endRole && (<><ArrowRight size={9} weight="bold" style={{ color: ok ? 'var(--text-secondary)' : 'var(--text-tertiary)' }} />{chip(s.endRole)}</>)}
-                  </span>
-                )
-              })}
+            <div className="grid grid-cols-2 gap-1.5">
+              {!frontInShots && (
+                <div className="rounded-xl p-1.5 flex flex-col gap-1" style={{ border: `1px solid ${ready(FRONTAL_ROLE) ? 'var(--border-active)' : 'var(--border)'}`, background: 'var(--bg-surface)' }} title="正面は動画の主カット（AI に渡す基準の写真）です。この構成のショットには出ませんが必須です">
+                  <div className="flex items-center gap-1 px-0.5 text-[10px]"><span className="font-medium" style={{ color: 'var(--text-secondary)' }}>主カット</span></div>
+                  {renderSlot(FRONTAL_ROLE, '主カット')}
+                </div>
+              )}
+              {shots.map(shotBox)}
             </div>
-            <div className="grid grid-cols-3 gap-1.5">{usedRoles.map((r) => renderSlot(r, false))}</div>
             {otherRoles.length > 0 && (
               <>
                 <div className="flex items-baseline gap-1.5 mt-0.5 min-w-0">
                   <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--text-secondary)' }}>補足カット（任意）</span>
                   <span className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }} title="補足カットは動画の角度には使いません。同じ服の別角度として AI に渡し、見え方を揃えるためだけに使います">動画には出ません。服の見え方を揃える参照用</span>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 opacity-80">{otherRoles.map((r) => renderSlot(r, true))}</div>
+                <div className="grid grid-cols-3 gap-1.5 opacity-80">{otherRoles.map((r) => renderSlot(r.id, '参照', true))}</div>
               </>
             )}
           </div>
