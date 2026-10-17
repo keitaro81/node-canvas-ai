@@ -16,6 +16,7 @@ export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
 export const MAX_ACTIVE_JOBS = 2
 export const DEFAULT_DAILY_ITEM_LIMIT = 300
+export const DEFAULT_DAILY_VIDEO_LIMIT = 20     // 商品動画（本/日・2026-10-17 ユーザー決定）
 export const SUBMIT_CHUNK = 10
 export const SUBMIT_CONCURRENCY = 5       // チャンク内の fal 投入の同時数（Edge の応答期限 25 秒に収める）
 export const RECONCILE_MIN_AGE_SEC = 600
@@ -253,14 +254,20 @@ export function pickCutoutImage(endpoint: string, payload: unknown): { url: stri
 
 // ───────────────────────── 上限（4-7・純関数） ─────────────────────────
 
-export interface LimitInputs { dailyLimit: number; usedToday: number; activeJobs: number; newItems: number }
+export interface LimitInputs { dailyLimit: number; usedToday: number; activeJobs: number; newItems: number; unit?: string }
 export type LimitCheck = { ok: true } | { ok: false; code: string; status: number; message: string }
 
+/** 本日の利用数を種類ごとに合計する（kind が無い古い行は cutout 扱い）。 */
+export function sumUsedTodayByKind(jobs: Array<{ item_count: number; status: string; kind?: string | null }> | null | undefined, kind: 'cutout' | 'video'): number {
+  return (jobs ?? []).filter((j) => j.status !== 'cancelled' && ((j.kind ?? 'cutout') === kind)).reduce((s, j) => s + (j.item_count ?? 0), 0)
+}
+
 export function checkLimits(l: LimitInputs): LimitCheck {
-  if (l.newItems < 1) return { ok: false, code: 'no_items', status: 400, message: '画像がありません' }
-  if (l.newItems > MAX_ITEMS_PER_JOB) return { ok: false, code: 'items_limit', status: 400, message: `1 ジョブは ${MAX_ITEMS_PER_JOB} 枚までです（${l.newItems} 枚）` }
-  if (l.activeJobs >= MAX_ACTIVE_JOBS) return { ok: false, code: 'active_jobs', status: 429, message: `同時に進行できるジョブは ${MAX_ACTIVE_JOBS} つまでです` }
-  if (l.usedToday + l.newItems > l.dailyLimit) return { ok: false, code: 'daily_limit', status: 429, message: `本日の上限 ${l.dailyLimit} 枚を超えます（本日 ${l.usedToday} 枚 + ${l.newItems} 枚）` }
+  const u = l.unit ?? '枚'
+  if (l.newItems < 1) return { ok: false, code: 'no_items', status: 400, message: u === '本' ? 'SKU がありません' : '画像がありません' }
+  if (l.newItems > MAX_ITEMS_PER_JOB) return { ok: false, code: 'items_limit', status: 400, message: `1 回の処理は ${MAX_ITEMS_PER_JOB} ${u}までです（${l.newItems} ${u}）` }
+  if (l.activeJobs >= MAX_ACTIVE_JOBS) return { ok: false, code: 'active_jobs', status: 429, message: `同時に進められる処理は ${MAX_ACTIVE_JOBS} つまでです` }
+  if (l.usedToday + l.newItems > l.dailyLimit) return { ok: false, code: 'daily_limit', status: 429, message: `本日の上限 ${l.dailyLimit} ${u}を超えます（本日 ${l.usedToday} ${u} + ${l.newItems} ${u}）` }
   return { ok: true }
 }
 
@@ -374,11 +381,16 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
     } else if (videoNode) return fail(400, 'cuts_required', { message: '商品動画には役割ごとのカットが必要です' })
   }
 
-  const { data: team } = await admin.from('teams').select('daily_item_limit, show_cost').eq('id', m.teamId).maybeSingle()
-  const dailyLimit = typeof team?.daily_item_limit === 'number' ? team.daily_item_limit : DEFAULT_DAILY_ITEM_LIMIT
+  // 上限は種類ごと: 写真の処理は daily_item_limit（枚）、商品動画は daily_video_limit（本・既定 20）。本日の利用数も同じ種類だけ数える（0019）
+  const kind: 'cutout' | 'video' = videoNode ? 'video' : 'cutout'
+  const unit = kind === 'video' ? '本' : '枚'
+  const { data: team } = await admin.from('teams').select('daily_item_limit, daily_video_limit, show_cost').eq('id', m.teamId).maybeSingle()
+  const dailyLimit = kind === 'video'
+    ? (typeof team?.daily_video_limit === 'number' ? team.daily_video_limit : DEFAULT_DAILY_VIDEO_LIMIT)
+    : (typeof team?.daily_item_limit === 'number' ? team.daily_item_limit : DEFAULT_DAILY_ITEM_LIMIT)
   const { start, end } = jstDayRangeUtc()
-  const { data: todayJobs } = await admin.from('batch_jobs').select('item_count, status').eq('team_id', m.teamId).gte('created_at', start).lt('created_at', end)
-  const usedToday = ((todayJobs ?? []) as Array<{ item_count: number; status: string }>).filter((j) => j.status !== 'cancelled').reduce((s, j) => s + (j.item_count ?? 0), 0)
+  const { data: todayJobs } = await admin.from('batch_jobs').select('item_count, status, kind').eq('team_id', m.teamId).gte('created_at', start).lt('created_at', end)
+  const usedToday = sumUsedTodayByKind(todayJobs as Array<{ item_count: number; status: string; kind?: string | null }> | null, kind)
   const { count: activeJobs } = await admin.from('batch_jobs').select('id', { count: 'exact', head: true }).eq('team_id', m.teamId).in('status', ['uploading', 'submitted', 'processing'])
 
   const plan = planTasks(body?.workflowSnapshot)
@@ -391,7 +403,7 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
     const role = (t.input.__shot as { role?: CutRole } | undefined)?.role
     return role ? items.filter((it) => !!cutOf((it.cuts ?? []) as ItemCut[], role)).length : 0
   }
-  const limits = { dailyLimit, usedToday, remaining: Math.max(0, dailyLimit - usedToday), activeJobs: activeJobs ?? 0, maxActiveJobs: MAX_ACTIVE_JOBS, maxItemsPerJob: MAX_ITEMS_PER_JOB }
+  const limits = { dailyLimit, usedToday, remaining: Math.max(0, dailyLimit - usedToday), activeJobs: activeJobs ?? 0, maxActiveJobs: MAX_ACTIVE_JOBS, maxItemsPerJob: MAX_ITEMS_PER_JOB, kind, unit }
   const breakdown = plan.tasks.map((t) => {
     const unitUsd = estimatePlannedTaskCost(t.endpoint, t.input)
     const count = countOf(t)
@@ -408,7 +420,7 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   }
   if (body?.dryRun) return ok({ limits, plan: planInfo })
 
-  const chk = checkLimits({ dailyLimit, usedToday, activeJobs: activeJobs ?? 0, newItems: items.length })
+  const chk = checkLimits({ dailyLimit, usedToday, activeJobs: activeJobs ?? 0, newItems: items.length, unit })
   if (!chk.ok) return fail(chk.status, chk.code, { message: chk.message, limits })
   if (plan.tasks.length === 0) return fail(400, 'no_tasks', { message: '一括実行の対象となる AI 処理ノード（Batch Input に接続した Remove Background 等）がありません', warnings: plan.warnings })
 
@@ -416,7 +428,7 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const workflowId = await resolveSourceWorkflow(admin, userId, m.teamId, body.workflowId)
   const { data: job, error: jobErr } = await admin.from('batch_jobs').insert({
     team_id: m.teamId, created_by: userId, name, workflow_snapshot: body.workflowSnapshot ?? {}, status: 'uploading',
-    item_count: items.length, task_count: planInfo.totalTasks, estimated_cost_usd: estimatedCostUsd, workflow_id: workflowId,
+    item_count: items.length, task_count: planInfo.totalTasks, estimated_cost_usd: estimatedCostUsd, workflow_id: workflowId, kind,
   }).select('id, webhook_secret').single()
   if (jobErr || !job) return fail(500, 'job_insert_failed', { message: jobErr?.message })
 

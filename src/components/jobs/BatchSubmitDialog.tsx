@@ -131,8 +131,10 @@ export function BatchSubmitDialog() {
 
         {(phase === 'confirm' || phase === 'creating' || phase === 'submitting' || phase === 'done' || phase === 'error') && (
           <div className="mt-3" style={{ color: 'var(--text-secondary)' }}>
-            <div className={ROW}><span>枚数</span><b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{items.length} 枚</b></div>
-            {plan && <div className={ROW}><span>AI 処理</span><span className="tabular-nums">{plan.totalTasks} 件（写真ごと {plan.itemTasks} 種{plan.jobTasks ? `・全体で ${plan.jobTasks} 件` : ''}）</span></div>}
+            <div className={ROW}><span>{plan?.video ? '件数（SKU）' : '枚数'}</span><b className="tabular-nums" style={{ color: 'var(--text-primary)' }}>{items.length} {plan?.video ? '件' : '枚'}</b></div>
+            {plan && (plan.video
+              ? <div className={ROW}><span>AI 処理</span><span className="tabular-nums">{plan.totalTasks} 件（ショット {(plan.breakdown ?? []).filter((b) => b.kind === 'videoShot').reduce((n, b) => n + b.count, 0)} 本・結合 {(plan.breakdown ?? []).filter((b) => b.kind === 'videoMerge').reduce((n, b) => n + b.count, 0)} 件）</span></div>
+              : <div className={ROW}><span>AI 処理</span><span className="tabular-nums">{plan.totalTasks} 件（写真ごと {plan.itemTasks} 種{plan.jobTasks ? `・全体で ${plan.jobTasks} 件` : ''}）</span></div>)}
             {/* ノード別の内訳（フェーズ C(a)）: 何が何回動くかを投入前に見せる。単価・小計は原価を見せる設定のときだけ */}
             {plan?.breakdown?.length ? (
               <div className="rounded-lg px-3 py-1.5 mt-1 mb-1 text-[11px]" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
@@ -151,8 +153,8 @@ export function BatchSubmitDialog() {
             {plan && <div className={ROW}><span>推定時間</span><span>{formatDuration(plan.estimatedSeconds)}{(plan.maxStage ?? 1) > 1 ? <span style={{ color: 'var(--text-tertiary)' }}>（2 段の処理: 1 段目が終わった写真から 2 段目を投入）</span> : null}</span></div>}
             {limits && (
               <div className={ROW}>
-                <span>本日の残り枚数</span>
-                <span className="tabular-nums">{limits.remaining} 枚 → 実行後 <b style={{ color: remainingAfter !== null && remainingAfter < 0 ? '#EF4444' : 'var(--text-primary)' }}>{remainingAfter}</b> 枚（上限 {limits.dailyLimit}）</span>
+                <span>{(limits.unit ?? '枚') === '本' ? '本日の残り本数（動画）' : '本日の残り枚数'}</span>
+                <span className="tabular-nums">{limits.remaining} {limits.unit ?? '枚'} → 実行後 <b style={{ color: remainingAfter !== null && remainingAfter < 0 ? '#EF4444' : 'var(--text-primary)' }}>{remainingAfter}</b> {limits.unit ?? '枚'}（上限 {limits.dailyLimit}）</span>
               </div>
             )}
             {limits && <div className={ROW}><span>同時に進められる処理</span><span className="tabular-nums">{limits.activeJobs} / {limits.maxActiveJobs}</span></div>}
@@ -189,7 +191,7 @@ export function BatchSubmitDialog() {
                 />
               </label>
             )}
-            <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>写真を送り終わるまでこの画面を閉じないでください。始まった後は裏側で処理が続くので、ブラウザを閉じても構いません。</p>
+            <p className="mt-3 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{plan?.video ? 'カット' : '写真'}を送り終わるまでこの画面を閉じないでください。始まった後は裏側で処理が続くので、ブラウザを閉じても構いません。</p>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={close} className="px-3 h-8 rounded-lg text-[12px] hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>キャンセル</button>
               <button onClick={() => void start()} disabled={!items.length || !plan?.totalTasks} className="px-4 h-8 rounded-lg text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>

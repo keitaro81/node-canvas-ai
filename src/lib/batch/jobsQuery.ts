@@ -92,8 +92,8 @@ export function aggregateReviewCounts(rows: Array<{ job_id: string; review: stri
 }
 
 /** 本日の利用枚数（キャンセル済みは数えない。サーバー batchCreate と同じ規則） */
-export function sumUsedToday(jobs: Array<{ item_count: number; status: string }>): number {
-  return jobs.filter((j) => j.status !== 'cancelled').reduce((s, j) => s + (j.item_count ?? 0), 0)
+export function sumUsedToday(jobs: Array<{ item_count: number; status: string; kind?: string | null }>, kind: 'cutout' | 'video' = 'cutout'): number {
+  return jobs.filter((j) => j.status !== 'cancelled' && (j.kind ?? 'cutout') === kind).reduce((s, j) => s + (j.item_count ?? 0), 0)
 }
 
 /**

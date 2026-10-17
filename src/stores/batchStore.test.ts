@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 // Supabase / Edge 呼び出しは全部モック。Realtime の購読だけ状態通知を差し替えて、店（store）の見張りの配線を検証する
 vi.mock('../lib/api/batchJobs', () => ({
   fetchActiveJobs: vi.fn(async () => []),
-  fetchTeamBatchSettings: vi.fn(async () => ({ dailyLimit: 300, showCost: false })),
+  fetchTeamBatchSettings: vi.fn(async () => ({ dailyLimit: 300, dailyVideoLimit: 20, showCost: false })),
   fetchTeamBatchLimits: vi.fn(async () => null),
   fetchUsedToday: vi.fn(async () => 0),
+  fetchUsedVideosToday: vi.fn(async () => 0),
   subscribeTeamJobs: vi.fn(() => () => {}),
   disconnectRealtime: vi.fn(),
 }))
