@@ -1,14 +1,12 @@
 import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Film, X, Loader2, Play, Pause, Images } from 'lucide-react'
+import { Film, X, Loader2, Play, Pause } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
 import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceVideoNodeData, NodeData } from '../../types/nodes'
-
-const ACCEPTED_VIDEO_TYPES = 'video/mp4,video/quicktime,video/webm'
 
 function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ReferenceVideoNodeData
@@ -53,16 +51,6 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
       }
     },
     [id, updateNode]
-  )
-
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (!file) return
-      e.target.value = ''
-      await uploadFile(file)
-    },
-    [uploadFile]
   )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -201,38 +189,28 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
             )}
           </div>
         ) : (
-          <label
-            htmlFor={`ref-video-upload-${id}`}
-            className="flex flex-col items-center justify-center gap-2 rounded-lg py-6 cursor-pointer transition-colors nodrag"
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="w-full flex flex-col items-center justify-center gap-2 rounded-lg py-6 cursor-pointer transition-colors nodrag"
             style={{
               border: isDragOver ? '1px dashed #EC4899' : '1px dashed #27272A',
               minHeight: 120,
               background: isDragOver ? 'rgba(236,72,153,0.08)' : undefined,
             }}
+            title="クリックで追加（アップロード / ライブラリから選ぶ）。ここに動画をドロップもできます"
           >
             {isUploading ? (
               <Loader2 size={20} className="animate-spin" style={{ color: '#EC4899' }} />
             ) : (
               <>
                 <Film size={24} color="var(--border-active)" />
-                <span className="text-[12px]" style={{ color: '#EC4899' }}>クリックしてアップロード</span>
-                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>MP4 / MOV / WebM</span>
+                <span className="text-[12px]" style={{ color: '#EC4899' }}>クリックして追加</span>
+                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>アップロード / ライブラリ・ドロップも可</span>
               </>
             )}
-          </label>
-        )}
-        {!displayUrl && (
-          <button type="button" className="mt-2 w-full h-7 rounded-md text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)}>
-            <Images size={12} />ライブラリから選ぶ
           </button>
         )}
-        <input
-          type="file"
-          accept={ACCEPTED_VIDEO_TYPES}
-          onChange={handleFileChange}
-          className="hidden"
-          id={`ref-video-upload-${id}`}
-        />
       </div>
       <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="video" source="canvas" onPick={(items) => { void handlePick(items) }} />
 

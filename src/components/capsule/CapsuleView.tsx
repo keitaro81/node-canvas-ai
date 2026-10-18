@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
+import { signLibraryUrl } from '../../lib/api/library'
 import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { LLM_MODELS, normalizeLlmModel } from '../../lib/ai/llmModels'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { createPortal } from 'react-dom'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus, Images } from 'lucide-react'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
@@ -298,38 +298,13 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
   const updateNode = useCanvasStore((s) => s.updateNode)
   const isMobile = useIsMobile()
   const [isUploading, setIsUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const node = nodes.find((n) => n.id === nodeId)
   const d = (node?.data ?? {}) as Record<string, unknown>
   const displayUrl = (d.uploadedImagePreview as string | null) || (d.imageUrl as string | null) || null
 
-  async function handleFile(file: File) {
-    const previewUrl = URL.createObjectURL(file)
-    updateNode(nodeId, { uploadedImagePreview: previewUrl } as never)
-    setIsUploading(true)
-    try {
-      // ライブラリに登録（旧: fal.storage.upload = fal の CDN 直置き）。表示・生成は署名 URL
-      const { signedUrl } = await uploadToLibraryForNode(file, 'image', 'capsule')
-      updateNode(nodeId, { imageUrl: signedUrl, uploadedImagePreview: previewUrl } as never)
-    } catch {
-      updateNode(nodeId, { imageUrl: null, uploadedImagePreview: null } as never)
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    handleFile(file)
-  }
-
-  function handleClear() {
-    updateNode(nodeId, { imageUrl: null, uploadedImagePreview: null } as never)
-  }
-  const [pickerOpen, setPickerOpen] = useState(false)
+  // 画像の追加はすべて「画像を追加」ダイアログ（アップロード / ライブラリ）から。アップロードはライブラリに登録され、1 枚なので上げた瞬間に採用される
   async function handlePick(items: PickedMedia[]) {
     const picked = items[0]
     if (!picked) return
@@ -337,12 +312,10 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
     try { updateNode(nodeId, { imageUrl: await signLibraryUrl(picked.url), uploadedImagePreview: null } as never) }
     finally { setIsUploading(false) }
   }
+  function handleClear() {
+    updateNode(nodeId, { imageUrl: null, uploadedImagePreview: null } as never)
+  }
   const picker = <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="capsule" onPick={(items) => { void handlePick(items) }} />
-  const libraryButton = (
-    <button type="button" className="mt-1 w-full h-7 rounded-md text-[11px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)}>
-      <Images size={12} />ライブラリから選ぶ
-    </button>
-  )
 
   // モバイル: 親グリッドのセルに収まる正方形サムネイル（width はグリッド側で制御）
   if (isMobile) {
@@ -352,7 +325,8 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
         <div
           className="relative rounded-lg overflow-hidden cursor-pointer"
           style={{ aspectRatio: '1 / 1', border: '1px solid var(--border)' }}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setPickerOpen(true)}
+          title="タップで追加（アップロード / ライブラリ）"
         >
           {displayUrl ? (
             <>
@@ -381,14 +355,6 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
             </div>
           )}
         </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          onChange={handleChange}
-          className="hidden"
-        />
-        {libraryButton}
         {picker}
       </div>
     )
@@ -398,7 +364,7 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
     <div className="mb-3">
       <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
       {displayUrl ? (
-        <div className="relative rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+        <div className="relative rounded-lg overflow-hidden cursor-pointer" style={{ border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)} title="クリックで画像を変える（アップロード / ライブラリ）">
           <img src={displayUrl} alt="Reference" className="w-full h-auto block" />
           {isUploading && (
             <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
@@ -409,35 +375,31 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
             <button
               className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
               style={{ background: 'rgba(0,0,0,0.65)' }}
-              onClick={handleClear}
+              onClick={(e) => { e.stopPropagation(); handleClear() }}
             >
               <X size={12} color="white" />
             </button>
           )}
         </div>
       ) : (
-        <label
-          className="flex flex-col items-center justify-center gap-2 rounded-lg py-5 cursor-pointer transition-colors"
+        <button
+          type="button"
+          className="w-full flex flex-col items-center justify-center gap-2 rounded-lg py-5 cursor-pointer transition-colors"
           style={{ border: '1px dashed var(--border)', minHeight: 100 }}
+          onClick={() => setPickerOpen(true)}
+          title="クリックで追加（アップロード / ライブラリから選ぶ）"
         >
           {isUploading ? (
             <Loader2 size={18} className="animate-spin" style={{ color: '#8B5CF6' }} />
           ) : (
             <>
               <ImageIcon size={20} color="var(--border-active)" />
-              <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックしてアップロード</span>
+              <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックして追加</span>
+              <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>アップロード / ライブラリ</span>
             </>
           )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={handleChange}
-            className="hidden"
-          />
-        </label>
+        </button>
       )}
-      {libraryButton}
       {picker}
     </div>
   )

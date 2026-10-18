@@ -48,16 +48,6 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
     [id, updateNode]
   )
 
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (!file) return
-      e.target.value = ''
-      await uploadFile(file)
-    },
-    [uploadFile]
-  )
-
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('Files')) {
       const imageItemCount = Array.from(e.dataTransfer.items).filter(
@@ -189,7 +179,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
                       style={{ background: 'rgba(255,255,255,0.15)' }}
                       onClick={() => setPickerOpen(true)}
-                      title="ライブラリから選ぶ"
+                      title="画像を変える（アップロード / ライブラリ）"
                     >
                       <Images size={14} />
                     </button>
@@ -227,34 +217,24 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
               )}
             </div>
           ) : (
-            <label
-              htmlFor={`ref-image-upload-${id}`}
-              className="flex flex-col items-center justify-center gap-2 rounded-lg py-6 cursor-pointer transition-colors nodrag"
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="w-full flex flex-col items-center justify-center gap-2 rounded-lg py-6 cursor-pointer transition-colors nodrag"
               style={{ border: isDragOver ? '1px dashed #8B5CF6' : '1px dashed #27272A', minHeight: 120, background: isDragOver ? 'rgba(139,92,246,0.08)' : undefined }}
+              title="クリックで追加（アップロード / ライブラリから選ぶ）。ここに画像をドロップもできます"
             >
               {isUploading ? (
                 <Loader2 size={20} className="animate-spin" style={{ color: '#8B5CF6' }} />
               ) : (
                 <>
                   <ImageIcon size={24} color="var(--border-active)" />
-                  <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックしてアップロード</span>
-                  <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>PNG / JPEG / WebP</span>
+                  <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックして追加</span>
+                  <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>アップロード / ライブラリ・ドロップも可</span>
                 </>
               )}
-            </label>
-          )}
-          {!displayUrl && (
-            <button type="button" className="mt-2 w-full h-7 rounded-md text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)}>
-              <Images size={12} />ライブラリから選ぶ
             </button>
           )}
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={handleFileChange}
-            className="hidden"
-            id={`ref-image-upload-${id}`}
-          />
         </div>
         <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="canvas" onPick={(items) => { void handlePick(items) }} />
 

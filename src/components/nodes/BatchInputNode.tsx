@@ -171,21 +171,19 @@ function BatchInputNodeInner(props: NodeProps) {
     >
       <div className="flex flex-col gap-2.5 nodrag">
         {/* ドロップ / 選択 */}
-        <label
-          htmlFor={`batch-input-${id}`}
-          className="flex flex-col items-center justify-center gap-1 rounded-lg py-3 cursor-pointer transition-colors nodrag"
+        <button
+          type="button"
+          className="w-full flex flex-col items-center justify-center gap-1 rounded-lg py-3 cursor-pointer transition-colors nodrag"
           style={{ border: dragOver ? `1px dashed ${PP_ACCENT}` : '1px dashed var(--border-active)', background: dragOver ? 'rgba(20,184,166,0.08)' : undefined }}
+          onClick={() => setPickerOpen(true)}
           onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDragOver(true) } }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+          title="クリックで追加（アップロード / ライブラリから選ぶ）。ここにドロップもできます"
         >
           <Upload size={18} style={{ color: PP_ACCENT }} />
-          <span className="text-[12px]" style={{ color: PP_ACCENT }}>画像をドロップ / クリックして選択</span>
-          <span className="text-[11px] text-[var(--text-tertiary)]">最大 {MAX_BATCH_ITEMS} 枚・JPEG / PNG / WebP</span>
-        </label>
-        <input id={`batch-input-${id}`} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }} />
-        <button type="button" className="h-7 rounded-md text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setPickerOpen(true)}>
-          <Images size={12} />ライブラリから選ぶ
+          <span className="text-[12px]" style={{ color: PP_ACCENT }}>画像をドロップ / クリックして追加</span>
+          <span className="text-[11px] text-[var(--text-tertiary)]">アップロードかライブラリから・最大 {MAX_BATCH_ITEMS} 枚</span>
         </button>
         <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" multiple source="batch-input" onPick={(picked) => { void pickedToFiles(picked).then(handleFiles).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error')) }} />
 

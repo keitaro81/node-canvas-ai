@@ -22,6 +22,7 @@ export interface PickedMedia {
   name?: string | null
   width?: number | null
   height?: number | null
+  file?: File                 // このダイアログでアップロードした元ファイル（再取得せずに使える）
 }
 interface Props {
   open: boolean
@@ -48,6 +49,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const [selected, setSelected] = useState<string[]>([])            // entry.key（選んだ順）
   const [myId, setMyId] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement | null>(null)
+  const uploadedFiles = useRef(new Map<string, File>())   // entry.key → このダイアログで上げた File
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -72,7 +74,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
 
   useEffect(() => {
     if (!open) return
-    setTab('all'); setSelected([])
+    setTab('all'); setSelected([]); uploadedFiles.current.clear()
     void load()
   }, [open, load])
 
@@ -104,22 +106,30 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
     setUploading((n) => n + list.length)
     const added: LibraryItem[] = []
     for (const f of list) {
-      try { added.push(await uploadToLibrary(f, { media, source })) }
+      try { const item = await uploadToLibrary(f, { media, source }); added.push(item); uploadedFiles.current.set(`lib:${item.id}`, f) }
       catch (e) { showToast(`${f.name}: ${e instanceof Error ? e.message : String(e)}`, 'error') }
       finally { setUploading((n) => n - 1) }
     }
     if (!added.length) return
+    if (!multiple) {
+      // 1 枚だけ受ける入力: 上げた瞬間に採用して閉じる（「クリックしてアップロード」と同じ手数）
+      const last = added[added.length - 1]
+      void touchLibraryItems([last.id])
+      onPick([{ url: libraryCanonicalUrl(last), media: last.media, libraryItemId: last.id, name: last.name, width: last.width, height: last.height, file: uploadedFiles.current.get(`lib:${last.id}`) }])
+      onClose()
+      return
+    }
     const map = await signLibraryItems(added)
     setUploads((cur) => [...added, ...cur])
     setSigned((cur) => { const next = { ...cur }; for (const l of added) if (map[l.id]) next[`lib:${l.id}`] = map[l.id]; return next })
-    setSelected((cur) => (multiple ? [...cur, ...added.map((l) => `lib:${l.id}`)] : [`lib:${added[added.length - 1].id}`]))
+    setSelected((cur) => [...cur, ...added.map((l) => `lib:${l.id}`)])
   }
 
   const confirm = () => {
     const picked = selected.map((k) => byKey.get(k)).filter((e): e is Entry => !!e)
     if (!picked.length) return
     void touchLibraryItems(picked.map((e) => e.lib?.id).filter((id): id is string => !!id))
-    onPick(picked.map((e) => ({ url: e.url, media: e.media, libraryItemId: e.lib?.id, generationId: e.gen?.id, name: e.name, width: e.lib?.width ?? null, height: e.lib?.height ?? null })))
+    onPick(picked.map((e) => ({ url: e.url, media: e.media, libraryItemId: e.lib?.id, generationId: e.gen?.id, name: e.name, width: e.lib?.width ?? null, height: e.lib?.height ?? null, file: uploadedFiles.current.get(e.key) })))
     onClose()
   }
 

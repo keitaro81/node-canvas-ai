@@ -1,10 +1,10 @@
 // App モードの「写真を追加」欄（フェーズ C(c)）。Batch Input ノードと同じ流れ（選択 → アップロード → 一括実行）だが、
 // 写真の一覧はこの画面だけで持ち、ワークフロー（canvas_data）には保存しない（共有 App を使うメンバーの写真が
 // ワークフローに書き込まれないように）。アップロード先はノードと同じ interactive/<nodeId>/items/。
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { pickedToFiles } from '../../lib/api/library'
 import { MediaPickerDialog } from '../library/MediaPickerDialog'
-import { Upload, X, Loader2, Check, AlertCircle, RefreshCw, Images } from 'lucide-react'
+import { Upload, X, Loader2, Check, AlertCircle, RefreshCw } from 'lucide-react'
 import { showToast } from '../../hooks/useToast'
 import type { BatchItem } from '../../types/nodes'
 import { MAX_BATCH_ITEMS, extractSku, safeFileName, sortAndIndexItems } from '../../lib/batch/items'
@@ -35,7 +35,6 @@ export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit }: Props
   itemsRef.current = items
   const uploadingRef = useRef(false)
   const queuedRef = useRef(false)
-  const inputId = useMemo(() => `app-batch-input-${nodeId}`, [nodeId])
 
   const patchItem = useCallback((itemId: string, patch: Partial<BatchItem>) => {
     setItems((list) => list.map((i) => (i.id === itemId ? { ...i, ...patch } : i)))
@@ -126,21 +125,20 @@ export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit }: Props
 
   return (
     <div className="flex flex-col gap-3">
-      <label
-        htmlFor={inputId}
-        className="flex flex-col items-center justify-center gap-1 rounded-xl py-6 cursor-pointer transition-colors"
+      <button
+        type="button"
+        className="w-full flex flex-col items-center justify-center gap-1 rounded-xl py-6 cursor-pointer transition-colors"
         style={{ border: dragOver ? `1px dashed ${ACCENT}` : '1px dashed var(--border-active)', background: dragOver ? 'rgba(20,184,166,0.08)' : 'var(--bg-canvas)' }}
+        onClick={() => setPickerOpen(true)}
+        disabled={uploading}
         onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDragOver(true) } }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+        title="クリックで追加（アップロード / ライブラリから選ぶ）。ここにドロップもできます"
       >
         <Upload size={20} style={{ color: ACCENT }} />
-        <span className="text-[13px] font-medium" style={{ color: ACCENT }}>写真をドロップ / クリックして選択</span>
-        <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>最大 {MAX_BATCH_ITEMS} 枚・JPEG / PNG / WebP</span>
-      </label>
-      <input id={inputId} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }} />
-      <button type="button" className="h-8 rounded-lg text-[12px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setPickerOpen(true)} disabled={uploading}>
-        <Images size={13} />ライブラリから選ぶ
+        <span className="text-[13px] font-medium" style={{ color: ACCENT }}>写真をドロップ / クリックして追加</span>
+        <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>アップロードかライブラリから・最大 {MAX_BATCH_ITEMS} 枚・JPEG / PNG / WebP</span>
       </button>
       <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" multiple source="batch-input" onPick={(picked) => { void pickedToFiles(picked).then(handleFiles).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error')) }} />
 
