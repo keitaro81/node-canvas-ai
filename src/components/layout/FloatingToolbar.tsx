@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { DEFAULT_LLM_MODEL } from '../../lib/ai/llmModels'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useStore } from 'zustand'
@@ -126,7 +127,7 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
     return { type: 'imageGen', label, params: { model: 'fal-ai/nano-banana-2', aspectRatio: '1:1', seed: '' }, status: 'idle' }
   }
   if (type === 'promptEnhancer') {
-    return { type: 'promptEnhancer', label, params: {}, status: 'idle', inputText: '', outputText: '', model: 'anthropic/claude-haiku-4.5' }
+    return { type: 'promptEnhancer', label, params: {}, status: 'idle', inputText: '', outputText: '', model: DEFAULT_LLM_MODEL }
   }
   if (type === 'list') {
     return { label, slotCount: 2, mode: 'unset' }

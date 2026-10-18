@@ -10,7 +10,8 @@ import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_fal
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 import { backgroundSourcesOf, promptForGenerator } from '../../src/lib/batch/background'
 import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../../src/lib/ai/imageGenModels'
-import { CUT_ROLES, KLING_V3_I2V_ENDPOINT, MERGE_VIDEOS_ENDPOINT, cutOf, elementCutsOf, shotAvailable, shotPrompt, shotRoleLabel, shotTaskNodeId, videoNodeOf, type CutRole, type ItemCut, type VideoShotSpec } from '../../src/lib/video/productVideo'
+import { CUT_ROLES, END_CUT_CFG_SCALE, KLING_V3_I2V_ENDPOINT, MERGE_VIDEOS_ENDPOINT, applyPromptTranslations, cutOf, elementCutsOf, promptTextsToTranslate, shotAvailable, shotNegativePrompt, shotPrompt, shotRoleLabel, shotTaskNodeId, videoNodeOf, type CutRole, type ItemCut, type VideoShotSpec } from '../../src/lib/video/productVideo'
+import { translatePromptTexts } from './_translate'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -57,7 +58,7 @@ async function canViewJob(admin: Admin, jobId: string, userId: string): Promise<
 
 export interface SnapshotNode { id: string; type?: string; data?: any }
 export interface SnapshotEdge { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
-export interface WorkflowSnapshot { nodes?: SnapshotNode[]; edges?: SnapshotEdge[] }
+export interface WorkflowSnapshot { nodes?: SnapshotNode[]; edges?: SnapshotEdge[]; promptTranslations?: Record<string, string> }   // promptTranslations: 商品動画の日本語プロンプト → 英語（create で作って写しに添える）
 
 export type PlannedKind = 'cutout' | 'imageGen' | 'imageEdit' | 'videoShot' | 'videoMerge'
 export interface PlannedTask {
@@ -100,13 +101,15 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       warnings.push('商品動画のワークフローでは Remove Background / Image Generation は一括実行の対象外です（動画のショットと結合だけを実行します）')
     }
     const shotIds: string[] = []
-    video.params.shots.forEach((shot, i) => {
+    // プロンプトは英語で組む: 組み込み文は対訳、利用者の日本語は create 時の翻訳表（写しの promptTranslations）、英語はそのまま
+    const vparams = applyPromptTranslations(video.params, snapshot?.promptTranslations)
+    vparams.shots.forEach((shot, i) => {
       const nodeId = shotTaskNodeId(video.id, i)
       shotIds.push(nodeId)
       tasks.push({
         nodeId, scope: 'item', endpoint: KLING_V3_I2V_ENDPOINT, kind: 'videoShot', stage: 1, dependsOn: null, dualOutput: false,
         label: `${video.label} ${i + 1}: ${shotRoleLabel(shot)}`,
-        input: { prompt: shotPrompt(video.params, shot), duration: String(shot.duration), generate_audio: false, negative_prompt: video.params.negativePrompt, __shot: { index: i, role: shot.role, endRole: shot.endRole ?? null, duration: shot.duration } },
+        input: { prompt: shotPrompt(vparams, shot), duration: String(shot.duration), generate_audio: false, negative_prompt: shotNegativePrompt(vparams, shot), ...(shot.endRole ? { cfg_scale: END_CUT_CFG_SCALE } : {}), __shot: { index: i, role: shot.role, endRole: shot.endRole ?? null, duration: shot.duration } },
       })
     })
     tasks.push({ nodeId: video.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, kind: 'videoMerge', stage: 2, dependsOn: shotIds, dualOutput: false, label: `${video.label}（結合）`, input: {} })
@@ -376,7 +379,7 @@ async function resolveSourceWorkflow(admin: Admin, userId: string, teamId: strin
   return null
 }
 
-export async function batchCreate(admin: Admin, userId: string, body: CreateBody): Promise<BatchResult> {
+export async function batchCreate(admin: Admin, userId: string, body: CreateBody, opts?: Pick<BatchOpts, 'falKey'>): Promise<BatchResult> {
   const m = await memberOf(admin, userId)
   if (!m) return fail(403, 'not_a_member', { message: 'チームに所属していません' })
   const items = Array.isArray(body?.items) ? body.items : []
@@ -437,10 +440,21 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   if (!chk.ok) return fail(chk.status, chk.code, { message: chk.message, limits })
   if (plan.tasks.length === 0) return fail(400, 'no_tasks', { message: '一括実行の対象となる AI 処理ノード（Batch Input に接続した Remove Background 等）がありません', warnings: plan.warnings })
 
+  // 商品動画: 日本語のプロンプトは生成前に英語へ（組み込み文は対訳、利用者の文は LLM）。翻訳表を写しに添え、submit の planTasks が使う。失敗したら日本語のまま送らず作成を止める
+  let snapshotToStore: WorkflowSnapshot = body.workflowSnapshot ?? {}
+  if (videoNode) {
+    const texts = promptTextsToTranslate(videoNode.params)
+    if (texts.length) {
+      if (!opts?.falKey) return fail(500, 'translate_unavailable', { message: 'プロンプトの翻訳に使う設定（FAL_KEY）がありません' })
+      try { snapshotToStore = { ...snapshotToStore, promptTranslations: await translatePromptTexts(opts.falKey, texts) } }
+      catch (e) { return fail(502, 'translate_failed', { message: `プロンプトの翻訳に失敗しました。少し待ってからもう一度お試しください（${e instanceof Error ? e.message : String(e)}）` }) }
+    }
+  }
+
   const name = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : `${jstDateTimeLabel()} ${items.length}枚`
   const workflowId = await resolveSourceWorkflow(admin, userId, m.teamId, body.workflowId)
   const { data: job, error: jobErr } = await admin.from('batch_jobs').insert({
-    team_id: m.teamId, created_by: userId, name, workflow_snapshot: body.workflowSnapshot ?? {}, status: 'uploading',
+    team_id: m.teamId, created_by: userId, name, workflow_snapshot: snapshotToStore, status: 'uploading',
     item_count: items.length, task_count: planInfo.totalTasks, estimated_cost_usd: estimatedCostUsd, workflow_id: workflowId, kind,
   }).select('id, webhook_secret').single()
   if (jobErr || !job) return fail(500, 'job_insert_failed', { message: jobErr?.message })

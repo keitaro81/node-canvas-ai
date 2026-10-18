@@ -5,7 +5,7 @@ import type { NodeProps } from '@xyflow/react'
 import { FilmSlate, Plus, Trash, X } from '@phosphor-icons/react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import type { ProductVideoNodeData } from '../../types/nodes'
-import { CUT_ROLES, MAX_SHOTS, SHOT_DURATION_MAX, SHOT_DURATION_MIN, VIDEO_MODEL_LABEL, VIDEO_TEMPLATES, normalizeProductVideoParams, templateById, totalSeconds, type ProductVideoParams, type VideoShotSpec } from '../../lib/video/productVideo'
+import { CUT_ROLES, MAX_SHOTS, SHOT_DURATION_MAX, SHOT_DURATION_MIN, VIDEO_MODEL_LABEL, VIDEO_TEMPLATES, isStaticPresetMotion, normalizeProductVideoParams, templateById, totalSeconds, type ProductVideoParams, type VideoShotSpec } from '../../lib/video/productVideo'
 
 const ACCENT = '#EC4899'
 const FIELD = 'w-full rounded-md px-2 py-1 text-[11px] nodrag focus:outline-none'
@@ -60,7 +60,7 @@ function ProductVideoNodeInner({ id, data, selected }: NodeProps) {
                   {CUT_ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
                 </select>
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>→</span>
-                <select className="h-7 rounded px-1.5 text-[11px] nodrag appearance-none flex-1 min-w-0" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: shot.endRole ? 'var(--text-primary)' : 'var(--text-tertiary)' }} value={shot.endRole ?? ''} onChange={(e) => setShot(i, { endRole: (e.target.value || null) as VideoShotSpec['endRole'] })} title="終了カット（任意）: 指定すると始点と終点を写真で決め、その間の動き（回転など）を AI が埋める。到達する姿勢が保証される">
+                <select className="h-7 rounded px-1.5 text-[11px] nodrag appearance-none flex-1 min-w-0" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: shot.endRole ? 'var(--text-primary)' : 'var(--text-tertiary)' }} value={shot.endRole ?? ''} onChange={(e) => { const endRole = (e.target.value || null) as VideoShotSpec['endRole']; setShot(i, { endRole, ...(endRole && isStaticPresetMotion(shot.motion) ? { motion: '' } : {}) }) }} title="終了カット（任意）: 指定すると始点と終点を写真で決め、その間の回転の指示（向き・途中で見える姿・見せない姿）を自動で付ける。動きの欄は補足だけ">
                   <option value="">終了なし</option>
                   {CUT_ROLES.filter((r) => r.id !== shot.role).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
                 </select>
@@ -73,7 +73,8 @@ function ProductVideoNodeInner({ id, data, selected }: NodeProps) {
                 value={shot.motion}
                 onChange={(e) => setShot(i, { motion: e.target.value })}
                 rows={2}
-                placeholder="動き（英語推奨。例: slowly turns to face the camera）"
+                placeholder={shot.endRole ? '補足の動き（任意。回転の指示は自動で付きます。例: 腕はリラックス）' : '動き（日本語で OK。例: ゆっくり正面を向く）'}
+                title={shot.endRole ? '始点 → 終点の回転は向き・途中の見え方・見せない向きまで自動で指示します。ここは補足だけ（空でも可）' : undefined}
                 className={`${FIELD} resize-none nowheel`}
                 style={{ ...FIELD_STYLE, background: 'var(--bg-surface)' }}
                 onKeyDown={(e) => e.stopPropagation()}
@@ -90,6 +91,7 @@ function ProductVideoNodeInner({ id, data, selected }: NodeProps) {
         {/* 共通の説明・除外 */}
         <div>
           <label className="block text-[11px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>共通の説明（各ショットの先頭に付く）</label>
+          <div className="text-[10px] leading-snug mb-1" style={{ color: 'var(--text-tertiary)' }}>日本語で書けます。処理を始めるときに英語へ自動翻訳します（英語で書いた文はそのまま使います）。</div>
           <textarea value={params.basePrompt} onChange={(e) => set({ basePrompt: e.target.value })} rows={3} className={`${FIELD} resize-none nowheel`} style={FIELD_STYLE} onKeyDown={(e) => e.stopPropagation()} />
         </div>
         <div>

@@ -337,6 +337,11 @@ describe('商品動画（ターンテーブル: 始点と終点）', () => {
     const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'turntable12' } } }], edges: [] })
     expect(tasks.filter((t) => t.kind === 'videoShot').map((t) => (t.input.__shot as { role: string; endRole: string | null }).endRole)).toEqual(['right', 'back', 'left', 'front'])
     expect(tasks[0].label).toBe('Product Video 1: 正面 → 右側面')
+    // 終了カットあり: 回転の指示・見せてはいけない向きの negative・cfg_scale
+    expect(tasks[1].input.prompt).toContain('keeps turning away from the camera')
+    expect(tasks[1].input.negative_prompt).toContain('facing the camera, front view')
+    expect(tasks[1].input.cfg_scale).toBe(0.7)
+    expect(tasks[0].input.negative_prompt).toContain('back view')
     expect(tasks.find((t) => t.kind === 'videoMerge')?.dependsOn).toEqual(['pv:shot:0', 'pv:shot:1', 'pv:shot:2', 'pv:shot:3'])
   })
 })
@@ -346,5 +351,19 @@ describe('fal のエラー本文', () => {
     expect(falErrorDetail({ detail: [{ type: 'too_short', loc: ['body', 'video_urls'], msg: 'List should have at least 2 items after validation, not 1' }] }, 422)).toBe('fal エラー (422): List should have at least 2 items after validation, not 1')
     expect(falErrorDetail({ detail: 'bad input' }, 400)).toBe('fal エラー (400): bad input')
     expect(falErrorDetail(null, 422)).toBe('fal エラー (422)')
+  })
+})
+
+describe('商品動画のプロンプト翻訳（写しの promptTranslations）', () => {
+  it('テンプレートの日本語は対訳で英語になり、利用者の日本語は翻訳表で置き換わる', () => {
+    const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'short9' } } }], edges: [] })
+    expect(tasks[0].input.prompt).toContain('Plain seamless studio background')
+    expect(tasks[0].input.prompt).toContain('The model stands in profile')
+    expect(tasks[0].input.negative_prompt).toContain('fast motion')
+    const { tasks: t2 } = planTasks({
+      nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'custom', basePrompt: '白いスタジオ', shots: [{ role: 'front', duration: 3, motion: 'ゆっくり呼吸する' }] } } }], edges: [],
+      promptTranslations: { '白いスタジオ': 'White studio', 'ゆっくり呼吸する': 'breathes slowly' },
+    })
+    expect(t2[0].input.prompt).toBe('White studio\n@Element1 wearing the garment. breathes slowly')
   })
 })
