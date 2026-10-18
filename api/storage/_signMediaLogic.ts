@@ -112,6 +112,23 @@ async function authorizeGenerationUrls(admin: any, urls: string[], userId: strin
       if (ok && g.output_url) allowed.push(g.output_url)
     }
   }
+  // ライブラリ（0020）: 生成物でない URL は library_items を引き、持ち主 or チーム共有（同じチーム）なら署名
+  const allowedSet = new Set(allowed)
+  const rest = urls.filter((u) => !allowedSet.has(u))
+  if (rest.length) {
+    const parsed = rest.map((u) => ({ u, p: parseStorageUrl(u) })).filter((x): x is { u: string; p: { bucket: string; path: string } } => !!x.p)
+    if (parsed.length) {
+      try {
+        const { data: libs } = await admin.from('library_items').select('bucket, path, user_id, team_id, visibility').in('path', [...new Set(parsed.map((x) => x.p.path))])
+        const okKeys = new Set<string>()
+        for (const l of (libs ?? []) as Array<{ bucket: string; path: string; user_id: string; team_id: string; visibility: string }>) {
+          const ok = l.user_id === userId || (l.visibility === 'team' && !!callerTeamId && l.team_id === callerTeamId)
+          if (ok) okKeys.add(`${l.bucket}/${l.path}`)
+        }
+        for (const x of parsed) if (okKeys.has(`${x.p.bucket}/${x.p.path}`)) allowed.push(x.u)
+      } catch { /* テーブル未作成などは生成物の判定だけで返す */ }
+    }
+  }
   return allowed
 }
 

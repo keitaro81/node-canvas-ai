@@ -1,4 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
+import { uploadToLibraryForNode } from '../../lib/api/library'
 import { DEFAULT_LLM_MODEL } from '../../lib/ai/llmModels'
 import { MapTrifold } from '@phosphor-icons/react'
 import {
@@ -52,7 +53,6 @@ import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
-import { uploadVideoFile, uploadImageFile, signOwnUpload } from '../../lib/api/storage'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
 import { showToast } from '../../hooks/useToast'
 import { useTheme } from '../../hooks/useTheme'
@@ -999,8 +999,8 @@ export function Canvas() {
           if (targetNode?.type === 'referenceImageNode') {
             const previewUrl = URL.createObjectURL(imageFiles[0])
             updateNode(targetNodeId!, { uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
-            uploadImageFile(imageFiles[0], targetNodeId!).then((uploadedUrl: string) => {
-              updateNode(targetNodeId!, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+            uploadToLibraryForNode(imageFiles[0], 'image', 'canvas').then(({ signedUrl }) => {
+              updateNode(targetNodeId!, { imageUrl: signedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
             }).catch(() => {
               updateNode(targetNodeId!, { imageUrl: null, uploadedImagePreview: null } as Parameters<typeof updateNode>[1])
             })
@@ -1031,8 +1031,8 @@ export function Canvas() {
               uploadedImagePreview: previewUrl,
             } as unknown as NodeData,
           })
-          uploadImageFile(file, nodeId).then((uploadedUrl: string) => {
-            updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
+          uploadToLibraryForNode(file, 'image', 'canvas').then(({ signedUrl }) => {
+            updateNode(nodeId, { imageUrl: signedUrl, uploadedImagePreview: previewUrl } as Parameters<typeof updateNode>[1])
           }).catch(() => {})
         })
         return
@@ -1054,9 +1054,8 @@ export function Canvas() {
           if (targetNode?.type === 'referenceVideoNode') {
             const previewUrl = URL.createObjectURL(videoFiles[0])
             updateNode(targetNodeId!, { uploadedVideoPreview: previewUrl } as Parameters<typeof updateNode>[1])
-            uploadVideoFile(videoFiles[0], targetNodeId!)
-              .then((uploadedUrl: string) => signOwnUpload(uploadedUrl))
-              .then((signedUrl: string) => {
+            uploadToLibraryForNode(videoFiles[0], 'video', 'canvas')
+              .then(({ signedUrl }) => {
                 // L2: blob プレビューは残し、videoUrl に署名URLを保持（保存で canonical 化→リロードで Mode1 署名）
                 updateNode(targetNodeId!, { videoUrl: signedUrl } as Parameters<typeof updateNode>[1])
               }).catch(() => {
@@ -1089,9 +1088,8 @@ export function Canvas() {
               uploadedVideoPreview: previewUrl,
             } as unknown as NodeData,
           })
-          uploadVideoFile(file, nodeId)
-            .then((uploadedUrl: string) => signOwnUpload(uploadedUrl))
-            .then((signedUrl: string) => {
+          uploadToLibraryForNode(file, 'video', 'canvas')
+            .then(({ signedUrl }) => {
               // L2: blob プレビューは残し、videoUrl に署名URLを保持
               updateNode(nodeId, { videoUrl: signedUrl } as Parameters<typeof updateNode>[1])
             }).catch(() => {})

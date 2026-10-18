@@ -30,3 +30,4 @@
 > **0008 ✅ 適用完了（2026-06-15・本番/staging とも (A)+(B) 適用＝private 化済み・ログアウトで raw 公開URL が 404 を実地確認）**。2部構成・段階適用だった: (A) 認証 SELECT ポリシーを先に両DBへ → 新コードをデプロイし **public のまま検証** → (B) `storage.buckets.public=false`（カットオーバー、ファイル内でコメントアウト・別途実行）。署名URLは public バケットでも動くため後方互換。ロールバックは `public=true` に戻すだけ（データ変更なし）。設計はメモリ `project_ga_security_audit.md` の着手順5「バケット非公開化 L1」。
 - `0018_batch_items_cuts.sql` — 商品動画: batch_items.cuts（jsonb）。staging → 本番の順に SQL Editor で適用（2026-10-13）
 - `0019_batch_jobs_kind_video_limit.sql` — 商品動画の日次上限を別枠に: batch_jobs.kind・teams.daily_video_limit（20）・team_batch_limits() 更新。staging → 本番の順に適用（2026-10-17）
+- `0020_library.sql` — ライブラリ: library_items（個人＋チーム共有・最終利用から 30 日で自動削除・ピン留め）・library_touch()・generations.pinned。staging → 本番の順に適用（適用済み 2026-10-18。`drop policy if exists` で Supabase の「破壊的操作」警告が出るが安全）

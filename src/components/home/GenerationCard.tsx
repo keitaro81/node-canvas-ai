@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Play, Download, ArrowsOut, X, Trash, CircleNotch, ImageSquare } from '@phosphor-icons/react'
+import { Play, Download, ArrowsOut, X, Trash, CircleNotch, ImageSquare, PushPin } from '@phosphor-icons/react'
 import type { GenerationWithWorkflow } from '../../lib/api/generations'
 import { deleteGeneration } from '../../lib/api/generations'
+import { setGenerationPinned } from '../../lib/api/library'
 import { downloadFile } from '../../lib/downloadFile'
 import { showToast } from '../../hooks/useToast'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
@@ -45,6 +46,14 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // ライブラリの保存（ピン留め）: 90 日の自動削除から除外（0020 の generations.pinned）
+  const [pinned, setPinned] = useState(!!(generation as { pinned?: boolean }).pinned)
+  const togglePin = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = !pinned
+    setPinned(next)
+    try { await setGenerationPinned(generation.id, next) } catch (err) { setPinned(!next); showToast(err instanceof Error ? err.message : '保存の切り替えに失敗しました', 'error') }
+  }
 
   const filename = isVideo
     ? `generation-${generation.id.slice(0, 8)}.mp4`
@@ -138,6 +147,14 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
             </button>
             <button
               className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+              style={{ background: pinned ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.15)' }}
+              onClick={togglePin}
+              title={pinned ? '保存を解除（90 日で自動削除に戻す）' : '保存（自動削除しない）'}
+            >
+              <PushPin size={15} weight={pinned ? 'fill' : 'bold'} />
+            </button>
+            <button
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
               style={{ background: 'rgba(239,68,68,0.85)' }}
               onClick={(e) => { e.stopPropagation(); setConfirmOpen(true) }}
               title="削除"
@@ -167,7 +184,9 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
             {formatDate(generation.created_at)}
           </p>
-          {(() => {
+          {pinned ? (
+            <p className="text-[10px] mt-0.5" style={{ color: '#22C55E' }}>保存済み（自動削除しない）</p>
+          ) : (() => {
             const d = daysUntilDeletion(generation.created_at)
             const urgent = d <= 3
             return (

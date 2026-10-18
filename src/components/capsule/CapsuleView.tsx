@@ -1,8 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
+import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { LLM_MODELS, normalizeLlmModel } from '../../lib/ai/llmModels'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { createPortal } from 'react-dom'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus, Images } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
@@ -307,8 +309,9 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
     updateNode(nodeId, { uploadedImagePreview: previewUrl } as never)
     setIsUploading(true)
     try {
-      const uploadedUrl = await fal.storage.upload(file)
-      updateNode(nodeId, { imageUrl: uploadedUrl, uploadedImagePreview: previewUrl } as never)
+      // ライブラリに登録（旧: fal.storage.upload = fal の CDN 直置き）。表示・生成は署名 URL
+      const { signedUrl } = await uploadToLibraryForNode(file, 'image', 'capsule')
+      updateNode(nodeId, { imageUrl: signedUrl, uploadedImagePreview: previewUrl } as never)
     } catch {
       updateNode(nodeId, { imageUrl: null, uploadedImagePreview: null } as never)
     } finally {
@@ -326,6 +329,20 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
   function handleClear() {
     updateNode(nodeId, { imageUrl: null, uploadedImagePreview: null } as never)
   }
+  const [pickerOpen, setPickerOpen] = useState(false)
+  async function handlePick(items: PickedMedia[]) {
+    const picked = items[0]
+    if (!picked) return
+    setIsUploading(true)
+    try { updateNode(nodeId, { imageUrl: await signLibraryUrl(picked.url), uploadedImagePreview: null } as never) }
+    finally { setIsUploading(false) }
+  }
+  const picker = <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="capsule" onPick={(items) => { void handlePick(items) }} />
+  const libraryButton = (
+    <button type="button" className="mt-1 w-full h-7 rounded-md text-[11px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)}>
+      <Images size={12} />ライブラリから選ぶ
+    </button>
+  )
 
   // モバイル: 親グリッドのセルに収まる正方形サムネイル（width はグリッド側で制御）
   if (isMobile) {
@@ -371,6 +388,8 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
           onChange={handleChange}
           className="hidden"
         />
+        {libraryButton}
+        {picker}
       </div>
     )
   }
@@ -418,6 +437,8 @@ function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) 
           />
         </label>
       )}
+      {libraryButton}
+      {picker}
     </div>
   )
 }

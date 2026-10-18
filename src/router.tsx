@@ -10,7 +10,7 @@ const CommunityPage = lazy(() => import('./components/home/CommunityPage').then(
 const TeamPage = lazy(() => import('./components/home/TeamPage').then((m) => ({ default: m.TeamPage })))
 const TeamSettingsPage = lazy(() => import('./components/home/TeamSettingsPage').then((m) => ({ default: m.TeamSettingsPage })))
 const JoinPage = lazy(() => import('./components/home/JoinPage').then((m) => ({ default: m.JoinPage })))
-const HistoryPage = lazy(() => import('./components/home/HistoryPage').then((m) => ({ default: m.HistoryPage })))
+const LibraryPage = lazy(() => import('./components/home/LibraryPage').then((m) => ({ default: m.LibraryPage })))
 const AppsPage = lazy(() => import('./components/home/AppsPage').then((m) => ({ default: m.AppsPage })))
 const JobsPage = lazy(() => import('./components/jobs/JobsPage').then((m) => ({ default: m.JobsPage })))
 const JobDetailPage = lazy(() => import('./components/jobs/JobDetailPage').then((m) => ({ default: m.JobDetailPage })))
@@ -41,7 +41,8 @@ export const router = createBrowserRouter([
       // App 化されたワークフローの一覧（フェーズ C(c)）
       { path: '/apps', element: <AppsPage /> },
       { path: '/community', element: <CommunityPage /> },
-      { path: '/history', element: <HistoryPage /> },
+      { path: '/library', element: <LibraryPage /> },
+      { path: '/history', element: <Navigate to="/library" replace /> },   // 旧 History → ライブラリ
       // 撮影後工程: ジョブ管理（仕様 4-11）。キャンバスとは別ページ
       { path: '/jobs', element: <JobsPage /> },
       { path: '/jobs/:jobId', element: <JobDetailPage /> },

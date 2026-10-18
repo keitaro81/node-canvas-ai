@@ -3,7 +3,6 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import {
   FolderOpen,
   Globe,
-  Clock,
   Gear,
   Trash,
   Question,
@@ -12,6 +11,7 @@ import {
   User,
   UsersThree,
   AppWindow,
+  Images,
 } from '@phosphor-icons/react'
 import { useAuth } from '../../hooks/useAuth'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -24,7 +24,7 @@ const NAV_ITEMS = [
   { to: '/team', icon: UsersThree, label: 'Team' },
   { to: '/apps', icon: AppWindow, label: 'Apps' },
   { to: '/community', icon: Globe, label: 'Community' },
-  { to: '/history', icon: Clock, label: 'History' },
+  { to: '/library', icon: Images, label: 'ライブラリ' },
 ]
 
 /** 履歴（/jobs）は Apps のタブなので、そこにいる間も Apps を選択状態にする */
@@ -33,7 +33,7 @@ const isAppsSection = (pathname: string) => pathname === '/jobs' || pathname.sta
 const MOBILE_NAV_ITEMS = [
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/apps', icon: AppWindow, label: 'Apps' },
-  { to: '/history', icon: Clock, label: 'History' },
+  { to: '/library', icon: Images, label: 'ライブラリ' },
   { to: '/account', icon: User, label: 'Account' },
 ]
 
