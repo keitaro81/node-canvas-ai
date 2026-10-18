@@ -1,4 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
+import { DEFAULT_LLM_MODEL } from '../../lib/ai/llmModels'
 import { MapTrifold } from '@phosphor-icons/react'
 import {
   ReactFlow,
@@ -216,7 +217,7 @@ const PROMPT_ENHANCER_DEFAULT_DATA = {
   status: 'idle' as const,
   inputText: '',
   outputText: '',
-  model: 'anthropic/claude-haiku-4.5',
+  model: DEFAULT_LLM_MODEL,
 }
 
 interface ContextMenuState {

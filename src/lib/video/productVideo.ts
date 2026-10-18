@@ -21,38 +21,58 @@ export const REFERENCE_PRIORITY: CutRole[] = ['right', 'left', 'back', 'full', '
 export interface VideoShotSpec { role: CutRole; duration: number; motion: string; endRole?: CutRole | null }
 
 export interface VideoTemplateDef { id: string; label: string; description: string; shots: VideoShotSpec[] }
+// ── 組み込みの文は日本語で表示・編集し、生成時に対訳の英語を使う（2026-10-17 ユーザー要望）。利用者が書いた日本語はジョブ作成時に LLM で英訳、英語はそのまま ──
+const M = {
+  sideToFront: '横向きに立ち、ゆっくり正面を向く。リラックスした立ち姿で、腕は自然に下ろす。',
+  frontBreath: '正面を向いて立ち、自然に呼吸して重心をわずかに移す。布地のドレープに光が当たる。',
+  backGlance: '後ろ姿のまま、ゆっくり振り向いて肩越しに視線を向ける。髪がわずかに揺れる。',
+  detailStill: '服のクローズアップ。ごく小さな動きだけ（ゆっくりした呼吸とわずかな重心移動）。ディテールはそのまま。',
+  front45: 'ゆっくり 45 度ほど回ってサイドのシルエットを見せ、また正面に戻る。腕はリラックス。',
+  turnExtra: '足は動かさず、腕はリラックス。',
+}
+export const DEFAULT_BASE_PROMPT = '無地の白いスタジオ背景、やわらかく均一な自然光、三脚に固定したカメラ（カメラは動かさない・ズームしない）。服は写真のとおりに保つ（シルエット・フィット・ドレープ・色・ディテール）。'
+export const DEFAULT_NEGATIVE_PROMPT = '速い動き、顔の近くの手、ボタンや襟をいじる指、他の人物、文字、透かし、ロゴ、手ブレ、ズーム、布地の変形、服のディテールの変化'
+/** 組み込み文（日本語）→ 英語の対訳。生成時はこれを使うので LLM には送らない */
+export const BUILTIN_EN: Record<string, string> = {
+  [M.sideToFront]: 'The model stands in profile, then slowly turns to face the camera with a relaxed stance, arms hanging naturally.',
+  [M.frontBreath]: 'The model stands facing the camera, breathes naturally and shifts weight slightly; the fabric drapes and catches the light.',
+  [M.backGlance]: 'Seen from behind, the model slowly turns the head to glance over the shoulder; hair moves slightly.',
+  [M.detailStill]: 'Close-up of the garment. Very subtle motion only: slow breathing and a slight shift of weight; every detail stays exactly as it is.',
+  [M.front45]: 'The model slowly turns about 45 degrees to show the side silhouette, then turns back; arms stay relaxed.',
+  [M.turnExtra]: 'Feet stay planted, arms relaxed.',
+  [DEFAULT_BASE_PROMPT]: 'Plain seamless studio background, soft even daylight, static camera on a tripod, no camera movement, no zoom. Keep the garment exactly as in the photos: same silhouette, fit, drape, color and details.',
+  [DEFAULT_NEGATIVE_PROMPT]: 'fast motion, hands close to the face, fingers manipulating buttons or collar, extra people, text, watermark, logo, camera shake, zoom, morphing fabric, changing garment details',
+}
 export const VIDEO_TEMPLATES: VideoTemplateDef[] = [
   {
     id: 'ec15', label: 'EC 標準 15 秒', description: '全身横 → 正面 → 背面 → ディテール → 正面（3 秒 × 5）',
     shots: [
-      { role: 'right', duration: 3, motion: 'The model stands in profile, then slowly turns to face the camera with a relaxed stance, arms hanging naturally.' },
-      { role: 'front', duration: 3, motion: 'The model stands facing the camera, breathes naturally and shifts weight slightly; the fabric drapes and catches the light.' },
-      { role: 'back', duration: 3, motion: 'Seen from behind, the model slowly turns the head to glance over the shoulder; hair moves slightly.' },
-      { role: 'detail', duration: 3, motion: 'Close-up of the garment. Very subtle motion only: slow breathing and a slight shift of weight; every detail stays exactly as it is.' },
-      { role: 'front', duration: 3, motion: 'The model slowly turns about 45 degrees to show the side silhouette, then turns back; arms stay relaxed.' },
+      { role: 'right', duration: 3, motion: M.sideToFront },
+      { role: 'front', duration: 3, motion: M.frontBreath },
+      { role: 'back', duration: 3, motion: M.backGlance },
+      { role: 'detail', duration: 3, motion: M.detailStill },
+      { role: 'front', duration: 3, motion: M.front45 },
     ],
   },
   {
     id: 'turntable12', label: 'ターンテーブル 12 秒', description: '正面 → 右側面 → 背面 → 左側面 → 正面（各 3 秒・始点と終点を写真で指定）',
     shots: [
-      { role: 'front', endRole: 'right', duration: 3, motion: 'Facing the camera, the model makes a short quarter turn to one side and stops in profile exactly as in the final frame. The back is never shown; feet stay planted, arms relaxed.' },
-      { role: 'right', endRole: 'back', duration: 3, motion: 'Seen in profile, the model keeps turning away from the camera, a short quarter turn, until the back faces the camera exactly as in the final frame. The face turns away from the camera and the front of the body is never shown.' },
-      { role: 'back', endRole: 'left', duration: 3, motion: 'Seen from behind, the model pivots a short quarter turn in place and ends up in profile exactly as in the final frame. Throughout the turn the face stays hidden from the camera and the back rotates into the side; the model never turns to face the camera. Feet stay planted.' },
-      { role: 'left', endRole: 'front', duration: 3, motion: 'Seen in profile, the model makes a short quarter turn toward the camera and stops facing it exactly as in the final frame. The back is never shown.' },
+      // 回転の指示は turnInstruction() が (始点, 終点) から自動で付ける。motion は補足だけ
+      { role: 'front', endRole: 'right', duration: 3, motion: M.turnExtra },
+      { role: 'right', endRole: 'back', duration: 3, motion: M.turnExtra },
+      { role: 'back', endRole: 'left', duration: 3, motion: M.turnExtra },
+      { role: 'left', endRole: 'front', duration: 3, motion: M.turnExtra },
     ],
   },
   {
     id: 'short9', label: 'ショート 9 秒', description: '全身横 → 正面 → ディテール（3 秒 × 3）',
     shots: [
-      { role: 'right', duration: 3, motion: 'The model stands in profile, then slowly turns to face the camera with a relaxed stance, arms hanging naturally.' },
-      { role: 'front', duration: 3, motion: 'The model stands facing the camera, breathes naturally and shifts weight slightly; the fabric drapes and catches the light.' },
-      { role: 'detail', duration: 3, motion: 'Close-up of the garment. Very subtle motion only: slow breathing and a slight shift of weight; every detail stays exactly as it is.' },
+      { role: 'right', duration: 3, motion: M.sideToFront },
+      { role: 'front', duration: 3, motion: M.frontBreath },
+      { role: 'detail', duration: 3, motion: M.detailStill },
     ],
   },
 ]
-
-export const DEFAULT_BASE_PROMPT = 'Plain seamless studio background, soft even daylight, static camera on a tripod, no camera movement, no zoom. Keep the garment exactly as in the photos: same silhouette, fit, drape, color and details.'
-export const DEFAULT_NEGATIVE_PROMPT = 'fast motion, hands close to the face, fingers manipulating buttons or collar, extra people, text, watermark, logo, camera shake, zoom, morphing fabric, changing garment details'
 
 export const KLING_V3_I2V_ENDPOINT = 'fal-ai/kling-video/v3/pro/image-to-video'
 export const MERGE_VIDEOS_ENDPOINT = 'fal-ai/ffmpeg-api/merge-videos'
@@ -90,7 +110,8 @@ export function normalizeProductVideoParams(raw: unknown): ProductVideoParams {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const tpl = templateById(p.templateId) ?? VIDEO_TEMPLATES[0]
   const custom = p.templateId === 'custom'
-  const shots = normalizeShots(p.shots)
+  // 名前付きテンプレートは常に現在の定義を使う（保存された shots は選択時点の写し。編集すると 'custom' になる）。改良が既存のワークフローにも届く
+  const shots = custom ? normalizeShots(p.shots) : tpl.shots.map((s) => ({ ...s }))
   return {
     templateId: custom ? 'custom' : tpl.id,
     shots: shots.length ? shots : tpl.shots.map((s) => ({ ...s })),
@@ -138,11 +159,61 @@ export function shotRoleLabel(shot: VideoShotSpec): string {
 }
 
 /** ショットのプロンプト = 共通の説明 + エレメント参照 + 動き */
+// ── 終了カットあり（始点 → 終点）の回転指示 ──
+// 本番で「右側面 → 背面」が正面を経由して 270° 回った（2026-10-17）。原因は 2 つ: 回る向きが指示されていない / カスタム構成では静止ショット用の定型文
+// （"stands facing the camera…"）が残っていて「正面を向け」と読める。そこで (始点, 終点) から向きと「途中で見える姿」「見せてはいけない姿」を自動で書き、
+// 定型文は無視する。fal 直叩きの比較（2026-10-17・6/6 で正面を経由せず）に基づく言い回し。negative と cfg_scale も合わせて使う
+const VIEW_OF: Record<CutRole, 'front' | 'side' | 'back' | 'other'> = { front: 'front', full: 'front', right: 'side', left: 'side', back: 'back', detail: 'other' }
+const NEG_NO_FRONT = 'facing the camera, front view, face toward the camera, turning toward the camera'
+const NEG_NO_BACK = 'back view, back to the camera, turning away from the camera'
+export const END_CUT_CFG_SCALE = 0.7   // 終了カットありは指示への追従を強める（既定 0.5）
+export function turnInstruction(role: CutRole, endRole: CutRole): { motion: string; negative: string | null } {
+  const a = VIEW_OF[role], b = VIEW_OF[endRole]
+  if (a === 'front' && b === 'side') return { motion: 'Facing the camera, the model makes a short quarter turn and stops in profile exactly as in the final frame. Midway the camera sees a three-quarter front view; the back is never shown.', negative: NEG_NO_BACK }
+  if (a === 'side' && b === 'back') return { motion: 'Seen in profile, the model keeps turning away from the camera, a short quarter turn, until the back faces the camera exactly as in the final frame. Midway through the turn the camera sees the back of the shoulder and the back of the head; the face is turned away and never visible. The front of the body is never shown.', negative: NEG_NO_FRONT }
+  if (a === 'back' && b === 'side') return { motion: 'Seen from behind, the model pivots a short quarter turn in place and ends up in profile exactly as in the final frame. Midway the camera sees a three-quarter back view, the back of the shoulder and the back of the head; the face stays hidden and the model never turns to face the camera.', negative: NEG_NO_FRONT }
+  if (a === 'side' && b === 'front') return { motion: 'Seen in profile, the model makes a short quarter turn toward the camera and stops facing it exactly as in the final frame. Midway the camera sees a three-quarter front view; the back is never shown.', negative: NEG_NO_BACK }
+  if (a === 'front' && b === 'back') return { motion: 'Facing the camera, the model turns around in one smooth half turn until the back faces the camera exactly as in the final frame.', negative: null }
+  if (a === 'back' && b === 'front') return { motion: 'Seen from behind, the model turns around in one smooth half turn to face the camera exactly as in the final frame.', negative: null }
+  if (a === 'side' && b === 'side') return { motion: 'Seen in profile, the model turns in one smooth half turn through the front view and stops in the opposite profile exactly as in the final frame.', negative: NEG_NO_BACK }
+  return { motion: 'The model moves smoothly from the first pose into the pose of the final frame by the shortest movement.', negative: null }
+}
+/** 静止ショット用の定型文（テンプレートの motion と同じ文）。終了カットありのショットに残っていても指示には使わない */
+const STATIC_PRESETS = new Set(VIDEO_TEMPLATES.flatMap((t) => t.shots.filter((s) => !s.endRole).flatMap((s) => [s.motion.trim(), BUILTIN_EN[s.motion.trim()] ?? ''])).filter(Boolean))
+export const isStaticPresetMotion = (motion: string) => STATIC_PRESETS.has(motion.trim())
+
+// ── 翻訳（日本語で編集 → 生成時に英語） ──
+export const hasJapanese = (s: string) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]/.test(s)
+/** 組み込み文（日本語）の対訳。該当しなければ null */
+export const builtinEnglish = (s: string): string | null => BUILTIN_EN[s.trim()] ?? null
+/** 生成前に英訳が要る文 = 利用者が書いた日本語（組み込み文は対訳あり、英語はそのまま、終了カットありの静止用定型文は使われないので除く） */
+export function promptTextsToTranslate(params: ProductVideoParams): string[] {
+  const out = new Set<string>()
+  const consider = (text: string) => { const t = text.trim(); if (t && hasJapanese(t) && !builtinEnglish(t)) out.add(t) }
+  consider(params.basePrompt); consider(params.negativePrompt)
+  for (const sh of params.shots) if (!(sh.endRole && isStaticPresetMotion(sh.motion))) consider(sh.motion)
+  return [...out]
+}
+/** プロンプト組み立て用に英語へ寄せたパラメータ。翻訳表に無い日本語はそのまま（表示用の params はこれを通さない） */
+export function applyPromptTranslations(params: ProductVideoParams, map: Record<string, string> | null | undefined): ProductVideoParams {
+  const tr = (text: string) => { const t = text.trim(); return map?.[t] ?? builtinEnglish(t) ?? text }
+  return { ...params, basePrompt: tr(params.basePrompt), negativePrompt: tr(params.negativePrompt), shots: params.shots.map((sh) => ({ ...sh, motion: tr(sh.motion) })) }
+}
+
 export function shotPrompt(params: ProductVideoParams, shot: VideoShotSpec): string {
   const base = params.basePrompt.trim()
-  // 終了カットあり: 本番で「右側面 → 背面」が正面を経由して回った（2026-10-17）ので、最短で・途切れずに終点へ向かう指示を常に添える
-  const toEnd = shot.endRole ? ' One continuous take with no cuts: the pose changes directly into the final frame by the shortest movement.' : ''
-  return `${base ? base + '\n' : ''}@Element1 wearing the garment. ${shot.motion.trim()}${toEnd}`.trim()
+  if (shot.endRole) {
+    const turn = turnInstruction(shot.role, shot.endRole)
+    const extra = isStaticPresetMotion(shot.motion) ? '' : shot.motion.trim()
+    const toEnd = 'One continuous take with no cuts: the pose changes directly into the final frame by the shortest movement.'
+    return `${base ? base + '\n' : ''}@Element1 wearing the garment. ${[turn.motion, extra, toEnd].filter(Boolean).join(' ')}`.trim()
+  }
+  return `${base ? base + '\n' : ''}@Element1 wearing the garment. ${shot.motion.trim()}`.trim()
+}
+/** ショットの negative_prompt（終了カットありは見せてはいけない向きを足す） */
+export function shotNegativePrompt(params: ProductVideoParams, shot: VideoShotSpec): string {
+  const add = shot.endRole ? turnInstruction(shot.role, shot.endRole).negative : null
+  return [params.negativePrompt.trim(), add].filter(Boolean).join(', ')
 }
 
 /** タスクの node_id: ショットは <videoNodeId>:shot:<index>、結合はノード id そのもの */

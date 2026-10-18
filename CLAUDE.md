@@ -33,7 +33,7 @@ fal.subscribe('fal-ai/nano-banana-2', { input: { prompt, ... } })
 fal.subscribe('fal-ai/ltx-2.3/text-to-video/fast', { input: { ... } })
 
 // LLM（PromptEnhancer）
-fal.subscribe('fal-ai/any-llm', { input: { model: 'anthropic/claude-haiku-4.5', prompt, system_prompt } })
+fal.subscribe('fal-ai/any-llm', { input: { model: 'anthropic/claude-haiku-5.5', prompt, system_prompt } })
 ```
 
 ### 認証・プロキシ構成
@@ -47,12 +47,13 @@ fal.subscribe('fal-ai/any-llm', { input: { model: 'anthropic/claude-haiku-4.5', 
 - Edge と dev は同一コア `api/fal/_proxyLogic.ts`。呼び出せるモデルは `api/fal/_allowlist.ts` の allowlist で制限（**モデル追加時は必ず更新**。漏れると 400 "Target URL not allowed"）。
 - fal クライアントの設定は `src/lib/ai/fal-client.ts` の `configureFal()` で一元管理。
 
-### fal-ai/any-llm の有効なモデルID（2026年4月時点）
-- `anthropic/claude-haiku-4.5`
+### fal-ai/any-llm の有効なモデルID（2026年10月17日時点・422 のエラー文から取得）
+- `anthropic/claude-haiku-5.5`（`claude-haiku-4.5` は廃止済み → 422。保存済みの id は `src/lib/ai/llmModels.ts` の `normalizeLlmModel` で寄せる）
 - `anthropic/claude-sonnet-4.5`
 - `anthropic/claude-3.7-sonnet`
-- `google/gemini-2.5-pro`
-- `openai/gpt-4o` など
+- `google/gemini-2.5-pro` / `google/gemini-2.5-flash`
+- `openai/gpt-4o` / `openai/gpt-5-chat` など
+- 一覧の確認方法: 無効な model で呼ぶと 422 の detail に有効な id が全部並ぶ
 
 ### デプロイ
 - 明示的に「デプロイして」と言われない限り、本番・ステージング・ベータへのデプロイは行わない。

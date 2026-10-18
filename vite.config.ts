@@ -212,7 +212,7 @@ function devImageProxyPlugin(): Plugin {
           const body = await readJson(req)
           const opts = { falKey, webhookBaseUrl: batchWebhookBase, isAdmin: isOperator(user.id, adminIds) }
           const fns: Record<string, (a: unknown, u: string, o: typeof opts, b: unknown) => Promise<{ status: number; body: object }>> = {
-            create: (a, u, _o, b) => batchCreate(a, u, b as never), submit: (a, u, o, b) => batchSubmit(a, u, o, b as never),
+            create: (a, u, o, b) => batchCreate(a, u, b as never, o), submit: (a, u, o, b) => batchSubmit(a, u, o, b as never),
             reconcile: (a, u, o, b) => batchReconcile(a, u, o, b as never), cancel: (a, u, o, b) => batchCancel(a, u, o, b as never),
             delete: (a, u, o, b) => batchDelete(a, u, o, b as never), retry: (a, u, o, b) => batchRetryFailed(a, u, o, b as never), rerun: (a, u, o, b) => batchRerunItems(a, u, o, b as never), source: (a, u, o, b) => batchSource(a, u, o, b as never),
           }
