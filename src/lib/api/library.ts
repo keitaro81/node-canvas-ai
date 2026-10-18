@@ -138,9 +138,10 @@ export async function uploadToLibraryForNode(file: Blob, media: LibraryMedia, so
 }
 
 /** 選んだ素材をファイルとして取り出す（App / 一括処理の入力はこれまでどおり batch バケットへ上げ直す。最終利用も記録） */
-export async function pickedToFiles(items: Array<{ url: string; name?: string | null; libraryItemId?: string; media: LibraryMedia }>): Promise<File[]> {
+export async function pickedToFiles(items: Array<{ url: string; name?: string | null; libraryItemId?: string; media: LibraryMedia; file?: File }>): Promise<File[]> {
   const out: File[] = []
   for (const it of items) {
+    if (it.file) { out.push(it.file); continue }   // ダイアログで今アップロードしたものは手元の File をそのまま使う
     const signed = await signLibraryUrl(it.url)
     const res = await fetch(signed)
     if (!res.ok) throw new Error(`素材を取得できません (${res.status})`)

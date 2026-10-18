@@ -1,9 +1,9 @@
 // 商品動画 App の「カットを入れる」欄（2026-10-13）: SKU ごとのカードに、役割（正面 / 右側面 / 左側面 / 背面 / ディテール / 全身）の枠を並べ、
 // 写真をドロップ / クリックで入れる。ファイル名からは判定しない（ユーザー決定）。入れた写真は処理の後も残し、このブラウザ（localStorage）に記憶して再読み込み後も復元する（2026-10-17 ユーザー要望）。
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { pickedToFiles } from '../../lib/api/library'
 import { MediaPickerDialog } from '../library/MediaPickerDialog'
-import { ArrowRight, CircleNotch, Plus, Trash, X, Images } from '@phosphor-icons/react'
+import { ArrowRight, CircleNotch, Plus, Trash, X } from '@phosphor-icons/react'
 import { CutRoleIcon } from './CutRoleIcon'
 import { readImageSize } from '../../lib/batch/upload'
 import { interactiveCutoutDir, resolveTeamId, signBatchPaths, uploadBatchObject } from '../../lib/cutout/store'
@@ -59,8 +59,6 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
   const [cards, setCards] = useState<SkuCard[]>(() => loadCards(storageKey) ?? [newCard(1)])   // 記憶があれば復元、無ければ 1 件のカード
   useEffect(() => { saveCards(storageKey, cards) }, [cards, storageKey])
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
-  const fileInput = useRef<HTMLInputElement | null>(null)
-  const pending = useRef<{ cardId: string; role: CutRole } | null>(null)
   const [picker, setPicker] = useState<{ cardId: string; role: CutRole } | null>(null)   // ライブラリから選ぶ対象の枠
   // ショットで使う役割（始点・終点）。正面は必須なので、どのショットにも無ければ「主カット」の枠を別に出す。残りは補足カット（参照用）として下に
   const rolesInShots = useMemo(() => { const set = new Set<CutRole>(); for (const s of shots) { set.add(s.role); if (s.endRole) set.add(s.endRole) } return set }, [shots])
@@ -93,13 +91,6 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
     })
   }, [])
 
-  const pick = (cardId: string, role: CutRole) => { pending.current = { cardId, role }; fileInput.current?.click() }
-  const onFilePicked = (files: FileList | null) => {
-    const f = files?.[0]; const p = pending.current; pending.current = null
-    if (!f || !p) return
-    if (!f.type.startsWith('image/')) { showToast('画像ファイルを選んでください', 'warning'); return }
-    void upload(p.cardId, p.role, f)
-  }
   const onDrop = (e: React.DragEvent, cardId: string, role: CutRole) => {
     e.preventDefault()
     const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/'))
@@ -148,7 +139,6 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
 
   return (
     <div className="flex flex-col gap-3">
-      <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => { onFilePicked(e.target.files); e.target.value = '' }} />
       <MediaPickerDialog open={!!picker} onClose={() => setPicker(null)} media="image" source="app-cuts" onPick={(picked) => {
         const target = picker; if (!target) return
         void pickedToFiles(picked.slice(0, 1)).then(([f]) => { if (f) void upload(target.cardId, target.role, f) }).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error'))
@@ -173,8 +163,8 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
               key={`${role}-${tag}`}
               className={`relative rounded-lg flex flex-col items-center justify-center text-center cursor-pointer select-none ${small ? 'h-[72px]' : 'h-[92px]'}`}
               style={{ background: 'var(--bg-placeholder)', border: `1px ${isReady ? 'solid' : 'dashed'} ${required && !isReady ? ACCENT : 'var(--border-active)'}`, overflow: 'hidden' }}
-              title={supplementary ? `${roleDef.label}（補足カット・参照用）: ${roleDef.hint}。動画の角度には使いません` : `${tag}: ${roleDef.label}。${roleDef.hint}`}
-              onClick={() => pick(card.id, role)}
+              title={`${supplementary ? `${roleDef.label}（補足カット・参照用）: ${roleDef.hint}。動画の角度には使いません` : `${tag}: ${roleDef.label}。${roleDef.hint}`}。クリックで追加（アップロード / ライブラリ）、ドロップも可`}
+              onClick={() => setPicker({ cardId: card.id, role })}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => onDrop(e, card.id, role)}
             >
@@ -187,11 +177,6 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
                   {sharedWith && <span className="text-[9px]" style={{ color: 'var(--text-tertiary)' }}>ショット {sharedWith} と同じ写真</span>}
                   {slot.status === 'error' && <span className="text-[9px]">{slot.error === '写真が見つかりません' ? '見つかりません・入れ直し' : '失敗'}</span>}
                 </div>
-              )}
-              {!isReady && slot.status !== 'uploading' && (
-                <button type="button" className="absolute bottom-1 right-1 w-6 h-6 rounded-md flex items-center justify-center" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} title="ライブラリから選ぶ" onClick={(e) => { e.stopPropagation(); setPicker({ cardId: card.id, role }) }}>
-                  <Images size={13} />
-                </button>
               )}
               {/* 左上: この枠の意味（始点 / 終点 / 参照 / 主カット） */}
               <span className="absolute top-1 left-1 px-1 rounded text-[9px] leading-4" style={isReady ? { background: 'rgba(0,0,0,0.55)', color: '#fff' } : { background: 'var(--bg-surface)', color: 'var(--text-tertiary)', border: '1px solid var(--border)' }}>{tag}</span>
