@@ -1,9 +1,10 @@
 import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Film, X, Loader2, Play, Pause } from 'lucide-react'
+import { Film, X, Loader2, Play, Pause, Images } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { uploadVideoFile, signOwnUpload } from '../../lib/api/storage'
+import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
+import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceVideoNodeData, NodeData } from '../../types/nodes'
 
@@ -16,6 +17,7 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   // 画像ノードと同パターン: アップロード中は blob プレビュー、保存/リロードで除去され videoUrl(Mode1署名)へ。
   // 非blobの uploadedVideoPreview（旧バグで混入した canonical 等）は無視し videoUrl を使う。
@@ -33,9 +35,8 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
       setIsUploading(true)
 
       try {
-        const uploadedUrl = await uploadVideoFile(file, id)
-        // L2: 自分がアップしたオブジェクトをサーバー署名（fal参照/生成入力用）。保存時に canonical へ正規化。
-        const signedUrl = await signOwnUpload(uploadedUrl)
+        // ライブラリに登録（最終利用から 30 日保持）。fal 参照/生成入力は署名 URL、保存時に canonical へ正規化
+        const { signedUrl } = await uploadToLibraryForNode(file, 'video', 'canvas')
         // 画像ノードと同様、即時表示は blob プレビューに任せ、videoUrl に署名URLを保持する
         // （署名が省略され canonical でも、保存後のリロードで Mode1 署名され表示は壊れない）
         updateNode(id, {
@@ -99,6 +100,14 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
 
   const handleClear = useCallback(() => {
     updateNode(id, { videoUrl: null, uploadedVideoPreview: null } as Parameters<typeof updateNode>[1])
+  }, [id, updateNode])
+
+  const handlePick = useCallback(async (items: PickedMedia[]) => {
+    const picked = items[0]
+    if (!picked) return
+    setIsUploading(true)
+    try { updateNode(id, { videoUrl: await signLibraryUrl(picked.url), uploadedVideoPreview: null } as Parameters<typeof updateNode>[1]) }
+    finally { setIsUploading(false) }
   }, [id, updateNode])
 
   return (
@@ -212,6 +221,11 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
             )}
           </label>
         )}
+        {!displayUrl && (
+          <button type="button" className="mt-2 w-full h-7 rounded-md text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)}>
+            <Images size={12} />ライブラリから選ぶ
+          </button>
+        )}
         <input
           type="file"
           accept={ACCEPTED_VIDEO_TYPES}
@@ -220,6 +234,7 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
           id={`ref-video-upload-${id}`}
         />
       </div>
+      <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="video" source="canvas" onPick={(items) => { void handlePick(items) }} />
 
       {/* Output handle */}
       <Handle

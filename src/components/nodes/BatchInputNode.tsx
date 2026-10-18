@@ -1,4 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { pickedToFiles } from '../../lib/api/library'
+import { MediaPickerDialog } from '../library/MediaPickerDialog'
 import type { NodeProps } from '@xyflow/react'
 import { Images, Upload, X, RefreshCw, Star, Loader2, AlertCircle, Check } from 'lucide-react'
 import { BaseNode } from './BaseNode'
@@ -19,6 +21,7 @@ const pendingFiles = new Map<string, Map<string, File>>()
 const UPLOAD_CONCURRENCY = 3
 
 function BatchInputNodeInner(props: NodeProps) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   const { id, data } = props
   const nodeData = data as unknown as NodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
@@ -181,6 +184,10 @@ function BatchInputNodeInner(props: NodeProps) {
           <span className="text-[11px] text-[var(--text-tertiary)]">最大 {MAX_BATCH_ITEMS} 枚・JPEG / PNG / WebP</span>
         </label>
         <input id={`batch-input-${id}`} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }} />
+        <button type="button" className="h-7 rounded-md text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setPickerOpen(true)}>
+          <Images size={12} />ライブラリから選ぶ
+        </button>
+        <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" multiple source="batch-input" onPick={(picked) => { void pickedToFiles(picked).then(handleFiles).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error')) }} />
 
         <Field label="SKU の抽出規則（正規表現・最初の一致 / 第 1 グループ）">
           <div style={patternError ? { outline: '1px solid #EF4444', borderRadius: 6 } : undefined}>

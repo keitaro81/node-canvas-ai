@@ -2,7 +2,9 @@
 // 写真の一覧はこの画面だけで持ち、ワークフロー（canvas_data）には保存しない（共有 App を使うメンバーの写真が
 // ワークフローに書き込まれないように）。アップロード先はノードと同じ interactive/<nodeId>/items/。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Upload, X, Loader2, Check, AlertCircle, RefreshCw } from 'lucide-react'
+import { pickedToFiles } from '../../lib/api/library'
+import { MediaPickerDialog } from '../library/MediaPickerDialog'
+import { Upload, X, Loader2, Check, AlertCircle, RefreshCw, Images } from 'lucide-react'
 import { showToast } from '../../hooks/useToast'
 import type { BatchItem } from '../../types/nodes'
 import { MAX_BATCH_ITEMS, extractSku, safeFileName, sortAndIndexItems } from '../../lib/batch/items'
@@ -22,6 +24,7 @@ interface Props {
 
 /** 投入完了後に一覧を空にするには、親が key を変えて作り直す */
 export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit }: Props) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [items, setItems] = useState<BatchItem[]>([])
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
@@ -136,6 +139,10 @@ export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit }: Props
         <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>最大 {MAX_BATCH_ITEMS} 枚・JPEG / PNG / WebP</span>
       </label>
       <input id={inputId} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }} />
+      <button type="button" className="h-8 rounded-lg text-[12px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setPickerOpen(true)} disabled={uploading}>
+        <Images size={13} />ライブラリから選ぶ
+      </button>
+      <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" multiple source="batch-input" onPick={(picked) => { void pickedToFiles(picked).then(handleFiles).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error')) }} />
 
       <div className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
         SKU はファイル名から <code className="font-mono" style={{ color: 'var(--text-secondary)' }}>{skuPattern}</code> で抜き出します（一致しなければ拡張子を除いたファイル名）。規則を変えるにはキャンバスの Batch Input ノードで。

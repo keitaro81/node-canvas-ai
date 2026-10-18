@@ -64,6 +64,15 @@ async function buildReferencedSet(admin: any): Promise<Set<string>> {
     if (rows.length < DB_PAGE) break
   }
 
+  // 3) library_items（0020）: ライブラリに登録された素材は参照あり（保持はライブラリ側の 30 日ルールで管理）
+  for (let from = 0; ; from += DB_PAGE) {
+    const { data, error } = await admin.from('library_items').select('bucket, path').range(from, from + DB_PAGE - 1)
+    if (error) break   // テーブル未作成なら従来どおり
+    const rows = (data ?? []) as { bucket: string; path: string }[]
+    for (const r of rows) refs.add(`${r.bucket}/${r.path}`)
+    if (rows.length < DB_PAGE) break
+  }
+
   return refs
 }
 

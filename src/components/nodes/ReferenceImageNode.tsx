@@ -1,9 +1,10 @@
 import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { ImageIcon, X, Loader2, Paintbrush } from 'lucide-react'
+import { ImageIcon, X, Loader2, Paintbrush, Images } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { uploadImageFile, signOwnUpload } from '../../lib/api/storage'
+import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
+import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceImageNodeData } from '../../types/nodes'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
@@ -15,6 +16,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showMaskModal, setShowMaskModal] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const rawDisplayUrl = nodeData.uploadedImagePreview || nodeData.imageUrl || null
   const { url: displayUrl, onError: onImageError } = useSignedMedia(rawDisplayUrl, currentWorkflowId)
@@ -28,9 +30,8 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
       setIsUploading(true)
 
       try {
-        const uploadedUrl = await uploadImageFile(file, id)
-        // L2: 自分がアップしたオブジェクトをサーバー署名（表示・fal参照用）。保存時に canonical へ正規化。
-        const signedUrl = await signOwnUpload(uploadedUrl)
+        // ライブラリに登録（最終利用から 30 日保持・どのプロジェクトからも使える）。表示・fal 参照は署名 URL、保存時に canonical へ正規化
+        const { signedUrl } = await uploadToLibraryForNode(file, 'image', 'canvas')
         updateNode(id, {
           imageUrl: signedUrl,
           uploadedImagePreview: previewUrl,
@@ -93,6 +94,17 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
 
   const handleClear = useCallback(() => {
     updateNode(id, { imageUrl: null, uploadedImagePreview: null, maskUrl: null } as Parameters<typeof updateNode>[1])
+  }, [id, updateNode])
+
+  // ライブラリから選ぶ（自分のアップロード・チーム共有・生成画像）
+  const handlePick = useCallback(async (items: PickedMedia[]) => {
+    const picked = items[0]
+    if (!picked) return
+    setIsUploading(true)
+    try {
+      const signedUrl = await signLibraryUrl(picked.url)
+      updateNode(id, { imageUrl: signedUrl, uploadedImagePreview: null, maskUrl: null, maskPreviewDataUrl: null } as Parameters<typeof updateNode>[1])
+    } finally { setIsUploading(false) }
   }, [id, updateNode])
 
   const handleMaskConfirm = useCallback((url: string, previewDataUrl: string) => {
@@ -173,6 +185,14 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
                   style={{ background: 'rgba(0,0,0,0.6)' }}
                 >
                   <div className="flex items-center gap-1">
+                    <button
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
+                      style={{ background: 'rgba(255,255,255,0.15)' }}
+                      onClick={() => setPickerOpen(true)}
+                      title="ライブラリから選ぶ"
+                    >
+                      <Images size={14} />
+                    </button>
                     {/* ペイントアイコン */}
                     <button
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-white transition-colors nodrag"
@@ -223,6 +243,11 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
               )}
             </label>
           )}
+          {!displayUrl && (
+            <button type="button" className="mt-2 w-full h-7 rounded-md text-[11px] flex items-center justify-center gap-1 nodrag hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }} onClick={() => setPickerOpen(true)}>
+              <Images size={12} />ライブラリから選ぶ
+            </button>
+          )}
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
@@ -231,6 +256,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
             id={`ref-image-upload-${id}`}
           />
         </div>
+        <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="canvas" onPick={(items) => { void handlePick(items) }} />
 
         {/* Output handle */}
         <Handle

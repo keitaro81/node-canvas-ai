@@ -5,6 +5,7 @@
   ],
   "crons": [
     { "path": "/api/cron/cleanup-old-generations", "schedule": "0 17 * * *" },
+    { "path": "/api/cron/cleanup-library", "schedule": "30 17 * * *" },
     { "path": "/api/cron/cleanup-orphan-storage", "schedule": "0 18 * * 0" }
   ]
 }

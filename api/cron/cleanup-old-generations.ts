@@ -82,6 +82,7 @@ async function handler(req: Request): Promise<Response> {
   const { count: totalOlder } = await admin
     .from('generations')
     .select('id', { count: 'exact', head: true })
+    .eq('pinned', false)   // ピン留め（ライブラリで保存）は削除しない（0020）
     .lt('created_at', cutoff)
 
   if (dryRun) {
@@ -92,6 +93,7 @@ async function handler(req: Request): Promise<Response> {
   const { data: rows, error } = await admin
     .from('generations')
     .select('id, output_url')
+    .eq('pinned', false)
     .lt('created_at', cutoff)
     .order('created_at', { ascending: true })
     .limit(BATCH)
