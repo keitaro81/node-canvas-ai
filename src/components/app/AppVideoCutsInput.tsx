@@ -1,9 +1,10 @@
 // 商品動画 App の「カットを入れる」欄（2026-10-13）: SKU ごとのカードに、役割（正面 / 右側面 / 左側面 / 背面 / ディテール / 全身）の枠を並べ、
 // 写真をドロップ / クリックで入れる。ファイル名からは判定しない（ユーザー決定）。入れた写真は処理の後も残し、このブラウザ（localStorage）に記憶して再読み込み後も復元する（2026-10-17 ユーザー要望）。
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { pickedToFiles } from '../../lib/api/library'
+import { libraryCanonicalUrl, pickedToFiles, touchLibraryItems } from '../../lib/api/library'
+import { ModelPickerDialog } from '../library/ModelPickerDialog'
 import { MediaPickerDialog } from '../library/MediaPickerDialog'
-import { ArrowRight, CircleNotch, Plus, Trash, X } from '@phosphor-icons/react'
+import { ArrowRight, CircleNotch, Plus, Trash, X, UserCircle } from '@phosphor-icons/react'
 import { CutRoleIcon } from './CutRoleIcon'
 import { readImageSize } from '../../lib/batch/upload'
 import { interactiveCutoutDir, resolveTeamId, signBatchPaths, uploadBatchObject } from '../../lib/cutout/store'
@@ -60,6 +61,7 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
   useEffect(() => { saveCards(storageKey, cards) }, [cards, storageKey])
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [picker, setPicker] = useState<{ cardId: string; role: CutRole } | null>(null)   // ライブラリから選ぶ対象の枠
+  const [modelPickerFor, setModelPickerFor] = useState<string | null>(null)              // 「モデルから入れる」対象のカード
   // ショットで使う役割（始点・終点）。正面は必須なので、どのショットにも無ければ「主カット」の枠を別に出す。残りは補足カット（参照用）として下に
   const rolesInShots = useMemo(() => { const set = new Set<CutRole>(); for (const s of shots) { set.add(s.role); if (s.endRole) set.add(s.endRole) } return set }, [shots])
   const frontInShots = rolesInShots.has(FRONTAL_ROLE)
@@ -224,6 +226,9 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
                 title="SKU。動画のファイル名になります"
               />
               <span className="text-[10px] tabular-nums shrink-0" style={{ color: noShots ? '#EF4444' : 'var(--text-tertiary)' }} title={noShots ? 'この構成で作れるショットがありません。必要なカット（終了カットを指定したショットは両方）を入れてください' : 'この SKU で作るショット数 / 構成のショット数'}>{available.length} / {shots.length} ショット</span>
+              <button type="button" className="h-7 px-2 rounded-md text-[11px] flex items-center gap-1 shrink-0 hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }} title="ライブラリに登録したモデルの写真を、役割ごとの枠に一度に入れる" onClick={() => setModelPickerFor(card.id)}>
+                <UserCircle size={13} />モデル
+              </button>
               {cards.length > 1 && <button type="button" className="w-6 h-6 rounded flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} title="この SKU を外す" onClick={() => setCards((list) => list.filter((c) => c.id !== card.id))}><Trash size={12} /></button>}
             </div>
             <div className="grid grid-cols-2 gap-1.5">
@@ -247,6 +252,17 @@ export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageK
           </div>
         )
       })}
+      <ModelPickerDialog open={!!modelPickerFor} onClose={() => setModelPickerFor(null)} onPick={(model, items) => {
+        const cardId = modelPickerFor; if (!cardId) return
+        // モデルの写真を役割ごとに、この処理用の置き場（batch バケット）へ複製して枠に入れる
+        const byId = new Map(items.map((it) => [it.id, it]))
+        void touchLibraryItems(items.map((it) => it.id))
+        for (const r of CUT_ROLES) {
+          const id = model.cuts[r.id]; const it = id ? byId.get(id) : undefined
+          if (!it) continue
+          void pickedToFiles([{ url: libraryCanonicalUrl(it), media: 'image', name: it.name, libraryItemId: it.id }]).then(([f]) => { if (f) void upload(cardId, r.id, f) }).catch((e) => showToast(`${r.label}: ${e instanceof Error ? e.message : String(e)}`, 'error'))
+        }
+      }} />
       <div className="flex items-center gap-2">
         <button type="button" className="flex-1 h-8 rounded-lg text-[12px] flex items-center justify-center gap-1 hover:bg-[var(--bg-elevated)]" style={{ border: '1px dashed var(--border-active)', color: 'var(--text-secondary)' }} onClick={addCard} disabled={cards.length >= MAX_SKUS}>
           <Plus size={12} />SKU を追加
