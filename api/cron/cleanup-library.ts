@@ -27,8 +27,12 @@ async function handler(req: Request): Promise<Response> {
   const { count } = await admin.from('library_items').select('id', { count: 'exact', head: true }).eq('pinned', false).lt('last_used_at', cutoff)
   const { data: rows, error } = await admin.from('library_items').select('id, bucket, path').eq('pinned', false).lt('last_used_at', cutoff).order('last_used_at', { ascending: true }).limit(BATCH)
   if (error) return jsonResponse({ error: error.message }, 500)
-  const batch = (rows ?? []) as Array<{ id: string; bucket: string; path: string }>
-  if (dryRun || batch.length === 0) return jsonResponse({ dryRun, candidates: count ?? 0, deleted: 0, cutoff }, 200)
+  // モデル（0021）が参照する素材は、ピン留めが外れていても消さない
+  const { data: models } = await admin.from('library_models').select('cuts')
+  const protectedIds = new Set<string>()
+  for (const m of (models ?? []) as Array<{ cuts: Record<string, unknown> | null }>) for (const v of Object.values(m.cuts ?? {})) if (typeof v === 'string') protectedIds.add(v)
+  const batch = ((rows ?? []) as Array<{ id: string; bucket: string; path: string }>).filter((r) => !protectedIds.has(r.id))
+  if (dryRun || batch.length === 0) return jsonResponse({ dryRun, candidates: count ?? 0, protectedByModel: ((rows ?? []) as Array<{ id: string }>).length - batch.length, deleted: 0, cutoff }, 200)
 
   // 先にファイル、次に行（ファイル削除に失敗した行は残して次回に回す）
   const byBucket = new Map<string, Array<{ id: string; path: string }>>()

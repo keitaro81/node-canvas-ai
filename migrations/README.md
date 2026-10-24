@@ -31,3 +31,4 @@
 - `0018_batch_items_cuts.sql` — 商品動画: batch_items.cuts（jsonb）。staging → 本番の順に SQL Editor で適用（2026-10-13）
 - `0019_batch_jobs_kind_video_limit.sql` — 商品動画の日次上限を別枠に: batch_jobs.kind・teams.daily_video_limit（20）・team_batch_limits() 更新。staging → 本番の順に適用（2026-10-17）
 - `0020_library.sql` — ライブラリ: library_items（個人＋チーム共有・最終利用から 30 日で自動削除・ピン留め）・library_touch()・generations.pinned。staging → 本番の順に適用（適用済み 2026-10-18。`drop policy if exists` で Supabase の「破壊的操作」警告が出るが安全）
+- `0021_library_models.sql` — ライブラリのモデル（人物）登録: library_models（名前・役割ごとの素材 id・個人/チーム共有）。staging → 本番の順に適用
