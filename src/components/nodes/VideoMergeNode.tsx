@@ -1,11 +1,11 @@
 // Video Merge ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.3）: 順序付きの動画入力（in-video-1 … in-video-8）を 1 本に結合する。
-// 対話実行: 「結合」でつないだ動画（Video Result / Reference Video / Video Generation / 他の Video Merge）をスロット順に fal の ffmpeg merge-videos へ渡し、
-// ノード内で再生・ダウンロードし、out-video に出す。1 本だけならそのまま通す（fal は呼ばない）。
+// 対話実行: 「結合」でつないだ動画（Video Result / Reference Video / 他の Video Merge）をスロット順に fal の ffmpeg merge-videos へ渡し、
+// Video Generation と同じく結果用の Video Result ノードを右に作って接続し、そこに動画を出す（1 本だけならそのまま通す。fal は呼ばない）。
 // 一括実行では SKU ごとの結合タスクになる（計画は src/lib/batch/plan.ts・サーバーは完了したショットの結果を順に結合）
 import { memo, useCallback, useMemo, useState } from 'react'
-import { Handle, Position, useEdges, useNodes, type NodeProps } from '@xyflow/react'
-import { AlertCircle, Download, Film, Loader2, Play, X } from 'lucide-react'
-import { useCanvasStore } from '../../stores/canvasStore'
+import { Handle, Position, useEdges, useNodes, type Edge, type NodeProps } from '@xyflow/react'
+import { AlertCircle, Film, Loader2, Play, X } from 'lucide-react'
+import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
 import { MERGE_VIDEOS_ENDPOINT } from '../../lib/video/productVideo'
@@ -13,13 +13,12 @@ import { VIDEO_MERGE_MAX_INPUTS, videoMergeSlotHandle, videoMergeSlotOf } from '
 import { signMediaRequest, signOwnUpload, toCanonicalRef, uploadVideoFromUrl } from '../../lib/api/storage'
 import { saveGeneration, updateGeneration } from '../../lib/api/generations'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
-import { useSignedMedia } from '../../hooks/useSignedMedia'
-import { downloadFile } from '../../lib/downloadFile'
 import { showToast } from '../../hooks/useToast'
-import type { VideoMergeNodeData } from '../../types/nodes'
+import type { VideoDisplayNodeData, VideoMergeNodeData } from '../../types/nodes'
 
 const ACCENT = '#EC4899'
 const HANDLE_STYLE = (color: string) => ({ width: 20, height: 20, background: `radial-gradient(circle, ${color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`, border: 'none', borderRadius: 0 })
+const NODE_WIDTH = 280, H_GAP = 40, V_GAP = 10, DISPLAY_HEIGHT = 400
 
 const videoUrlOf = (d: Record<string, unknown> | undefined): string | null => (typeof d?.videoUrl === 'string' && d.videoUrl ? d.videoUrl : null)
 
@@ -29,6 +28,29 @@ async function fetchableUrl(url: string, workflowId: string | null): Promise<str
   if (!canonical || canonical !== url) return url
   const map = await signMediaRequest({ workflowId, urls: [canonical], ownUrls: [canonical] })
   return map[canonical] ?? url
+}
+
+/** 結果用の Video Result ノードを右に作って out-video に接続する（Video Generation と同じ配置: 既存の結果ノードの下に積む） */
+function createResultNode(mergeId: string, progress: string): string | null {
+  const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
+  const thisNode = allNodes.find((n) => n.id === mergeId)
+  if (!thisNode) return null
+  const existing = allEdges
+    .filter((e) => e.source === mergeId && e.sourceHandle === 'out-video')
+    .map((e) => allNodes.find((n) => n.id === e.target))
+    .filter((n): n is AppNode => n?.type === 'videoDisplayNode')
+  const startY = existing.length > 0 ? Math.max(...existing.map((n) => n.position.y)) + DISPLAY_HEIGHT + V_GAP : thisNode.position.y
+  const displayId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  addNode({
+    id: displayId,
+    type: 'videoDisplayNode',
+    position: { x: thisNode.position.x + NODE_WIDTH + H_GAP, y: startY },
+    data: { label: 'Video Result', videoUrl: null, fileName: null, autoPlay: false, loop: true, muted: false, status: 'queued', progress, error: null } as unknown as VideoDisplayNodeData,
+    ...(thisNode.parentId ? { parentId: thisNode.parentId } : {}),
+  } as unknown as AppNode)
+  const { edges: latest } = useCanvasStore.getState()
+  setEdges([...latest, { id: `e-merge-${mergeId}-disp-${displayId}`, source: mergeId, sourceHandle: 'out-video', target: displayId, targetHandle: 'in-video', style: { stroke: ACCENT, strokeWidth: 2 }, animated: false, className: '' } as Edge])
+  return displayId
 }
 
 function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
@@ -46,32 +68,43 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
     .sort((a, b) => a.slot - b.slot), [rfEdges, rfNodes, id])
   const slotCount = Math.min(VIDEO_MERGE_MAX_INPUTS, Math.max(1, (inputs.length ? Math.max(...inputs.map((i) => i.slot)) : 0) + 1))
   const ready = inputs.filter((i) => !!i.url)
-  const { url: videoUrl, onError, failed, freshUrl } = useSignedMedia(nodeData.videoUrl, workflowId)
 
   const merge = useCallback(async () => {
     if (busy) return
     const urls = inputs.map((i) => i.url).filter((u): u is string => !!u)
     if (!urls.length) { showToast('結合する動画をつないでください', 'warning'); return }
     setBusy(true)
-    updateNode(id, { status: 'generating', progress: urls.length === 1 ? '' : '結合中…', error: null })
+    const single = urls.length === 1
+    updateNode(id, { status: 'generating', progress: single ? '' : '結合中…', error: null })
+    const displayId = createResultNode(id, single ? '' : '結合中...')
+    const setDisplay = (patch: Record<string, unknown>) => { if (displayId) updateNode(displayId, patch) }
     try {
-      if (urls.length === 1) {
+      if (single) {
         // 1 本だけならそのまま通す（一括実行の「1 本ならコピー」と同じ）
-        updateNode(id, { videoUrl: urls[0], status: 'done', progress: '' })
+        updateNode(id, { videoUrl: urls[0], status: 'idle', progress: '' })
+        setDisplay({ status: 'completed', progress: '', videoUrl: urls[0], fileName: null, error: null })
         return
       }
       const fetchable = await Promise.all(urls.map((u) => fetchableUrl(u, workflowId)))
       const res = await fal.subscribe(MERGE_VIDEOS_ENDPOINT, { input: { video_urls: fetchable } })
       const out = (res as { data?: { video?: { url?: string; file_name?: string } } }).data?.video
       if (!out?.url) throw new Error('結合結果の動画がありません')
-      updateNode(id, { videoUrl: out.url, fileName: out.file_name ?? 'merged.mp4', status: 'done', progress: '' })
+      const fileName = out.file_name ?? 'merged.mp4'
+      updateNode(id, { videoUrl: out.url, fileName, status: 'idle', progress: '' })
+      setDisplay({ status: 'completed', progress: '', videoUrl: out.url, fileName, error: null })
       const generationId = await saveGeneration({ nodeId: id, nodeType: 'video-merge', provider: 'fal', model: 'ffmpeg-merge', status: 'completed', outputUrl: out.url, inputParams: { inputs: urls.length } })
+      if (workflowId) useWorkflowStore.getState().updateThumbnail(workflowId, out.url)
       // 保存して永続 URL に差し替え（fal の一時 URL は期限切れになる）
-      uploadVideoFromUrl(out.url, id).then(async (storedUrl) => {
+      uploadVideoFromUrl(out.url, displayId ?? id).then(async (storedUrl) => {
         const signed = await signOwnUpload(storedUrl)
         updateNode(id, { videoUrl: signed })
+        setDisplay({ videoUrl: signed })
         if (generationId) updateGeneration(generationId, { output_url: storedUrl }).catch(() => {})
-        if (workflowId) patchWorkflowNodeOutput(workflowId, id, { videoUrl: storedUrl }).catch(() => {})
+        if (workflowId) {
+          useWorkflowStore.getState().updateThumbnail(workflowId, storedUrl)
+          patchWorkflowNodeOutput(workflowId, id, { videoUrl: storedUrl }).catch(() => {})
+          if (displayId) patchWorkflowNodeOutput(workflowId, displayId, { videoUrl: storedUrl }).catch(() => {})
+        }
       }).catch(() => {
         showToast('結合した動画の保存に失敗しました。一時 URL は期限切れになる可能性があります', 'warning')
         if (generationId) updateGeneration(generationId, { output_url: null }).catch(() => {})
@@ -79,17 +112,12 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       updateNode(id, { status: 'error', progress: '', error: message })
+      setDisplay({ status: 'failed', progress: '', error: message })
       showToast(`結合に失敗しました: ${message}`, 'error')
     } finally {
       setBusy(false)
     }
   }, [busy, inputs, id, updateNode, workflowId])
-
-  const download = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const u = await freshUrl()
-    if (u) void downloadFile(u, nodeData.fileName || 'merged.mp4')
-  }
 
   const generating = nodeData.status === 'generating'
   return (
@@ -108,7 +136,7 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
 
       {/* Body */}
       <div className="px-3 py-3 flex flex-col gap-2">
-        <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>つないだ動画を上から順に 1 本に結合します（最大 {VIDEO_MERGE_MAX_INPUTS} 本・音声なし・再エンコードなし）。一括実行では SKU ごとに結合します。</div>
+        <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>つないだ動画を上から順に 1 本に結合します（最大 {VIDEO_MERGE_MAX_INPUTS} 本・音声なし・再エンコードなし）。結果は右に作る Video Result に出ます。一括実行では SKU ごとに結合します。</div>
         <div className="rounded-md px-2 py-1.5 flex flex-col gap-0.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
           {inputs.length === 0 && <div className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>動画をつないでください</div>}
           {inputs.map((i) => (
@@ -119,22 +147,18 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
             </div>
           ))}
         </div>
-        {generating ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg py-6" style={{ border: '1px dashed rgba(236,72,153,0.4)', minHeight: 100, background: 'rgba(236,72,153,0.04)' }}>
-            <Loader2 size={20} className="animate-spin" style={{ color: ACCENT }} />
+        {generating && (
+          <div className="flex items-center justify-center gap-2 rounded-lg py-3" style={{ border: '1px dashed rgba(236,72,153,0.4)', background: 'rgba(236,72,153,0.04)' }}>
+            <Loader2 size={16} className="animate-spin" style={{ color: ACCENT }} />
             <span className="text-[11px]" style={{ color: ACCENT }}>{nodeData.progress || '結合中…'}</span>
           </div>
-        ) : nodeData.status === 'error' ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg py-6 px-2 text-center" style={{ border: '1px dashed rgba(239,68,68,0.4)', minHeight: 100, background: 'rgba(239,68,68,0.04)' }}>
-            <AlertCircle size={20} style={{ color: '#EF4444' }} />
+        )}
+        {nodeData.status === 'error' && !generating && (
+          <div className="flex items-center gap-2 rounded-lg py-2 px-2" style={{ border: '1px dashed rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.04)' }}>
+            <AlertCircle size={14} style={{ color: '#EF4444' }} />
             <span className="text-[11px]" style={{ color: '#EF4444' }}>{nodeData.error || '結合に失敗しました'}</span>
           </div>
-        ) : videoUrl && !failed ? (
-          <div className="relative rounded-lg overflow-hidden" style={{ background: '#000', border: '1px solid var(--border)' }}>
-            <video src={videoUrl} muted loop playsInline autoPlay controls className="w-full block nodrag nowheel" style={{ maxHeight: 260 }} onError={onError} />
-            <button className="absolute top-1.5 right-1.5 w-7 h-7 rounded-md flex items-center justify-center text-white nodrag" style={{ background: 'rgba(0,0,0,0.55)' }} title="ダウンロード（MP4）" onClick={(e) => void download(e)}><Download size={13} /></button>
-          </div>
-        ) : null}
+        )}
         <button
           className="h-9 w-full rounded-lg text-[12px] font-medium text-white nodrag disabled:opacity-50 transition-opacity hover:opacity-90 flex items-center justify-center gap-1.5"
           style={{ background: ACCENT }}
