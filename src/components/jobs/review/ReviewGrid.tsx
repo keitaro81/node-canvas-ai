@@ -25,8 +25,8 @@ interface Props {
   resultSizes?: Record<string, { w: number; h: number }> | null   // 生成結果の列: アイテム id → 結果画像の大きさ（枠の比率用）
 }
 
-/** サムネイル部分（状態の重ね表示つき） */
-function Thumb({ thumb, item }: { thumb: ThumbState | undefined; item: BatchItemRow }) {
+/** サムネイル部分（状態の重ね表示つき）。ライブラリのフォルダ（BatchFolderDialog）も同じ見た目で使う */
+export function Thumb({ thumb, item }: { thumb: ThumbState | undefined; item: BatchItemRow }) {
   const st = thumb?.status ?? 'waiting'
   const itemStatus = ITEM_STATUS_META[item.status]
   return (

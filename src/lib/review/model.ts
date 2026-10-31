@@ -1,5 +1,5 @@
 // ReviewGrid（仕様 5 章）の純関数: 写しからバリアント/切り抜き/書き出し設定を取り出す、識別値の入力、絞り込み、キーボード移動、書き出し計画。
-import type { BatchItemInfo, CutoutParams, ExportParams, LayoutParams } from '../../types/nodes'
+import type { BatchItemInfo, CutoutParams, ExportFormat, ExportParams, LayoutParams } from '../../types/nodes'
 import type { BatchItemRow, BatchJobDetail, BatchTaskRow } from '../../types/batch'
 import { normalizeLayoutParams } from '../layout/computeLayout'
 import { normalizeCutoutParams } from '../cutout/engines'
@@ -182,6 +182,12 @@ const safeSeg = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) ||
 export function thumbFileName(variantKey: string, hash: string, transparent: boolean): string {
   const v = variantKey === CUTOUT_VARIANT_KEY ? 'cutout' : isResultKey(variantKey) ? `result-${safeSeg(resultNodeIdOf(variantKey))}` : safeSeg(variantKey)
   return `thumb-${v}-${hash.slice(0, 12)}.${transparent ? 'png' : 'jpg'}`
+}
+
+/** フル解像度の保存名（ライブラリのフォルダから選んだレイアウト系の列を batch バケットに保存するとき。識別値の先頭 12 桁・形式は描画結果に合わせる） */
+export function fullFileName(variantKey: string, hash: string, format: ExportFormat): string {
+  const v = variantKey === CUTOUT_VARIANT_KEY ? 'cutout' : safeSeg(variantKey)
+  return `full-${v}-${hash.slice(0, 12)}.${format === 'jpeg' ? 'jpg' : format}`
 }
 
 export function itemInfoOfRow(item: Pick<BatchItemRow, 'sku' | 'original_filename' | 'sort_order'>): BatchItemInfo {

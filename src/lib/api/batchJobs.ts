@@ -8,7 +8,7 @@ import { jstDayBounds, jstDayRangeUtc } from '../batch/dates'
 import { JOBS_PAGE_SIZE, normalizeSearch, quoteOrValue, sumUsedToday, type JobFilters } from '../batch/jobsQuery'
 import {
   ACTIVE_JOB_STATUSES, ITEM_COLUMNS, JOB_COLUMNS, JOB_DETAIL_COLUMNS, OUTPUT_COLUMNS, TASK_COLUMNS,
-  type BatchItemRow, type BatchJobDetail, type BatchJobRow, type BatchOutputRow, type BatchReview, type BatchTaskRow, type ReviewCounts,
+  type BatchItemRow, type BatchJobDetail, type BatchJobRow, type BatchOutputKind, type BatchOutputRow, type BatchReview, type BatchTaskRow, type ReviewCounts,
 } from '../../types/batch'
 import { aggregateReviewCounts } from '../batch/jobsQuery'
 import { canEditWorkflow, updateWorkflowCanvasChecked } from './workflows'
@@ -175,18 +175,28 @@ export async function fetchJobTasks(jobId: string): Promise<BatchTaskRow[]> {
   return ((data ?? []) as BatchTaskRow[]).map((t) => ({ ...t, input: t.input && typeof t.input === 'object' ? t.input : {} }))
 }
 
-/** 記録済みのサムネイル（kind='thumb'）。識別値が同じなら描き直さない */
-export async function fetchJobThumbs(itemIds: string[]): Promise<BatchOutputRow[]> {
+/** 記録済みの出力（kind 'thumb' = 一覧用サムネイル / 'full' = ライブラリのフォルダから選んだときに保存したフル解像度）。識別値が同じなら描き直さない */
+export async function fetchJobOutputs(itemIds: string[], kind: BatchOutputKind): Promise<BatchOutputRow[]> {
   if (!itemIds.length) return []
-  const { data, error } = await sb.from('batch_outputs').select(OUTPUT_COLUMNS).eq('kind', 'thumb').in('item_id', itemIds)
+  const { data, error } = await sb.from('batch_outputs').select(OUTPUT_COLUMNS).eq('kind', kind).in('item_id', itemIds)
   if (error) throw new Error(error.message)
   return (data ?? []) as BatchOutputRow[]
 }
 
-/** サムネイルの記録（RPC record_batch_output・所属チェックとパス検査つき） */
-export async function recordThumb(itemId: string, variant: string, layoutHash: string, outputPath: string): Promise<void> {
-  const { error } = await sb.rpc('record_batch_output', { p_item_id: itemId, p_variant: variant, p_layout_hash: layoutHash, p_output_path: outputPath, p_kind: 'thumb' })
+/** 記録済みのサムネイル（kind='thumb'） */
+export function fetchJobThumbs(itemIds: string[]): Promise<BatchOutputRow[]> {
+  return fetchJobOutputs(itemIds, 'thumb')
+}
+
+/** 出力の記録（RPC record_batch_output・所属チェックとパス検査つき。同じ 写真 × 列 × 識別値 × 種類 は上書き） */
+export async function recordOutput(itemId: string, variant: string, layoutHash: string, outputPath: string, kind: BatchOutputKind): Promise<void> {
+  const { error } = await sb.rpc('record_batch_output', { p_item_id: itemId, p_variant: variant, p_layout_hash: layoutHash, p_output_path: outputPath, p_kind: kind })
   if (error) throw new Error(error.message)
+}
+
+/** サムネイルの記録 */
+export function recordThumb(itemId: string, variant: string, layoutHash: string, outputPath: string): Promise<void> {
+  return recordOutput(itemId, variant, layoutHash, outputPath, 'thumb')
 }
 
 /** ジョブ画面で変更したバリアント設定の保存（RPC set_batch_job_layout・メンバーなら誰でも） */
