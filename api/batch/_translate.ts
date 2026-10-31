@@ -2,19 +2,9 @@
 // fal の any-llm（Claude Haiku 4.5）を同期エンドポイント fal.run で呼ぶ。英語の文はここに来ない（呼び出し側 promptTextsToTranslate が日本語だけ渡す）。
 // 組み込みの定型文は対訳（BUILTIN_EN）を使うので LLM には来ない。失敗したらジョブ作成を止める（日本語のまま Kling に送らない）
 import { isAllowedTarget } from '../fal/_allowlist'
+import { TRANSLATE_MODELS, TRANSLATE_SYSTEM_PROMPT as SYSTEM_PROMPT, sanitizeTranslation } from '../../src/lib/video/translate'
 
-// any-llm の model id は入れ替わる（2026-10-17 時点: claude-haiku-4.5 は 422、claude-haiku-5.5 が最新）。先頭から順に試し、422（id 不正）なら次へ
-export const TRANSLATE_MODELS = ['anthropic/claude-haiku-5.5', 'anthropic/claude-sonnet-4.5', 'anthropic/claude-3-5-haiku']
-const SYSTEM_PROMPT = 'You translate Japanese text into natural, concrete English for an AI video generation prompt about a fashion model wearing a garment. Write in the third person and present tense, describing the model (e.g. "The model stands facing the camera…"), never as an instruction to the reader. Output only the translation as one line, with no quotes, notes or alternatives. Keep any English words, numbers and @Element1 tokens exactly as they are. Do not add content that is not in the source.'
-
-/** LLM の出力を 1 行の文に整える（引用符・改行・前置きの除去） */
-export function sanitizeTranslation(s: unknown): string {
-  if (typeof s !== 'string') return ''
-  let t = s.trim().replace(/\s*\n+\s*/g, ' ')
-  t = t.replace(/^(translation|english)\s*:\s*/i, '')
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")) || (t.startsWith('「') && t.endsWith('」'))) t = t.slice(1, -1).trim()
-  return t
-}
+export { TRANSLATE_MODELS, sanitizeTranslation } from '../../src/lib/video/translate'
 
 export async function translateOne(falKey: string, text: string, fetchImpl: typeof fetch = fetch): Promise<string> {
   const url = 'https://fal.run/fal-ai/any-llm'

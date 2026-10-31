@@ -1,4 +1,6 @@
-export type PortType = 'text' | 'image' | 'video' | 'style' | 'list' | 'cutout' | 'item'
+export type PortType = 'text' | 'image' | 'video' | 'style' | 'list' | 'cutout' | 'item' | 'cuts'
+
+import type { CutRole } from '../lib/video/productVideo'
 
 export type NodeType =
   | 'text'
@@ -24,6 +26,7 @@ export type NodeType =
   | 'batchResults'
   | 'productVideo'
   | 'videoMerge'
+  | 'cutSetInput'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -66,6 +69,7 @@ export const PORT_COLORS: Record<PortType, string> = {
   list:  '#8B5CF6',
   cutout: '#14B8A6',
   item:   '#6B7280',
+  cuts:   '#F472B6',
 }
 
 export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
@@ -92,6 +96,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   batchResults:    '#14B8A6',
   productVideo:    '#EC4899',
   videoMerge:      '#EC4899',
+  cutSetInput:     '#EC4899',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -119,6 +124,8 @@ export interface VideoGenerationNodeData {
   cutsFrontalNodeId?: string | null
   /** マルチショット（Kling 3.0 multi_prompt）。空なら通常の 1 プロンプト生成 */
   shots?: Array<{ prompt: string; duration: number }>
+  /** 商品動画向けの設定（2026-10-31・設計 §4.2）: 動き（日本語可・生成時に英訳）/ 避けたいこと（Kling 系）/ 始点と終点が役割カットのとき回転指示を自動で付ける（既定 on） */
+  params?: { prompt?: string; negativePrompt?: string; autoTurn?: boolean }
 }
 
 export interface ListNodeData {
@@ -267,6 +274,27 @@ export interface ProductVideoNodeData {
     negativePrompt: string
   }
   status: 'idle'
+}
+
+/** Cut Set Input のアイテム（1 SKU・役割ごとのカット。File 本体は保存しない） */
+export interface CutSetItemCut { path: string; width?: number; height?: number; name?: string }
+export interface CutSetItem {
+  id: string
+  index: number                    // 並び順（1 始まり）
+  sku: string
+  cuts: Partial<Record<CutRole, CutSetItemCut>>
+}
+/** Cut Set Input ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.1）: 1 アイテム = 1 SKU の役割別カット。出力ポートは役割ごと + カット一式 + アイテム情報。
+ *  対話実行では ★ の 1 SKU のカットを署名して outputs[ハンドル id] に出す（受け側は辺の sourceHandle で引く） */
+export interface CutSetInputNodeData {
+  type: 'cutSetInput'
+  label: string
+  params: Record<string, unknown>
+  status: NodeStatus
+  items: CutSetItem[]
+  currentItemId: string | null
+  outputs?: Record<string, string>
+  itemInfo?: BatchItemInfo
 }
 
 /** Video Merge ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.3）: 順序付きの動画入力（in-video-1…8）を 1 本に結合（fal ffmpeg）。一括実行では SKU ごとの結合タスク */

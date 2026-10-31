@@ -24,8 +24,9 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   batchResults:   [],
   productVideo:   [],
   videoMerge:     ['video'],
+  cutSetInput:    [],
   imageGen:       ['text', 'image', 'list'],
-  videoGen:       ['text', 'image', 'video'],
+  videoGen:       ['text', 'image', 'video', 'cuts'],
   note:           [],
   utility:        ['text'],
 }
@@ -43,6 +44,7 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   batchResults:   [],
   productVideo:   [],
   videoMerge:     ['video'],
+  cutSetInput:    ['image', 'cuts', 'item'],
   imageGen:       ['image'],
   referenceImage: ['image'],
   videoGen:       ['video'],
@@ -90,7 +92,12 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
       { type: 'batchInput',       label: 'Batch Input',       icon: <Images size={14} />, color: '#14B8A6' },
       { type: 'export',           label: 'Export',            icon: <Download size={14} />, color: '#14B8A6' },
       { type: 'batchResults',     label: 'Batch Results',     icon: <LayoutGrid size={14} />, color: '#14B8A6' },
-      { type: 'productVideo',     label: 'Product Video',     icon: <Clapperboard size={14} />, color: '#EC4899' },
+    ],
+  },
+  {
+    category: '商品動画',
+    items: [
+      { type: 'cutSetInput',      label: 'Cut Set Input',     icon: <Clapperboard size={14} />, color: '#EC4899' },
     ],
   },
 ]

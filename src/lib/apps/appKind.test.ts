@@ -6,6 +6,8 @@ describe('appKindOf（App の判定）', () => {
     expect(appKindOf({ nodes: [{ type: 'batchInputNode', data: { type: 'batchInput' } }, { type: 'groupNode', data: { capsuleEnabled: true } }] })).toBe('batch')
     expect(appKindOf({ nodes: [{ type: 'groupNode', data: { capsuleEnabled: true } }] })).toBe('generation')
     expect(appKindOf({ nodes: [{ type: 'groupNode', data: { capsuleEnabled: false } }, { type: 'textPromptNode', data: { type: 'textPrompt' } }] })).toBeNull()
+    expect(appKindOf({ nodes: [{ type: 'cutSetInputNode', data: { type: 'cutSetInput' } }, { type: 'batchInputNode', data: { type: 'batchInput' } }] })).toBe('video')
+    expect(appKindOf({ nodes: [{ type: 'productVideoNode', data: { type: 'productVideo' } }] })).toBe('video')
     expect(appKindOf(null)).toBeNull()
     expect(appKindOf({})).toBeNull()
   })

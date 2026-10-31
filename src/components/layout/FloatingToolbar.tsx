@@ -90,7 +90,12 @@ const PALETTE = [
       { type: 'batchInput' as NodeType, label: 'Batch Input', description: '複数の商品画像を受け取り 1 枚ずつ流す（最大 50）', icon: <Images size={15} />, color: '#14B8A6' },
       { type: 'export' as NodeType, label: 'Export', description: '規定の名前と形式で書き出し（ZIP）', icon: <DownloadSimple size={15} />, color: '#14B8A6' },
       { type: 'batchResults' as NodeType, label: 'Batch Results', description: '一括実行のジョブと結果（切り抜き・バリアント・生成結果）をこのキャンバスで確認', icon: <SquaresFour size={15} />, color: '#14B8A6' },
-      { type: 'productVideo' as NodeType, label: 'Product Video', description: '着用カットから商品訴求動画（Kling v3 Pro）。ショット構成を決め、実行は App で', icon: <FilmSlate size={15} />, color: '#EC4899' },
+    ],
+  },
+  {
+    category: '商品動画',
+    items: [
+      { type: 'cutSetInput' as NodeType, label: 'Cut Set Input', description: 'SKU ごとの役割別カット（正面・側面…）を受け取り 1 SKU ずつ流す。役割ごとの出力を Video Generation につなぐ', icon: <FilmSlate size={15} />, color: '#EC4899' },
     ],
   },
 ]
@@ -111,6 +116,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   batchResults: 'batchResultsNode',
   productVideo: 'productVideoNode',
   videoMerge: 'videoMergeNode',
+  cutSetInput: 'cutSetInputNode',
 }
 
 let nodeIdCounter = 1000
@@ -151,6 +157,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'videoMerge') {
     return { type: 'videoMerge', label, params: {}, status: 'idle', videoUrl: null }
+  }
+  if (type === 'cutSetInput') {
+    return { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }
   }
   return { type, label, params: {}, status: 'idle' }
 }

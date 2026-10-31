@@ -9,11 +9,12 @@ import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../ai
 import { backgroundSourcesOf, promptForGenerator } from './background'
 import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoModelById } from '../ai/videoModels'
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
-import { CUT_ROLES, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasJapanese, isStaticPresetMotion, normalizeProductVideoParams, shotRoleLabel, turnInstruction, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
+import { CUT_ROLES, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, isStaticPresetMotion, normalizeProductVideoParams, shotRoleLabel, turnInstruction, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
+import { textsNeedingTranslation } from '../video/translate'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface SnapshotNode { id: string; type?: string; data?: any; position?: { x: number; y: number } }
-export interface SnapshotEdge { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
+export interface SnapshotEdge { id?: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
 /** promptTranslations: 日本語のプロンプト → 英語（create で作って写しに添える。submit の計画が使う） */
 export interface WorkflowSnapshot { nodes?: SnapshotNode[]; edges?: SnapshotEdge[]; promptTranslations?: Record<string, string> }
 
@@ -120,11 +121,12 @@ export function expandProductVideoNode(pv: SnapshotNode): { nodes: SnapshotNode[
         params: { prompt: shot.endRole && isStaticPresetMotion(shot.motion) ? '' : shot.motion, negativePrompt: params.negativePrompt, autoTurn: !!shot.endRole },
       },
     })
-    edges.push({ source: cutsId, sourceHandle: cutSetRoleHandle(shot.role), target: id, targetHandle: VIDEO_GEN_START_HANDLE })
-    if (shot.endRole) edges.push({ source: cutsId, sourceHandle: cutSetRoleHandle(shot.endRole), target: id, targetHandle: VIDEO_GEN_END_HANDLE })
-    edges.push({ source: cutsId, sourceHandle: CUT_SET_SET_HANDLE, target: id, targetHandle: VIDEO_GEN_SET_HANDLE })
-    edges.push({ source: baseId, sourceHandle: 'out-text-text-out', target: id, targetHandle: 'in-text' })
-    edges.push({ source: id, sourceHandle: VIDEO_OUTPUT_HANDLE, target: pv.id, targetHandle: videoMergeSlotHandle(i + 1) })
+    const edge = (source: string, sourceHandle: string, target: string, targetHandle: string): SnapshotEdge => ({ id: `e-${source}-${sourceHandle}-${target}-${targetHandle}`, source, sourceHandle, target, targetHandle })
+    edges.push(edge(cutsId, cutSetRoleHandle(shot.role), id, VIDEO_GEN_START_HANDLE))
+    if (shot.endRole) edges.push(edge(cutsId, cutSetRoleHandle(shot.endRole), id, VIDEO_GEN_END_HANDLE))
+    edges.push(edge(cutsId, CUT_SET_SET_HANDLE, id, VIDEO_GEN_SET_HANDLE))
+    edges.push(edge(baseId, 'out-text-text-out', id, 'in-text'))
+    edges.push(edge(id, VIDEO_OUTPUT_HANDLE, pv.id, videoMergeSlotHandle(i + 1)))
   })
   nodes.push({ id: pv.id, type: 'videoMergeNode', position: { x: x + 860, y }, data: { type: 'videoMerge', label: `${label}（結合）`, params: {}, status: 'idle', videoUrl: null } })
   return { nodes, edges }
@@ -193,20 +195,17 @@ export function promptTextsToTranslateForPlan(snapshot: WorkflowSnapshot | null 
   const snap = expandProductVideo(snapshot)
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const { tasks } = planTasks(snap)
-  const out = new Set<string>()
-  const consider = (text: unknown) => { const t = str(text).trim(); if (t && hasJapanese(t) && !builtinEnglish(t)) out.add(t) }
-  for (const t of tasks) {
-    if (t.kind !== 'videoShot') continue
-    const node = nodes.find((n) => n.id === t.nodeId)
-    const p = (node?.data?.params ?? {}) as Record<string, unknown>
-    const startRole = t.inputs.start?.kind === 'cut' ? t.inputs.start.role : null
-    const endRole = t.inputs.end?.kind === 'cut' ? t.inputs.end.role : null
-    const turned = p.autoTurn !== false && startRole && endRole && startRole !== endRole
-    if (!(turned && isStaticPresetMotion(str(p.prompt)))) consider(p.prompt)
-    consider(p.negativePrompt)
-    for (const text of textsInto(nodes, edges, t.nodeId)) consider(text)
-  }
-  return [...out]
+  return textsNeedingTranslation(tasks.filter((t) => t.kind === 'videoShot').flatMap((t) => videoPromptSources(nodes, edges, t.nodeId, t.inputs)))
+}
+
+/** Video Generation のプロンプトの素（翻訳の対象）: 動き（回転指示が付くときの静止用定型文は除く）・避けたいこと・つないだテキスト */
+export function videoPromptSources(nodes: SnapshotNode[], edges: SnapshotEdge[], nodeId: string, inputs: TaskInputs): string[] {
+  const node = nodes.find((n) => n.id === nodeId)
+  const p = (node?.data?.params ?? {}) as Record<string, unknown>
+  const startRole = inputs.start?.kind === 'cut' ? inputs.start.role : null
+  const endRole = inputs.end?.kind === 'cut' ? inputs.end.role : null
+  const turned = p.autoTurn !== false && startRole && endRole && startRole !== endRole
+  return [...(turned && isStaticPresetMotion(str(p.prompt)) ? [] : [str(p.prompt)]), str(p.negativePrompt), ...textsInto(nodes, edges, nodeId)]
 }
 
 // ───────────────────────── 計画 ─────────────────────────
@@ -503,12 +502,11 @@ function buildVideoTaskInput(modelDef: VideoModelDefinition, node: SnapshotNode,
     aspectRatio: (str(d.aspectRatio) || 'auto') as VideoGenerationRequest['aspectRatio'],
     fps: safeFps as VideoGenerationRequest['fps'],
     audioEnabled: d.audioEnabled === true, seed: typeof d.seed === 'number' ? d.seed : null, mode: 'image-to-video', imageUrl: '__START__',
+    ...(negative ? { negativePrompt: negative } : {}), ...(turned ? { cfgScale: END_CUT_CFG_SCALE } : {}),
   }
   const resolved = resolveAspectRatio(modelDef, request)
   const input = buildVideoInput(modelDef, request, safeDuration, safeFps, resolved ?? undefined)
   delete input[modelDef.startImageParam ?? 'image_url']
-  if (negative && (modelDef.paramStyle === 'kling' || modelDef.paramStyle === 'kling-o3-i2v')) input.negative_prompt = negative
-  if (turned && modelDef.paramStyle === 'kling') input.cfg_scale = END_CUT_CFG_SCALE
   return { input, meta: { modelId: modelDef.id, startParam: modelDef.startImageParam ?? 'image_url', endParam: modelDef.endImageParam ?? null, aspectAuto: resolved === null, aspectRatios: modelDef.supportedAspectRatios } }
 }
 

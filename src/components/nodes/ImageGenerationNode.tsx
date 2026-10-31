@@ -16,8 +16,8 @@ import { signBatchPath } from '../../lib/cutout/store'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
 import { itemAiStageOf } from '../../lib/review/model'
 
-function getImageUrlFromNode(node: AppNode): string | null {
-  return getImageUrlFromNodeData(node.data)
+function getImageUrlFromNode(node: AppNode, sourceHandle?: string | null): string | null {
+  return getImageUrlFromNodeData(node.data, sourceHandle)
 }
 
 /** 上流の Remove Background（切り抜き）の出力。接続されていれば参照スロットに切り抜き画像を使う（合成。フェーズ C(a)） */
@@ -403,7 +403,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             const i = parseInt(e.targetHandle!.replace('in-image-', ''), 10)
             if (i < 0 || i >= slotCount) return false
             const src = storeNodes.find((n) => n.id === e.source)
-            return !!src && !!getImageUrlFromNodeData(src.data)
+            return !!src && !!getImageUrlFromNodeData(src.data, e.sourceHandle)
           }).length)
       })()
     : null
@@ -477,7 +477,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
         )
         if (!edge) return []
         const n = allNodes.find((n) => n.id === edge.source)
-        const url = n ? (cutoutUrls.get(n.id) ?? getImageUrlFromNode(n)) : null
+        const url = n ? (cutoutUrls.get(n.id) ?? getImageUrlFromNode(n, edge.sourceHandle)) : null
         return url ? [url] : []
       })
 
@@ -572,7 +572,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             const i = parseInt(e.targetHandle!.replace('in-image-', ''), 10)
             if (i >= 0 && i < slotCount) {
               const src = allNodes.find((n) => n.id === e.source)
-              if (src) slotImages[i] = getImageUrlFromNode(src)
+              if (src) slotImages[i] = getImageUrlFromNode(src, e.sourceHandle)
             }
           })
 
@@ -895,7 +895,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               )
               const srcNode = edge ? storeNodes.find((n) => n.id === edge.source) : null
               const cutoutRef = cutoutRefOf(srcNode)
-              const imgUrl = srcNode && !cutoutRef ? getImageUrlFromNodeData(srcNode.data) : null
+              const imgUrl = srcNode && !cutoutRef ? getImageUrlFromNodeData(srcNode.data, edge?.sourceHandle) : null
               const filled = !!imgUrl || !!cutoutRef
               return (
                 <div key={i} className="flex items-center gap-2" style={{ height: REF_SLOT_H }}>

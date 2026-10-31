@@ -234,6 +234,7 @@ export function buildVideoInput(
     if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
     if (request.seed != null) input.seed = request.seed
     if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
+    if (request.negativePrompt) input.negative_prompt = request.negativePrompt
     return input
   }
 
@@ -261,6 +262,8 @@ export function buildVideoInput(
     if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
     if (request.seed != null) input.seed = request.seed
     if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
+    if (request.negativePrompt) input.negative_prompt = request.negativePrompt
+    if (request.cfgScale != null) input.cfg_scale = request.cfgScale
     // 参照カット（Kling 3.0 elements）: 人物と服の見え方を動画全体で保つ
     if (modelDef.features.includes('elements')) {
       const elements = buildKlingElements(request.elements)

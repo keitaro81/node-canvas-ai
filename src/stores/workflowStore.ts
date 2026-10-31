@@ -17,6 +17,7 @@ import {
   type WorkflowVisibility,
   type WorkflowRow,
 } from '../lib/api/workflows'
+import { expandProductVideo, hasLegacyProductVideo, type SnapshotEdge, type SnapshotNode } from '../lib/batch/plan'
 import { onCanvasVersion } from '../lib/workflow/canvasVersion'
 import { FREE_LOCK, classifySaveError, editSessionId, lockRequiredFor, type EditLockView } from '../lib/workflow/editLock'
 import { canonicalizeCanvasNodes, signCanvasNodes } from '../lib/api/signMedia'
@@ -181,13 +182,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
         return { ...node, data }
       })
+      // 旧 Product Video ノード（2026-10-31 以前）は Cut Set Input / 共通の説明 / Video Generation × ショット / Video Merge に展開して載せる（設計 §7。保存は所有者が保存したとき）
+      const expanded = hasLegacyProductVideo({ nodes: restoredNodes as unknown as SnapshotNode[] })
+        ? expandProductVideo({ nodes: restoredNodes as unknown as SnapshotNode[], edges: (canvasData?.edges ?? []) as unknown as SnapshotEdge[] })
+        : null
+      const nodesToLoad = (expanded ? expanded.nodes : restoredNodes) as AppNode[]
+      const edgesToLoad = (expanded ? expanded.edges : (canvasData?.edges ?? [])) as Edge[]
       // 非公開バケット化(L1)+テナント分離(L2): canonical URL を、サーバーが WF アクセス認可した上で署名URLへ変換
-      const signedNodes = await signCanvasNodes(restoredNodes, id)
+      const signedNodes = await signCanvasNodes(nodesToLoad, id)
       // nodes/edges/capsuleGroupId を原子的にセット。
       // 別々に set() すると「エッジ空」のundoスナップショットが混入するため loadCanvasState を使う。
       loadCanvasState(
         signedNodes as AppNode[],
-        canvasData?.edges ?? [],
+        edgesToLoad,
         canvasData?.capsuleGroupId ?? null
       )
 

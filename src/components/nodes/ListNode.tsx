@@ -57,7 +57,7 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
       if (i >= 0 && i < slotCount) {
         const src = storeNodes.find((n) => n.id === e.source)
         if (src) {
-          const url = getImageUrlFromNodeData(src.data)
+          const url = getImageUrlFromNodeData(src.data, e.sourceHandle)
           if (url) slotContents[i] = { type: 'image', url }
         }
       }

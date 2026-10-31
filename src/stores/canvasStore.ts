@@ -116,6 +116,7 @@ const COMPATIBLE: Record<PortType, PortType[]> = {
   list:  ['list'],
   cutout: ['cutout'],
   item:   ['item'],
+  cuts:   ['cuts'],
 }
 
 /** 切り抜き → 画像 は Image Generation の画像入力だけ許す（切り抜き画像を合成の入力にする。フェーズ C(a)）。他の画像入力は従来どおり不可 */
@@ -329,6 +330,7 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       list:  '#8B5CF6',
       cutout: '#14B8A6',
       item:   '#6B7280',
+      cuts:   '#F472B6',
     }
 
     set((state) => {

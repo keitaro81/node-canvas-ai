@@ -10,7 +10,8 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { buildWorkflowSnapshot, type CreateItemInput } from '../../lib/api/batch'
 import { jobLabel } from '../../lib/batch/jobLabel'
-import { videoNodeOf, totalSeconds } from '../../lib/video/productVideo'
+import { totalSeconds } from '../../lib/video/productVideo'
+import { inputNodesOf, shotsFromCanvas, type WorkflowSnapshot } from '../../lib/batch/plan'
 import type { BatchJobRow } from '../../types/batch'
 import { JobActions } from '../jobs/JobActions'
 import { AppVideoCutsInput } from './AppVideoCutsInput'
@@ -31,7 +32,13 @@ export function VideoAppView() {
   const memberNames = useBatchStore((s) => s.memberNames)
   useWatchBatchJobs('video-app')
 
-  const video = useMemo(() => videoNodeOf({ nodes: nodes.map((n) => ({ id: n.id, data: n.data as Record<string, unknown> })) }), [nodes])
+  // 入力ノード = Cut Set Input（旧 Product Video は読み込み時に展開済み。id は <旧 id>:cuts）。構成はキャンバスの配線から（結合のスロット順）
+  const edges = useCanvasStore((s) => s.edges)
+  const canvas = useMemo<WorkflowSnapshot>(() => ({ nodes: nodes.map((n) => ({ id: n.id, type: n.type, data: n.data as Record<string, unknown> })), edges: edges.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })) }), [nodes, edges])
+  const cutSetId = useMemo(() => inputNodesOf(canvas).cutSetInputId, [canvas])
+  const shots = useMemo(() => shotsFromCanvas(canvas), [canvas])
+  // カードの記憶キーは旧ノード時代と同じ（<旧 id>:cuts → <旧 id>）にして、入れた写真の記憶を引き継ぐ
+  const storageNodeId = cutSetId ? cutSetId.replace(/:cuts$/, '') : null
 
   const [searchParams] = useSearchParams()
   const jobParam = searchParams.get('job')
@@ -65,10 +72,11 @@ export function VideoAppView() {
     })
   }, [openSubmitDialogWith, workflowId, bump])
 
-  if (!video) {
+  if (!cutSetId) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6" style={{ color: 'var(--text-secondary)' }}>
-        <div className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>この App には Product Video ノードがありません</div>
+        <div className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>この App には Cut Set Input ノードがありません</div>
+        <div className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>キャンバスで Cut Set Input → Video Generation → Video Merge を組むと、ここでカットの投入と結果の確認ができます。</div>
       </div>
     )
   }
@@ -81,9 +89,9 @@ export function VideoAppView() {
           <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>カットを入れる</h2>
         </div>
         <p className="text-[11px] mb-3" style={{ color: 'var(--text-tertiary)' }}>
-          SKU ごとに着用カットを役割の枠に入れると、App「{workflowName}」の構成（{video.params.shots.length} ショット・約 {totalSeconds(video.params.shots)} 秒・無音）で 1 本の動画を作ります。
+          SKU ごとに着用カットを役割の枠に入れると、App「{workflowName}」の構成（{shots.length} ショット・約 {totalSeconds(shots)} 秒・無音）で 1 本の動画を作ります。
         </p>
-        <AppVideoCutsInput nodeId={video.id} shots={video.params.shots} canSubmit={!!workflowId} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${video.id}`} />
+        <AppVideoCutsInput nodeId={cutSetId} shots={shots} canSubmit={!!workflowId && shots.length > 0} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${storageNodeId}`} />
       </aside>
       <section className={`flex-1 min-w-0 min-h-0 flex flex-col ${isMobile ? 'border-t' : ''}`} style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-2 px-5 shrink-0 border-b" style={{ height: 44, borderColor: 'var(--border)', background: 'var(--bg-surface)' }}>
