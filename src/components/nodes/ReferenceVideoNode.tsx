@@ -94,7 +94,7 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
     const picked = items[0]
     if (!picked) return
     setIsUploading(true)
-    try { updateNode(id, { videoUrl: await signLibraryUrl(picked.url), uploadedVideoPreview: null } as Parameters<typeof updateNode>[1]) }
+    try { updateNode(id, { videoUrl: picked.signedUrl ?? await signLibraryUrl(picked.url), uploadedVideoPreview: null } as Parameters<typeof updateNode>[1]) }
     finally { setIsUploading(false) }
   }, [id, updateNode])
 
