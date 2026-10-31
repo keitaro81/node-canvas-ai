@@ -1,4 +1,5 @@
 // ライブラリ（2026-10-18）: アップロードした素材（自分＋チーム共有）と生成した画像・動画を一覧し、ピン留め・チーム共有・削除ができる。History の置き換え
+// 生成画像タブには一括処理（切り抜き等）の結果が「1 ジョブ = 1 フォルダ」のカードで混ざる（2026-10-31）。クリックで中身のダイアログ
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowSquareOut, CircleNotch, CloudArrowUp, Download, PencilSimple, Play, PushPin, Trash, UserCircle, UsersThree, X } from '@phosphor-icons/react'
 import { useNavigate } from 'react-router'
@@ -15,6 +16,10 @@ import { ModelEditorDialog } from '../library/ModelEditorDialog'
 import { CUT_ROLES, FRONTAL_ROLE } from '../../lib/video/productVideo'
 import { deleteLibraryModel, fetchLibraryItemsByIds, listLibraryModels, modelItemIds, modelsUsingItem, shareLibraryItemsWithTeam, updateLibraryModel, type LibraryModel } from '../../lib/api/libraryModels'
 import { listBatchVideos, signBatchVideos, type BatchVideo } from '../../lib/api/batchVideos'
+import { fetchFolderPreviews, listBatchFolders, signFolderPreviews, type BatchFolder } from '../../lib/api/batchFolders'
+import { PREVIEW_ITEMS } from '../../lib/batch/folders'
+import { BatchFolderCard } from '../library/BatchFolderCard'
+import { BatchFolderDialog } from '../library/BatchFolderDialog'
 
 const PAGE_SIZE = 30
 type Tab = 'uploads' | 'models' | 'gen-image' | 'gen-video'
@@ -35,6 +40,9 @@ export function LibraryPage() {
   const [uploading, setUploading] = useState(0)
   const [models, setModels] = useState<LibraryModel[]>([])
   const [batchVideos, setBatchVideos] = useState<BatchVideo[]>([])   // 商品動画 App の結果（生成動画タブに並べる）
+  const [folders, setFolders] = useState<BatchFolder[]>([])          // 写真の一括処理（生成画像タブにフォルダとして並べる）
+  const [folderUrls, setFolderUrls] = useState<Record<string, string>>({})   // フォルダカードの重ねサムネイル（batch パス → 署名 URL）
+  const [folderOpen, setFolderOpen] = useState<BatchFolder | null>(null)
   const [modelThumbs, setModelThumbs] = useState<Record<string, string>>({})   // model id → 正面の署名 URL
   const [editor, setEditor] = useState<{ open: boolean; model: LibraryModel | null }>({ open: false, model: null })
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -44,12 +52,14 @@ export function LibraryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [{ data: { user } }, libs, gs, ms, bvs] = await Promise.all([supabase.auth.getUser(), listLibraryItems(), getMyGenerations(), listLibraryModels(), listBatchVideos().catch(() => [] as BatchVideo[])])
-      setMyId(user?.id ?? null); setItems(libs); setGens(gs); setModels(ms); setBatchVideos(bvs); setError(null)
-      const [libMap, bvMap] = await Promise.all([signLibraryItems(libs), signBatchVideos(bvs)])
+      const [{ data: { user } }, libs, gs, ms, bvs, fds] = await Promise.all([
+        supabase.auth.getUser(), listLibraryItems(), getMyGenerations(), listLibraryModels(), listBatchVideos().catch(() => [] as BatchVideo[]), listBatchFolders().catch(() => [] as BatchFolder[]),
+      ])
+      setMyId(user?.id ?? null); setItems(libs); setGens(gs); setModels(ms); setBatchVideos(bvs); setFolders(fds); setError(null)
+      const [libMap, bvMap, fdMap] = await Promise.all([signLibraryItems(libs), signBatchVideos(bvs), signFolderPreviews(fds)])
       const merged: Record<string, string> = { ...libMap }
       for (const v of bvs) if (bvMap[v.id]) merged[`batch:${v.id}`] = bvMap[v.id]
-      setSigned(merged)
+      setSigned(merged); setFolderUrls(fdMap)
       await refreshModelThumbs(ms)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setLoading(false) }
@@ -76,7 +86,34 @@ export function LibraryPage() {
       ...batchVideos.map((v) => ({ kind: 'batch' as const, date: v.completedAt, v })),
     ].sort((a, b) => (a.date < b.date ? 1 : -1))
   }, [tab, gensShown, batchVideos])
-  const total = tab === 'uploads' ? uploadsShown.length : tab === 'models' ? models.length : tab === 'gen-video' ? videoEntries.length : gensShown.length
+  // 生成画像 = キャンバスの生成（generations）＋ 写真の一括処理のフォルダ（1 ジョブ = 1 カード）を日時順に
+  const imageEntries = useMemo(() => {
+    if (tab !== 'gen-image') return [] as Array<{ kind: 'gen'; date: string; g: GenerationWithWorkflow } | { kind: 'folder'; date: string; f: BatchFolder }>
+    return [
+      ...gensShown.map((g) => ({ kind: 'gen' as const, date: g.created_at, g })),
+      ...folders.map((f) => ({ kind: 'folder' as const, date: f.createdAt, f })),
+    ].sort((a, b) => (a.date < b.date ? 1 : -1))
+  }, [tab, gensShown, folders])
+  const total = tab === 'uploads' ? uploadsShown.length : tab === 'models' ? models.length : tab === 'gen-video' ? videoEntries.length : imageEntries.length
+  // フォルダを閉じたら、開いたことで描かれたサムネイルをカードにも反映する（記録は閉じた後も少しずつ進むので、揃うまで数回取り直す）
+  const onFolderClosed = useCallback(() => {
+    const f = folderOpen
+    setFolderOpen(null)
+    const want = Math.min(PREVIEW_ITEMS, f?.itemCount ?? 0)
+    if (!f || f.previews.length >= want) return
+    void (async () => {
+      for (const delay of [1500, 3000, 4000]) {
+        await new Promise((r) => setTimeout(r, delay))
+        const previews = (await fetchFolderPreviews([f.jobId]).catch(() => ({} as Record<string, string[]>)))[f.jobId] ?? []
+        if (!previews.length) continue
+        const urls = await signFolderPreviews([{ previews }])
+        setFolders((cur) => cur.map((x) => (x.jobId === f.jobId ? { ...x, previews } : x)))
+        setFolderUrls((cur) => ({ ...cur, ...urls }))
+        if (previews.length >= want) break
+      }
+    })()
+  }, [folderOpen])
+  const openFolderResults = useCallback((f: BatchFolder) => navigate(f.workflowId ? `/app/${f.workflowId}?job=${f.jobId}` : `/jobs/${f.jobId}`), [navigate])
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -117,7 +154,7 @@ export function LibraryPage() {
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
     { id: 'uploads', label: 'アップロード', count: items.length },
     { id: 'models', label: 'モデル', count: models.length },
-    { id: 'gen-image', label: '生成画像', count: gens.filter((g) => !!g.output_url && !(isVideoUrl(g.output_url) || g.node_type === 'video-generation')).length },
+    { id: 'gen-image', label: '生成画像', count: gens.filter((g) => !!g.output_url && !(isVideoUrl(g.output_url) || g.node_type === 'video-generation')).length + folders.length },
     { id: 'gen-video', label: '生成動画', count: gens.filter((g) => !!g.output_url && (isVideoUrl(g.output_url) || g.node_type === 'video-generation')).length + batchVideos.length },
   ]
 
@@ -162,7 +199,7 @@ export function LibraryPage() {
         ) : total === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-2">
             <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>{tab === 'uploads' ? 'まだ素材がありません' : tab === 'models' ? 'まだモデルがありません' : 'まだ生成がありません'}</p>
-            <p className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>{tab === 'uploads' ? '「追加」かドロップでアップロードできます。ノードや App から上げた写真もここに入ります' : tab === 'models' ? '「モデルを登録」で、同じ人物の 4 方向などのカットに名前を付けてまとめられます。商品動画 App で一度に入れられます' : '生成した画像や動画がここに並びます'}</p>
+            <p className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>{tab === 'uploads' ? '「追加」かドロップでアップロードできます。ノードや App から上げた写真もここに入ります' : tab === 'models' ? '「モデルを登録」で、同じ人物の 4 方向などのカットに名前を付けてまとめられます。商品動画 App で一度に入れられます' : tab === 'gen-image' ? '生成した画像と、切り抜きなど一括処理の結果（フォルダ）がここに並びます' : '生成した動画と商品動画がここに並びます'}</p>
           </div>
         ) : (
           <>
@@ -175,7 +212,9 @@ export function LibraryPage() {
                     ? videoEntries.slice(0, visibleCount).map((e) => e.kind === 'gen'
                       ? <GenerationCard key={e.g.id} generation={e.g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
                       : <BatchVideoCard key={e.v.id} video={e.v} url={signed[`batch:${e.v.id}`]} mine={!e.v.createdBy || e.v.createdBy === myId} onOpen={() => navigate(e.v.workflowId ? `/app/${e.v.workflowId}?job=${e.v.jobId}` : `/jobs/${e.v.jobId}`)} />)
-                    : gensShown.slice(0, visibleCount).map((g) => <GenerationCard key={g.id} generation={g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />)}
+                    : imageEntries.slice(0, visibleCount).map((e) => e.kind === 'gen'
+                      ? <GenerationCard key={e.g.id} generation={e.g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
+                      : <BatchFolderCard key={`folder:${e.f.jobId}`} folder={e.f} urls={e.f.previews.map((p) => folderUrls[p]).filter((u): u is string => !!u)} mine={!e.f.createdBy || e.f.createdBy === myId} onOpen={() => setFolderOpen(e.f)} onOpenResults={() => openFolderResults(e.f)} />)}
             </div>
             {visibleCount < total && (
               <div ref={sentinelRef} className="flex items-center justify-center py-6">
@@ -188,6 +227,7 @@ export function LibraryPage() {
         )}
       </div>
       <ModelEditorDialog open={editor.open} model={editor.model} onClose={() => setEditor({ open: false, model: null })} onSaved={onModelSaved} />
+      <BatchFolderDialog open={!!folderOpen} folder={folderOpen} mode="browse" onClose={onFolderClosed} onOpenResults={() => { if (folderOpen) openFolderResults(folderOpen) }} />
     </div>
   )
 }

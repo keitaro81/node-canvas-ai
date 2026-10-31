@@ -24,11 +24,13 @@ interface Props {
   onToggleCheck: () => void
   hasPrev: boolean
   hasNext: boolean
+  zIndex?: number                                  // 既定 100。ダイアログ（z 20000）の上に出すときは大きく
+  hideCheck?: boolean                              // チェック（再切り抜き/書き出しの対象）が意味を持たない場面（ライブラリのフォルダ）では出さない
 }
 
 /** 拡大表示（仕様 5 章）: フル解像度をその場で描き、元画像と比較する。キー: ←→ 写真、↑↓ 列、Space チェック、C 比較、B 背景、Esc 閉じる */
 export function ReviewLightbox(p: Props) {
-  const { item, variantKey, columns, thumb, bg, onBg, originalUrl, renderFull, onClose, onPrev, onNext, onVariant, checked, onToggleCheck, hasPrev, hasNext } = p
+  const { item, variantKey, columns, thumb, bg, onBg, originalUrl, renderFull, onClose, onPrev, onNext, onVariant, checked, onToggleCheck, hasPrev, hasNext, zIndex = 100, hideCheck = false } = p
   const reqKey = `${item.id}|${variantKey}`
   // フル解像度の描画結果（表示中の 1 枚だけ保持。切替・閉じるで解放）。読み込み中は reqKey と一致しない
   const [full, setFull] = useState<{ key: string; url: string; warnings: string[] } | null>(null)
@@ -77,7 +79,7 @@ export function ReviewLightbox(p: Props) {
   const shown = compare ? originalUrl : (fullUrl ?? thumb?.url ?? null)
   const bgStyle = compare ? { background: '#808080' } : BG_STYLE[bg]
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: 'rgba(0,0,0,0.85)' }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 flex flex-col" style={{ background: 'rgba(0,0,0,0.85)', zIndex }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       {/* header */}
       <div className="flex items-center gap-3 px-4 h-12 shrink-0 text-[12px]" style={{ color: '#E5E7EB' }}>
         <span className="font-semibold">{item.sort_order}. {item.sku}</span>
@@ -110,13 +112,15 @@ export function ReviewLightbox(p: Props) {
       </div>
       {/* footer */}
       <div className="flex items-center gap-3 px-4 h-14 shrink-0 text-[12px]" style={{ color: '#E5E7EB' }}>
-        <div className="flex items-center gap-2 h-8 px-3 rounded-lg select-none" style={{ background: checked ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? 'var(--accent)' : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「ダウンロード」の対象（キー: Space）">
-          <CheckButton checked={checked} onChange={() => onToggleCheck()} label="この写真をチェック" />
-          <span className="font-medium">{checked ? 'チェック済み' : 'この写真をチェック'}</span>
-        </div>
+        {!hideCheck && (
+          <div className="flex items-center gap-2 h-8 px-3 rounded-lg select-none" style={{ background: checked ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.12)', border: `1px solid ${checked ? 'var(--accent)' : 'transparent'}` }} title="チェックした写真は「再度切り抜く」「ダウンロード」の対象（キー: Space）">
+            <CheckButton checked={checked} onChange={() => onToggleCheck()} label="この写真をチェック" />
+            <span className="font-medium">{checked ? 'チェック済み' : 'この写真をチェック'}</span>
+          </div>
+        )}
         {warnings.length > 0 && <span className="truncate" style={{ color: '#F59E0B' }} title={warnings.join('\n')}>⚠ {warnings.join(' / ')}</span>}
         <div className="flex-1" />
-        <span style={{ color: '#6B7280' }}>← → 写真・↑ ↓ 列・Space チェック・C 比較・B 背景・Esc 閉じる</span>
+        <span style={{ color: '#6B7280' }}>{hideCheck ? '← → 写真・↑ ↓ 列・C 比較・B 背景・Esc 閉じる' : '← → 写真・↑ ↓ 列・Space チェック・C 比較・B 背景・Esc 閉じる'}</span>
       </div>
     </div>,
     document.body,
