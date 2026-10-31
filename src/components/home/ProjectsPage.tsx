@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { Plus, CircleNotch } from '@phosphor-icons/react'
+import { Plus, CircleNotch, SquaresFour } from '@phosphor-icons/react'
+import { TemplatePickerDialog } from './TemplatePickerDialog'
+import type { WorkflowTemplate } from '../../lib/templates'
+import { showToast } from '../../hooks/useToast'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getLatestGenerationUrlsByWorkflow } from '../../lib/api/generations'
 import { WorkflowCard } from './WorkflowCard'
@@ -62,6 +65,21 @@ export function ProjectsPage() {
     }
   }
 
+  // テンプレートから作成（2026-10-31・設計 §8）: 組み済みのノードで新しいワークフローを作って開く
+  const [templateOpen, setTemplateOpen] = useState(false)
+  async function handleTemplate(t: WorkflowTemplate) {
+    setCreating(true)
+    try {
+      const id = await useWorkflowStore.getState().createWorkflowFromCanvas(t.name, t.build())
+      setTemplateOpen(false)
+      navigate(`/canvas/${id}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'テンプレートから作成できませんでした', 'error')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Page header */}
@@ -73,19 +91,32 @@ export function ProjectsPage() {
           My Projects
         </h1>
         {!isMobile && (
-          <button
-            onClick={handleNew}
-            disabled={creating}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors duration-150 disabled:opacity-60"
-            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-active)' }}
-          >
-            {creating
-              ? <CircleNotch size={14} className="animate-spin" />
-              : <Plus size={14} weight="bold" />
-            }
-            New project
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTemplateOpen(true)}
+              disabled={creating}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors duration-150 disabled:opacity-60"
+              style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-active)' }}
+              title="必要なノードが組まれた状態で新しいワークフローを作る"
+            >
+              <SquaresFour size={14} weight="bold" />
+              テンプレートから作成
+            </button>
+            <button
+              onClick={handleNew}
+              disabled={creating}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors duration-150 disabled:opacity-60"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-active)' }}
+            >
+              {creating
+                ? <CircleNotch size={14} className="animate-spin" />
+                : <Plus size={14} weight="bold" />
+              }
+              New project
+            </button>
+          </div>
         )}
+        <TemplatePickerDialog open={templateOpen} busy={creating} onClose={() => setTemplateOpen(false)} onPick={(t) => void handleTemplate(t)} />
       </div>
 
       {/* Content */}

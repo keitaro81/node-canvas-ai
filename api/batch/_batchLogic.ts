@@ -936,22 +936,27 @@ export async function batchRerunItems(admin: Admin, userId: string, _opts: Batch
   const { data: job } = await admin.from('batch_jobs').select('id, team_id, status, workflow_snapshot').eq('id', body.jobId).eq('team_id', m.teamId).maybeSingle()
   if (!job || !(await canViewJob(admin, job.id, userId))) return fail(404, 'job_not_found')
   if (['cancelled', 'uploading'].includes(job.status)) return fail(409, 'job_not_rerunnable', { status: job.status, message: 'このジョブは再実行できません' })
-  const snapNode = (planTasks(job.workflow_snapshot).tasks).find((t) => t.nodeId === body.nodeId && t.kind === 'cutout')
-  if (!snapNode) return fail(400, 'node_not_cutout', { message: '指定ノードは一括実行の切り抜きノードではありません' })
+  // 対象: 切り抜き（設定の差し替えあり）か、動画のショット（設定は写しのまま。終わると結合もやり直す・設計 §5.6）
+  const snapNode = (planTasks(job.workflow_snapshot).tasks).find((t) => t.nodeId === body.nodeId && (t.kind === 'cutout' || t.kind === 'videoShot'))
+  if (!snapNode) return fail(400, 'node_not_rerunnable', { message: '指定ノードは一括実行の切り抜き / 動画のノードではありません' })
 
-  const params = normalizeCutoutParams(body.params)
-  const req = buildEngineRequest(params, '__IMAGE_URL__')
-  const input: Record<string, unknown> = { ...req.input }
-  delete input.image_url
-  input.__kind = 'cutout'
-  input.__params = params
-  input.__stage = snapNode.stage
-  input.__depends_on = snapNode.dependsOn
-  input.__dual = snapNode.dualOutput
-  input.__label = snapNode.label
-  input.__inputs = snapNode.inputs
-  input.__terminal = false
-  if (snapNode.dualOutput && req.endpoint.startsWith('fal-ai/birefnet')) input.mask_only = false
+  let override: { endpoint: string; input: Record<string, unknown> } | null = null
+  if (snapNode.kind === 'cutout') {
+    const params = normalizeCutoutParams(body.params)
+    const req = buildEngineRequest(params, '__IMAGE_URL__')
+    const input: Record<string, unknown> = { ...req.input }
+    delete input.image_url
+    input.__kind = 'cutout'
+    input.__params = params
+    input.__stage = snapNode.stage
+    input.__depends_on = snapNode.dependsOn
+    input.__dual = snapNode.dualOutput
+    input.__label = snapNode.label
+    input.__inputs = snapNode.inputs
+    input.__terminal = false
+    if (snapNode.dualOutput && req.endpoint.startsWith('fal-ai/birefnet')) input.mask_only = false
+    override = { endpoint: req.endpoint, input }
+  }
 
   const { data: items } = await admin.from('batch_items').select('id').eq('job_id', job.id)
   const { data: tasks } = await admin.from('batch_tasks').select('id, item_id, node_id, status, input').eq('job_id', job.id)
@@ -964,9 +969,9 @@ export async function batchRerunItems(admin: Admin, userId: string, _opts: Batch
   const now = new Date().toISOString()
   await admin.from('batch_tasks').update({
     status: 'pending', attempts: 0, error: null, fal_request_id: null, submitted_at: null, completed_at: null,
-    endpoint: req.endpoint, input, result_path: null, result_meta: null,
+    ...(override ? { endpoint: override.endpoint, input: override.input } : {}), result_path: null, result_meta: null,
   }).in('id', plan.taskIds)
-  // 後段（切り抜きを入力にする生成）も結果が古くなるので未投入に戻す。切り抜きが終われば submitDependents が投入する
+  // 後段（切り抜きを入力にする生成・ショットを待つ結合）も結果が古くなるので未投入に戻す。前段が終われば submitDependents が投入する
   const depIds = dependentTaskIds((tasks ?? []) as any[], body.nodeId, plan.itemIds)
   if (depIds.length) {
     await admin.from('batch_tasks').update({

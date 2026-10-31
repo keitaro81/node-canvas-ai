@@ -70,6 +70,7 @@ export interface PlannedInput {
   variant: string
   transparent: boolean             // 背景が透過のバリアント（JPEG 指定なら PNG に切り替える）
   forcePng?: boolean               // 常に PNG（切り抜きの透過画像）。警告は出さない
+  video?: boolean                  // 動画（mp4 のまま。形式・品質は適用しない）
 }
 
 export interface PlannedEntry {
@@ -103,7 +104,7 @@ export function planExportEntries(inputs: PlannedInput[], params: ExportParams, 
       format = 'png'
       w.push(`「${inp.variant}」は背景が透過のため JPEG ではなく PNG で書き出します`)
     }
-    const ext = EXT_OF[format]
+    const ext = inp.video ? 'mp4' : EXT_OF[format]
     const folder = params.zip ? folderFor(params.zipFolders, inp.variant, item.sku) : ''
     let base = applyNamePattern(params.namePattern, { ...item, variant: inp.variant, now })
     const key = `${folder}${base}.${ext}`.toLowerCase()

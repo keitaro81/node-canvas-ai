@@ -312,7 +312,7 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   removeBackground: { image: REMOVE_BACKGROUND_INPUT_HANDLE },
   productLayout:  { cutout: PRODUCT_LAYOUT_INPUT_CUTOUT, image: PRODUCT_LAYOUT_INPUT_BACKGROUND },
   batchInput:     {},
-  export:         { image: 'in-image-0', item: EXPORT_ITEM_HANDLE },
+  export:         { image: 'in-image-0', item: EXPORT_ITEM_HANDLE, video: 'in-video-v0' },
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
