@@ -1,10 +1,10 @@
 // 一括処理のフォルダの中身（2026-10-31）: 確認グリッドと同じ列（切り抜き / バリアント / 生成結果）の最終結果を写真ごとに並べる。
 // - browse（ライブラリから）: クリックで拡大、タイル右上でフル解像度をダウンロード、「結果の画面で開く」
-// - pick（「画像を追加」ダイアログから）: 複数選択 → 「n 枚の画像を追加」。1 枚だけ受ける入力ではクリックで即採用
+// - pick（「画像を追加」ダイアログから）: 選んで「n 枚の画像を追加」。1 枚だけ受ける入力では 1 枚だけ選んで「この画像を使う」（親のダイアログと同じ手順）。ヘッダーは ✗ ではなく「戻る」で親へ
 // サムネイルは確認グリッドと同じ仕組み（reviewStore: 記録済みなら署名、無ければ Worker で描いて保存）。このダイアログは自分の store を 1 つ持つ
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowSquareOut, CircleNotch, Download, X } from '@phosphor-icons/react'
+import { ArrowLeft, ArrowSquareOut, CircleNotch, Download, X } from '@phosphor-icons/react'
 import type { BatchItemRow } from '../../types/batch'
 import { CheckButton } from '../ui/CheckButton'
 import { Thumb } from '../jobs/review/ReviewGrid'
@@ -24,7 +24,7 @@ interface Props {
   open: boolean
   folder: BatchFolder | null
   mode: 'browse' | 'pick'
-  multiple?: boolean            // pick: 複数選択。false ならクリックで即採用
+  multiple?: boolean            // pick: 複数選択。false なら 1 枚だけ選んで「この画像を使う」
   zIndex?: number               // 「画像を追加」ダイアログ（20000）の上に重ねる
   onClose: () => void
   onPick?: (images: FolderImage[]) => void
@@ -90,7 +90,12 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
     if (!contents) return false
     return isResultKey(key) ? !!completedResultOf(contents.ctx, item.id, resultNodeIdOf(key)) : !!renderableOf(contents.ctx, item)
   }, [contents])
-  const toggle = useCallback((tk: string) => setSelected((cur) => { const next = new Set(cur); if (next.has(tk)) next.delete(tk); else next.add(tk); return next }), [])
+  const toggle = useCallback((tk: string) => setSelected((cur) => {
+    const next = new Set(cur)
+    if (next.has(tk)) next.delete(tk)
+    else { if (!multiple) next.clear(); next.add(tk) }
+    return next
+  }), [multiple])
 
   // 選んだタイルを画像にして渡す（レイアウト系はフル解像度を描いて保存）。中止は次のタイルから
   const deliver = useCallback(async (keys: string[]) => {
@@ -129,6 +134,7 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
 
   if (!open || !folder) return null
   const busy = !!resolving
+  const firstThumb = selected.size ? thumbs[[...selected][0]]?.url ?? null : null
   const stop = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation() }
 
   const tile = (item: BatchItemRow) => {
@@ -143,20 +149,19 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
     const onClick = () => {
       if (!ok || busy) return
       if (mode === 'browse') setLightbox({ itemId: item.id, variantKey: key })
-      else if (multiple) toggle(tk)
-      else void deliver([tk])
+      else toggle(tk)
     }
     return (
       <div key={item.id} className="flex flex-col gap-1 min-w-0">
         <div
           role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-          onDoubleClick={() => { if (ok && mode === 'pick' && multiple) setLightbox({ itemId: item.id, variantKey: key }) }}
+          onDoubleClick={() => { if (ok && mode === 'pick') setLightbox({ itemId: item.id, variantKey: key }) }}
           className="group relative rounded-lg overflow-hidden focus:outline-none"
           style={{ ...BG_STYLE.checker, aspectRatio: w && h ? `${w} / ${h}` : '1 / 1', outline: on ? `2px solid ${ACCENT}` : '1px solid var(--border)', outlineOffset: on ? 0 : -1, cursor: ok && !busy ? 'pointer' : 'default', opacity: ok ? 1 : 0.6 }}
-          title={ok ? (mode === 'browse' ? 'クリックで拡大' : multiple ? 'クリックで選択（ダブルクリックで拡大）' : 'クリックでこの画像を使う') : 'この列の結果はありません'}
+          title={ok ? (mode === 'browse' ? 'クリックで拡大' : 'クリックで選択（ダブルクリックで拡大）') : 'この列の結果はありません'}
         >
           <div className="absolute inset-0"><Thumb thumb={thumbs[tk]} item={item} /></div>
-          {mode === 'pick' && multiple && ok && <div className="absolute top-1.5 left-1.5"><CheckButton checked={on} onChange={() => toggle(tk)} label={on ? '選択を外す' : '選択する'} size={22} stopPropagation /></div>}
+          {mode === 'pick' && ok && <div className="absolute top-1.5 left-1.5"><CheckButton checked={on} onChange={() => toggle(tk)} label={on ? '選択を外す' : '選択する'} size={22} stopPropagation /></div>}
           {mode === 'browse' && ok && (
             <button type="button" className="absolute top-1.5 right-1.5 w-7 h-7 rounded-md flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={(e) => { e.stopPropagation(); void download(item, key, col.name) }} title="ダウンロード（フル解像度）"><Download size={14} weight="bold" /></button>
           )}
@@ -174,6 +179,11 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
       <div className="flex flex-col rounded-xl overflow-hidden" style={{ width: 'min(1040px, 94vw)', height: 'min(860px, 90vh)', background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }} onDragOver={stop} onDrop={stop}>
         {/* ヘッダー */}
         <div className="flex items-center gap-3 px-6 pt-5">
+          {mode === 'pick' && (
+            <button type="button" className="h-8 px-3 rounded-lg text-[12px] font-medium flex items-center gap-1.5 shrink-0 hover:opacity-90" style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)' }} onClick={onClose} disabled={busy} title="画像を追加に戻る（Esc）">
+              <ArrowLeft size={14} />戻る
+            </button>
+          )}
           <div className="min-w-0">
             <h2 className="text-[18px] font-semibold truncate" style={{ color: 'var(--text-primary)' }} title={folder.jobName}>{folderTitle(folder)}</h2>
             <p className="text-[12px] mt-0.5 truncate" style={{ color: 'var(--text-tertiary)' }}>
@@ -186,7 +196,9 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
                 <ArrowSquareOut size={14} />結果の画面で開く
               </button>
             )}
-            <button type="button" className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} onClick={onClose} title="閉じる（Esc）" disabled={busy}><X size={16} /></button>
+            {mode === 'browse' && (
+              <button type="button" className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} onClick={onClose} title="閉じる（Esc）" disabled={busy}><X size={16} /></button>
+            )}
           </div>
         </div>
         {/* 列のタブ（確認グリッドと同じ並び。1 列だけなら出さない） */}
@@ -219,18 +231,19 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
               <button type="button" className="ml-auto h-9 px-4 rounded-lg text-[13px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => { cancelRef.current = true }}>中止</button>
             </>
           ) : mode === 'pick' ? (
-            multiple ? (
-              <>
-                <span>{selected.size} 件選択中</span>
-                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>列を切り替えても選択は残ります</span>
-                <div className="ml-auto flex items-center gap-2">
-                  <button type="button" className="h-9 px-4 rounded-lg text-[13px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => setSelected(new Set())} disabled={!selected.size}>すべてクリア</button>
-                  <button type="button" className="h-9 px-4 rounded-lg text-[13px] font-medium disabled:opacity-50" style={{ background: 'var(--text-primary)', color: 'var(--bg-surface)' }} onClick={() => void deliver([...selected])} disabled={!selected.size}>{selected.size} 枚の画像を追加</button>
-                </div>
-              </>
-            ) : (
-              <span style={{ color: 'var(--text-secondary)' }}>クリックした画像をそのまま使います</span>
-            )
+            <>
+              {firstThumb
+                ? <div className="w-10 h-10 rounded-md overflow-hidden shrink-0" style={BG_STYLE.checker}><img src={firstThumb} alt="" className="w-full h-full object-contain" draggable={false} /></div>
+                : <div className="w-10 h-10 rounded-md shrink-0" style={{ background: 'var(--bg-placeholder)' }} />}
+              <span>{selected.size} 件選択中</span>
+              {multiple && <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>列を切り替えても選択は残ります</span>}
+              <div className="ml-auto flex items-center gap-2">
+                <button type="button" className="h-9 px-4 rounded-lg text-[13px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => setSelected(new Set())} disabled={!selected.size}>すべてクリア</button>
+                <button type="button" className="h-9 px-4 rounded-lg text-[13px] font-medium disabled:opacity-50" style={{ background: 'var(--text-primary)', color: 'var(--bg-surface)' }} onClick={() => void deliver([...selected])} disabled={!selected.size}>
+                  {multiple ? `${selected.size} 枚の画像を追加` : 'この画像を使う'}
+                </button>
+              </div>
+            </>
           ) : (
             <>
               <span>{progress.running ? `サムネイルを描画中（${progress.done} / ${progress.total}）` : `${items.length} 枚`}</span>
@@ -249,7 +262,7 @@ export function BatchFolderDialog({ open, folder, mode, multiple = true, zIndex 
           onVariant={(key) => { setLightbox({ itemId: lbItem.id, variantKey: key }); setActiveKey(key) }}
           checked={selected.has(thumbKey(lbItem.id, lightbox.variantKey))} onToggleCheck={() => toggle(thumbKey(lbItem.id, lightbox.variantKey))}
           hasPrev={lbIdx > 0} hasNext={lbIdx >= 0 && lbIdx < items.length - 1}
-          zIndex={zIndex + 10} hideCheck={mode === 'browse' || !multiple}
+          zIndex={zIndex + 10} hideCheck={mode === 'browse'}
         />
       )}
     </div>,
