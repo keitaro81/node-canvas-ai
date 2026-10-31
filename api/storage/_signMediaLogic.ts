@@ -132,6 +132,18 @@ async function authorizeGenerationUrls(admin: any, urls: string[], userId: strin
   return allowed
 }
 
+/** batch バケットのパスのうち、呼び出し者のチームで、かつそのジョブが見える（0016 の閲覧ルール）ものだけ返す */
+async function authorizeBatchPaths(admin: any, paths: string[], userId: string, callerTeamId: string | null): Promise<string[]> {
+  const teamOk = [...new Set(paths.filter((p) => !!callerTeamId && batchPathTeam(p) === callerTeamId))]
+  const jobOf = (p: string): string | null => { const seg = p.split('/')[1] ?? ''; return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg) ? seg : null }
+  const visibleJobs = new Set<string>()
+  for (const jid of [...new Set(teamOk.map(jobOf).filter((j): j is string => !!j))]) {
+    const { data, error } = await admin.rpc('can_view_batch_job_as', { p_job_id: jid, p_user_id: userId })
+    if (error || data === true) visibleJobs.add(jid)
+  }
+  return teamOk.filter((p) => { const j = jobOf(p); return !j || visibleJobs.has(j) })
+}
+
 export interface SignMediaResult {
   status: number
   body: Record<string, unknown>
@@ -182,6 +194,14 @@ export async function signMediaServer(
     const urls = (body.urls as unknown[]).filter((u): u is string => typeof u === 'string').slice(0, MAX_URLS)
     const allowed = await authorizeGenerationUrls(admin, urls, userId, callerTeamId)
     toSign.push(...allowed)
+    // batch バケットの URL（商品動画の結果など）は、そのジョブが見える人なら署名（ライブラリ / 参照動画ノードからの利用・2026-10-31）
+    const allowedSet = new Set(allowed)
+    const batchByPath = new Map<string, string>()
+    for (const u of urls) { if (allowedSet.has(u)) continue; const p = parseStorageUrl(u); if (p && p.bucket === BATCH_BUCKET) batchByPath.set(p.path, u) }
+    if (batchByPath.size) {
+      const okPaths = await authorizeBatchPaths(admin, [...batchByPath.keys()], userId, callerTeamId)
+      for (const p of okPaths) { const u = batchByPath.get(p); if (u) toSign.push(u) }
+    }
   }
 
   // ---- ownUrls: storage.objects.owner が本人のオブジェクトのみ（即時表示）----
@@ -210,15 +230,7 @@ export async function signMediaServer(
   // 返り値のキーはパスそのもの（URL ではない）。他チームのパス・不正形式は省略（200 のまま）。
   if (Array.isArray(body.batchPaths) && body.batchPaths.length) {
     const paths = (body.batchPaths as unknown[]).filter((p): p is string => typeof p === 'string').slice(0, MAX_URLS)
-    const teamOk = [...new Set(paths.filter((p) => !!callerTeamId && batchPathTeam(p) === callerTeamId))]
-    // <team>/<job>/... は「そのジョブが見える人」だけ（0016 の閲覧ルール。関数が無い環境では所属のみ）
-    const jobOf = (p: string): string | null => { const seg = p.split('/')[1] ?? ''; return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg) ? seg : null }
-    const visibleJobs = new Set<string>()
-    for (const jid of [...new Set(teamOk.map(jobOf).filter((j): j is string => !!j))]) {
-      const { data, error } = await admin.rpc('can_view_batch_job_as', { p_job_id: jid, p_user_id: userId })
-      if (error || data === true) visibleJobs.add(jid)
-    }
-    const allowed = teamOk.filter((p) => { const j = jobOf(p); return !j || visibleJobs.has(j) })
+    const allowed = await authorizeBatchPaths(admin, paths, userId, callerTeamId)
     if (allowed.length) {
       try {
         const { data, error } = await admin.storage.from(BATCH_BUCKET).createSignedUrls(allowed, SIGNED_URL_TTL)

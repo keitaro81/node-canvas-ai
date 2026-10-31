@@ -9,6 +9,7 @@ import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/gen
 import { signMediaRequest } from '../../lib/api/storage'
 import { libraryCanonicalUrl, listLibraryItems, signLibraryItems, touchLibraryItems, uploadToLibrary, type LibraryItem, type LibraryMedia } from '../../lib/api/library'
 import { supabase } from '../../lib/supabase'
+import { listBatchVideos, signBatchVideos, type BatchVideo } from '../../lib/api/batchVideos'
 import { showToast } from '../../hooks/useToast'
 
 const ACCENT = '#8B5CF6'
@@ -23,6 +24,7 @@ export interface PickedMedia {
   width?: number | null
   height?: number | null
   file?: File                 // このダイアログでアップロードした元ファイル（再取得せずに使える）
+  signedUrl?: string          // 署名済み URL（商品動画の結果など、すぐ表示に使えるとき）
 }
 interface Props {
   open: boolean
@@ -34,7 +36,7 @@ interface Props {
   onPick: (items: PickedMedia[]) => void
 }
 
-type Entry = { key: string; kind: 'upload' | 'generated'; media: LibraryMedia; url: string; name: string | null; isTeam: boolean; createdAt: string; lib?: LibraryItem; gen?: GenerationWithWorkflow }
+type Entry = { key: string; kind: 'upload' | 'generated'; media: LibraryMedia; url: string; name: string | null; isTeam: boolean; createdAt: string; lib?: LibraryItem; gen?: GenerationWithWorkflow; batch?: BatchVideo }
 type TabId = 'all' | 'uploads' | 'gen-image' | 'gen-video'
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)
@@ -43,6 +45,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const [tab, setTab] = useState<TabId>('all')
   const [uploads, setUploads] = useState<LibraryItem[]>([])
   const [gens, setGens] = useState<GenerationWithWorkflow[]>([])
+  const [batchVideos, setBatchVideos] = useState<BatchVideo[]>([])   // 商品動画 App の結果（動画のときだけ）
   const [signed, setSigned] = useState<Record<string, string>>({})   // entry.key → 署名 URL
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(0)
@@ -54,18 +57,20 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [{ data: { user } }, libs, gs] = await Promise.all([supabase.auth.getUser(), listLibraryItems({ media }), getMyGenerations()])
+      const [{ data: { user } }, libs, gs, bvs] = await Promise.all([supabase.auth.getUser(), listLibraryItems({ media }), getMyGenerations(), media === 'video' ? listBatchVideos().catch(() => [] as BatchVideo[]) : Promise.resolve([] as BatchVideo[])])
       setMyId(user?.id ?? null)
       setUploads(libs)
       const wanted = gs.filter((g) => !!g.output_url && ((isVideoUrl(g.output_url) || g.node_type === 'video-generation') === (media === 'video')))
-      setGens(wanted)
-      const [libMap, genMap] = await Promise.all([
+      setGens(wanted); setBatchVideos(bvs)
+      const [libMap, genMap, bvMap] = await Promise.all([
         signLibraryItems(libs),
         signMediaRequest({ urls: wanted.map((g) => g.output_url) }),
+        signBatchVideos(bvs),
       ])
       const next: Record<string, string> = {}
       for (const l of libs) if (libMap[l.id]) next[`lib:${l.id}`] = libMap[l.id]
       for (const g of wanted) if (g.output_url && genMap[g.output_url]) next[`gen:${g.id}`] = genMap[g.output_url]
+      for (const v of bvs) if (bvMap[v.id]) next[`batch:${v.id}`] = bvMap[v.id]
       setSigned(next)
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
@@ -87,8 +92,11 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
 
   const entries = useMemo<Entry[]>(() => [
     ...uploads.map((l): Entry => ({ key: `lib:${l.id}`, kind: 'upload', media: l.media, url: libraryCanonicalUrl(l), name: l.name, isTeam: !!myId && l.user_id !== myId, createdAt: l.created_at, lib: l })),
-    ...gens.map((g): Entry => ({ key: `gen:${g.id}`, kind: 'generated', media, url: g.output_url as string, name: g.workflow_name ?? null, isTeam: false, createdAt: g.created_at, gen: g })),
-  ], [uploads, gens, media, myId])
+    ...[
+      ...gens.map((g): Entry => ({ key: `gen:${g.id}`, kind: 'generated', media, url: g.output_url as string, name: g.workflow_name ?? null, isTeam: false, createdAt: g.created_at, gen: g })),
+      ...batchVideos.map((v): Entry => ({ key: `batch:${v.id}`, kind: 'generated', media: 'video', url: v.url, name: `${v.sku}（${v.jobName}）`, isTeam: !!myId && !!v.createdBy && v.createdBy !== myId, createdAt: v.completedAt, batch: v })),
+    ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+  ], [uploads, gens, batchVideos, media, myId])
   const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries])
   const uploadEntries = entries.filter((e) => e.kind === 'upload')
   const genEntries = entries.filter((e) => e.kind === 'generated')
@@ -129,7 +137,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
     const picked = selected.map((k) => byKey.get(k)).filter((e): e is Entry => !!e)
     if (!picked.length) return
     void touchLibraryItems(picked.map((e) => e.lib?.id).filter((id): id is string => !!id))
-    onPick(picked.map((e) => ({ url: e.url, media: e.media, libraryItemId: e.lib?.id, generationId: e.gen?.id, name: e.name, width: e.lib?.width ?? null, height: e.lib?.height ?? null, file: uploadedFiles.current.get(e.key) })))
+    onPick(picked.map((e) => ({ url: e.url, media: e.media, libraryItemId: e.lib?.id, generationId: e.gen?.id, name: e.name, width: e.lib?.width ?? null, height: e.lib?.height ?? null, file: uploadedFiles.current.get(e.key), signedUrl: e.batch ? signed[e.key] : undefined })))
     onClose()
   }
 

@@ -1,6 +1,7 @@
 // ライブラリ（2026-10-18）: アップロードした素材（自分＋チーム共有）と生成した画像・動画を一覧し、ピン留め・チーム共有・削除ができる。History の置き換え
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CircleNotch, CloudArrowUp, Download, PencilSimple, Play, PushPin, Trash, UserCircle, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowSquareOut, CircleNotch, CloudArrowUp, Download, PencilSimple, Play, PushPin, Trash, UserCircle, UsersThree, X } from '@phosphor-icons/react'
+import { useNavigate } from 'react-router'
 import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
 import { deleteLibraryItem, libraryDaysLeft, listLibraryItems, signLibraryItems, touchLibraryItems, updateLibraryItem, uploadToLibrary, type LibraryItem, type LibraryMedia } from '../../lib/api/library'
 import { formatRelativeJa } from '../../lib/batch/dates'
@@ -13,6 +14,7 @@ import { MediaImg } from '../ui/MediaImg'
 import { ModelEditorDialog } from '../library/ModelEditorDialog'
 import { CUT_ROLES, FRONTAL_ROLE } from '../../lib/video/productVideo'
 import { deleteLibraryModel, fetchLibraryItemsByIds, listLibraryModels, modelItemIds, modelsUsingItem, shareLibraryItemsWithTeam, updateLibraryModel, type LibraryModel } from '../../lib/api/libraryModels'
+import { listBatchVideos, signBatchVideos, type BatchVideo } from '../../lib/api/batchVideos'
 
 const PAGE_SIZE = 30
 type Tab = 'uploads' | 'models' | 'gen-image' | 'gen-video'
@@ -21,6 +23,7 @@ const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)
 
 export function LibraryPage() {
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('uploads')
   const [scope, setScope] = useState<Scope>('all')
   const [myId, setMyId] = useState<string | null>(null)
@@ -31,6 +34,7 @@ export function LibraryPage() {
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(0)
   const [models, setModels] = useState<LibraryModel[]>([])
+  const [batchVideos, setBatchVideos] = useState<BatchVideo[]>([])   // 商品動画 App の結果（生成動画タブに並べる）
   const [modelThumbs, setModelThumbs] = useState<Record<string, string>>({})   // model id → 正面の署名 URL
   const [editor, setEditor] = useState<{ open: boolean; model: LibraryModel | null }>({ open: false, model: null })
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -40,9 +44,12 @@ export function LibraryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [{ data: { user } }, libs, gs, ms] = await Promise.all([supabase.auth.getUser(), listLibraryItems(), getMyGenerations(), listLibraryModels()])
-      setMyId(user?.id ?? null); setItems(libs); setGens(gs); setModels(ms); setError(null)
-      setSigned(await signLibraryItems(libs))
+      const [{ data: { user } }, libs, gs, ms, bvs] = await Promise.all([supabase.auth.getUser(), listLibraryItems(), getMyGenerations(), listLibraryModels(), listBatchVideos().catch(() => [] as BatchVideo[])])
+      setMyId(user?.id ?? null); setItems(libs); setGens(gs); setModels(ms); setBatchVideos(bvs); setError(null)
+      const [libMap, bvMap] = await Promise.all([signLibraryItems(libs), signBatchVideos(bvs)])
+      const merged: Record<string, string> = { ...libMap }
+      for (const v of bvs) if (bvMap[v.id]) merged[`batch:${v.id}`] = bvMap[v.id]
+      setSigned(merged)
       await refreshModelThumbs(ms)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setLoading(false) }
@@ -61,7 +68,15 @@ export function LibraryPage() {
 
   const uploadsShown = useMemo(() => items.filter((it) => scope === 'all' ? true : scope === 'mine' ? it.user_id === myId : it.user_id !== myId), [items, scope, myId])
   const gensShown = useMemo(() => gens.filter((g) => !!g.output_url && ((isVideoUrl(g.output_url) || g.node_type === 'video-generation') === (tab === 'gen-video'))), [gens, tab])
-  const total = tab === 'uploads' ? uploadsShown.length : tab === 'models' ? models.length : gensShown.length
+  // 生成動画 = キャンバスの生成（generations）＋ 商品動画 App の結果（batch）を日時順に
+  const videoEntries = useMemo(() => {
+    if (tab !== 'gen-video') return [] as Array<{ kind: 'gen'; date: string; g: GenerationWithWorkflow } | { kind: 'batch'; date: string; v: BatchVideo }>
+    return [
+      ...gensShown.map((g) => ({ kind: 'gen' as const, date: g.created_at, g })),
+      ...batchVideos.map((v) => ({ kind: 'batch' as const, date: v.completedAt, v })),
+    ].sort((a, b) => (a.date < b.date ? 1 : -1))
+  }, [tab, gensShown, batchVideos])
+  const total = tab === 'uploads' ? uploadsShown.length : tab === 'models' ? models.length : tab === 'gen-video' ? videoEntries.length : gensShown.length
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -103,7 +118,7 @@ export function LibraryPage() {
     { id: 'uploads', label: 'アップロード', count: items.length },
     { id: 'models', label: 'モデル', count: models.length },
     { id: 'gen-image', label: '生成画像', count: gens.filter((g) => !!g.output_url && !(isVideoUrl(g.output_url) || g.node_type === 'video-generation')).length },
-    { id: 'gen-video', label: '生成動画', count: gens.filter((g) => !!g.output_url && (isVideoUrl(g.output_url) || g.node_type === 'video-generation')).length },
+    { id: 'gen-video', label: '生成動画', count: gens.filter((g) => !!g.output_url && (isVideoUrl(g.output_url) || g.node_type === 'video-generation')).length + batchVideos.length },
   ]
 
   return (
@@ -156,7 +171,11 @@ export function LibraryPage() {
                 ? uploadsShown.slice(0, visibleCount).map((it) => <LibraryCard key={it.id} item={it} url={signed[it.id]} mine={it.user_id === myId} onPin={() => onPin(it)} onShare={() => onShare(it)} onDelete={() => onDelete(it)} onDownload={() => onDownload(it)} />)
                 : tab === 'models'
                   ? models.slice(0, visibleCount).map((m) => <ModelCard key={m.id} model={m} url={modelThumbs[m.id]} mine={m.user_id === myId} onEdit={() => setEditor({ open: true, model: m })} onShare={() => onModelShare(m)} onDelete={() => onModelDelete(m)} />)
-                  : gensShown.slice(0, visibleCount).map((g) => <GenerationCard key={g.id} generation={g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />)}
+                  : tab === 'gen-video'
+                    ? videoEntries.slice(0, visibleCount).map((e) => e.kind === 'gen'
+                      ? <GenerationCard key={e.g.id} generation={e.g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
+                      : <BatchVideoCard key={e.v.id} video={e.v} url={signed[`batch:${e.v.id}`]} mine={!e.v.createdBy || e.v.createdBy === myId} onOpen={() => navigate(e.v.workflowId ? `/app/${e.v.workflowId}?job=${e.v.jobId}` : `/jobs/${e.v.jobId}`)} />)
+                    : gensShown.slice(0, visibleCount).map((g) => <GenerationCard key={g.id} generation={g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />)}
             </div>
             {visibleCount < total && (
               <div ref={sentinelRef} className="flex items-center justify-center py-6">
@@ -169,6 +188,31 @@ export function LibraryPage() {
         )}
       </div>
       <ModelEditorDialog open={editor.open} model={editor.model} onClose={() => setEditor({ open: false, model: null })} onSaved={onModelSaved} />
+    </div>
+  )
+}
+
+function BatchVideoCard({ video, url, mine, onOpen }: { video: BatchVideo; url?: string; mine: boolean; onOpen: () => void }) {
+  const download = async () => { if (!url) return; downloadFile(url, `${video.sku || 'video'}.mp4`) }
+  return (
+    <div className="group flex flex-col rounded-xl overflow-hidden transition-all duration-150" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div className="relative w-full overflow-hidden" style={{ aspectRatio: '1 / 1', background: 'var(--bg-placeholder)' }}>
+        <MediaImg src={url ?? ''} video muted playsInline className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}><Play size={16} weight="fill" color="#fff" /></div></div>
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={() => void download()} title="ダウンロード"><Download size={15} weight="bold" /></button>
+          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={onOpen} title="結果の画面で開く"><ArrowSquareOut size={15} weight="bold" /></button>
+        </div>
+        <div className="absolute bottom-2 left-2 flex items-center gap-1">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-white" style={{ background: 'rgba(236,72,153,0.85)' }}>商品動画</span>
+          {!mine && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>チーム</span>}
+        </div>
+      </div>
+      <div className="px-3 py-2">
+        <p className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={video.sku}>{video.sku || '動画'}</p>
+        <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--text-tertiary)' }}>{video.jobName}{video.completedAt ? ` ・ ${formatRelativeJa(video.completedAt)}` : ''}</p>
+        <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>処理の履歴と一緒に保持（削除は履歴から）</p>
+      </div>
     </div>
   )
 }
