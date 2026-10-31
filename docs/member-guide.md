@@ -205,3 +205,9 @@ AI で画像・動画を「**フロー図のように組み合わせて生成す
   - 仕組み: 1 SKU = 1 件（batch_items に役割別の cuts）、ショットごとに Kling v3 Pro（役割のカットを開始フレーム、正面＋別角度をエレメント）、全ショット完了で fal の ffmpeg に結合を投入。履歴ページ・一括結果ノードから開いても同じ結果欄が出る。
   - 上限: 動画は画像の枚数（1 日 300 枚）とは別枠で **1 日 20 本**（チームの `daily_video_limit`・JST）。確認画面と履歴の見出しは動画のとき「本」で表示する。
   - 準備: DB に 0018（batch_items.cuts）と 0019（batch_jobs.kind・teams.daily_video_limit・team_batch_limits の更新）を適用しておく。
+- **動画のノード分解 フェーズ A（2026-10-31・設計 docs/specs/product-video-nodes.md）**: 商品動画の内部処理（ショット → 結合）を普通のノードで組める形にする 3 段階の 1 つ目。
+  - **Video Generation を一括実行できる**: Batch Input の写真（または Remove Background / Image Generation の結果）を開始フレームにつないだ Video Generation は、「一括実行」で写真ごとに動画を作る。対象は画像から動画を作れるモデル（Kling v3 Pro / Kling 2.5 Turbo / Kling o3 Pro / Seedance 2.0 / LTX-2.3）。プロンプトは Text Prompt をつなぐ（日本語は処理を始めるときに英訳）。
+  - **Video Merge ノード（新規・「動画」メニュー）**: つないだ動画（Video Result / Reference Video / 他の Video Merge）を上から順に 1 本に結合する。キャンバスでは「結合」ボタンでその場で結合でき（1 本だけならそのまま通す）、結果は生成履歴とライブラリの「生成動画」に入る。一括実行では SKU ごとに結合する（結合は AI 処理の段数に数えないので、切り抜き → 動画 → 結合 も 2 段の制限に収まる）。
+  - **動画があるジョブは動画だけ**: 同じワークフローに Product Layout など動画につながらない画像の処理があっても、動画の処理では作らない（確認ダイアログに注意が出る・費用もかからない）。動画の前段として使う切り抜き・レタッチは動く。
+  - **結果とライブラリ**: 結果欄は終端の動画（結合、無ければ生成）を SKU ごとに出し、「カット n」でショット別を見られる。ライブラリの「生成動画」と「動画を追加」にも終端の動画が並ぶ。
+  - **Product Video ノードは今までどおり動く**: 内部では Cut Set Input / 共通の説明（Text Prompt）/ Video Generation × ショット数 / Video Merge に展開して同じ計画を作る（既存のジョブ・結果もそのまま見える）。フェーズ B で Cut Set Input ノードが加わり、旧ノードはメニューから外れる予定。

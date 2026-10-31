@@ -23,8 +23,13 @@ export const ENDPOINT_PRICING: Record<string, EndpointPricing> = {
   'black-forest-labs/flux-schnell': { perRequestUsd: 0.003 },
   'black-forest-labs/flux-dev': { perRequestUsd: 0.025 },
   'black-forest-labs/flux-1.1-pro': { perRequestUsd: 0.04 },
-  // 商品訴求動画（2026-10-13）: Kling v3 Pro は動画 1 秒あたり、結合（ffmpeg）は実質無料
+  // 動画（2026-10-13〜）: 動画 1 秒あたり（src/lib/ai/videoModels.ts の pricePerSecond と同じ値）、結合（ffmpeg）は実質無料
   'fal-ai/kling-video/v3/pro/image-to-video': { perVideoSecondUsd: 0.1, assumedSeconds: 3 },
+  'fal-ai/kling-video/v2.5-turbo/pro/image-to-video': { perVideoSecondUsd: 0.07, assumedSeconds: 5 },
+  'fal-ai/kling-video/o3/pro/image-to-video': { perVideoSecondUsd: 0.1, assumedSeconds: 5 },
+  'bytedance/seedance-2.0/image-to-video': { perVideoSecondUsd: 0.05, assumedSeconds: 5 },
+  'fal-ai/ltx-2.3/image-to-video/fast': { perVideoSecondUsd: 0.04, assumedSeconds: 6 },
+  'fal-ai/ltx-2.3/image-to-video': { perVideoSecondUsd: 0.06, assumedSeconds: 6 },
   'fal-ai/ffmpeg-api/merge-videos': { perRequestUsd: 0 },
 }
 

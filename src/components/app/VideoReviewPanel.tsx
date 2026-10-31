@@ -1,11 +1,13 @@
-// 商品動画の結果欄（2026-10-13）: 1 件 = 1 SKU。結合済みの 1 本を再生・ダウンロードし、カット別の動画も開ける。
-// App（mode 'app'）と、履歴ページ / 一括結果ノード（JobReviewPanel が写しに Product Video があれば委譲）で共用
+// 動画の結果欄（2026-10-13）: 1 件 = 1 SKU。終端の動画（結合、無ければ生成）を再生・ダウンロードし、ショット別の動画も開ける。
+// App（mode 'app'）と、履歴ページ / 一括結果ノード（JobReviewPanel が動画のジョブなら委譲）で共用。
+// 終端 / ショットの判定: 新しいタスクは input.__terminal・__kind、旧ジョブ（Product Video ノード）は結合 = ノード id・ショット = <id>:shot:<i>
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, subscribeJobItems } from '../../lib/api/batchJobs'
 import { signBatchPaths } from '../../lib/cutout/store'
 import { useBatchStore } from '../../stores/batchStore'
 import { parseShotTaskNodeId, videoNodeOf, shotRoleLabel, type VideoShotSpec } from '../../lib/video/productVideo'
+import { isTerminalVideoTask } from '../../lib/api/batchVideos'
 import { isActiveJob, jobProgress } from '../../lib/batch/jobsQuery'
 import { ITEM_STATUS_META, type BatchItemRow, type BatchJobDetail, type BatchTaskRow } from '../../types/batch'
 import { JobActions } from '../jobs/JobActions'
@@ -55,8 +57,13 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   }, [resultKey])
 
   const tasksOf = (itemId: string) => tasks.filter((t) => t.item_id === itemId)
-  const mergeOf = (itemId: string) => (video ? tasksOf(itemId).find((t) => t.node_id === video.id) ?? null : null)
-  const shotsOf = (itemId: string) => tasksOf(itemId).filter((t) => parseShotTaskNodeId(t.node_id)).sort((a, b) => (parseShotTaskNodeId(a.node_id)!.index - parseShotTaskNodeId(b.node_id)!.index))
+  const isVideoTask = (t: BatchTaskRow) => { const k = t.input?.__kind; return k === 'videoShot' || k === 'videoMerge' || !!parseShotTaskNodeId(t.node_id) || (!!video && t.node_id === video.id) }
+  const isTerminal = (t: BatchTaskRow) => (t.input?.__inputs === undefined && video ? t.node_id === video.id : isTerminalVideoTask(t))
+  const shotIndex = (t: BatchTaskRow) => ((t.input?.__shot as { index?: number } | undefined)?.index ?? parseShotTaskNodeId(t.node_id)?.index ?? 0)
+  const shotLabel = (t: BatchTaskRow) => { const s = t.input?.__shot as VideoShotSpec | undefined; return s?.role ? shotRoleLabel(s) : (typeof t.input?.__label === 'string' ? t.input.__label : '') }
+  // 終端の動画（結合、無ければ生成）= この SKU の結果。ショット = 終端以外の動画タスク（スロット順）
+  const mergeOf = (itemId: string) => tasksOf(itemId).filter(isVideoTask).find(isTerminal) ?? null
+  const shotsOf = (itemId: string) => tasksOf(itemId).filter((t) => isVideoTask(t) && !isTerminal(t)).sort((a, b) => shotIndex(a) - shotIndex(b))
 
   const download = async (path: string, name: string) => {
     const url = signed[path] ?? (await signBatchPaths([path]))[path]
@@ -137,7 +144,7 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[11px]" style={{ color: it.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>
                       {it.status === 'processing' || it.status === 'pending' ? <CircleNotch size={16} className="animate-spin" /> : null}
-                      <span>{it.status === 'failed' ? '失敗' : merge && merge.status === 'submitted' ? '結合中…' : shots.some((s) => s.status === 'completed') ? `ショット ${shots.filter((s) => s.status === 'completed').length} / ${shots.length} 完了` : st.label}</span>
+                      <span>{it.status === 'failed' ? '失敗' : merge && merge.status === 'submitted' ? (merge.input?.__kind === 'videoShot' ? '生成中…' : '結合中…') : shots.some((s) => s.status === 'completed') ? `ショット ${shots.filter((s) => s.status === 'completed').length} / ${shots.length} 完了` : st.label}</span>
                       {it.status === 'failed' && (merge?.error || shots.find((s) => s.error)?.error) ? <span className="px-3 text-center text-[10px]">{merge?.error ?? shots.find((s) => s.error)?.error}</span> : null}
                     </div>
                   )}
@@ -151,14 +158,13 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                 {isOpen && (
                   <div className="grid grid-cols-3 gap-1">
                     {shots.map((s) => {
-                      const info = parseShotTaskNodeId(s.node_id)!
-                      const shot = s.input?.__shot as VideoShotSpec | undefined
-                      const roleLabel = shot ? shotRoleLabel(shot) : ''
+                      const n = shotIndex(s) + 1
+                      const roleLabel = shotLabel(s)
                       const url = s.result_path ? signed[s.result_path] : null
                       return (
-                        <div key={s.id} className="relative rounded overflow-hidden" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${info.index + 1}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
+                        <div key={s.id} className="relative rounded overflow-hidden" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
                           {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : s.status === 'submitted' ? '生成中' : '待機'}</div>}
-                          <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{info.index + 1} {roleLabel}</span>
+                          <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{n} {roleLabel}</span>
                         </div>
                       )
                     })}

@@ -84,6 +84,16 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
       if (d.type === 'batchInput') {
         data.items = (Array.isArray(d.items) ? (d.items as BatchItem[]) : []).map((it) => ({ id: it.id, index: it.index, originalName: it.originalName, sku: it.sku, path: it.path, width: it.width, height: it.height, status: it.status }))
       }
+      // Video Generation は data.type を持たない（設定はトップレベル）。一括実行の計画に要る設定を写しに含める
+      if (n.type === 'videoGenerationNode') {
+        data.type = 'videoGen'
+        for (const k of ['model', 'duration', 'resolution', 'aspectRatio', 'fps', 'audioEnabled', 'seed', 'shots', 'cutsFrontalNodeId'] as const) if (d[k] !== undefined) data[k] = d[k]
+      }
+      if (n.type === 'videoDisplayNode' || n.type === 'referenceVideoNode' || n.type === 'videoMergeNode') {
+        data.type = d.type ?? (n.type === 'videoDisplayNode' ? 'videoDisplay' : n.type === 'referenceVideoNode' ? 'referenceVideo' : 'videoMerge')
+        const v = typeof d.videoUrl === 'string' ? d.videoUrl : null
+        if (v) data.videoUrl = toCanonicalRef(v) ?? v
+      }
       return { id: n.id, type: n.type, data }
     }),
     edges: edges.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),

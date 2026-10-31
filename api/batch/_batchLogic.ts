@@ -8,10 +8,13 @@ import type { CutoutEngine } from '../../src/types/nodes'
 import { estimatePlannedTaskCost, estimateTaskCost } from './_pricing'
 import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_falWebhook'
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
-import { backgroundSourcesOf, promptForGenerator } from '../../src/lib/batch/background'
-import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../../src/lib/ai/imageGenModels'
-import { CUT_ROLES, END_CUT_CFG_SCALE, KLING_V3_I2V_ENDPOINT, MERGE_VIDEOS_ENDPOINT, applyPromptTranslations, cutOf, elementCutsOf, promptTextsToTranslate, shotAvailable, shotNegativePrompt, shotPrompt, shotRoleLabel, shotTaskNodeId, videoNodeOf, type CutRole, type ItemCut, type VideoShotSpec } from '../../src/lib/video/productVideo'
+import { CUT_ROLES, cutOf, elementCutsOf, type CutRole, type ItemCut } from '../../src/lib/video/productVideo'
+import { nearestAspectRatio } from '../../src/lib/ai/videoModels'
+import { availableVideos, inputNodesOf, planTasks, promptTextsToTranslateForPlan, taskMapOf, taskSatisfied, type InputRef, type PlannedTask, type TaskInputs, type VideoTaskMeta, type WorkflowSnapshot } from '../../src/lib/batch/plan'
 import { translatePromptTexts } from './_translate'
+
+// 計画は純関数（src/lib/batch/plan.ts）。テストと dev ミドルウェアはここから引けるように再公開する
+export { planTasks, MAX_ITEM_STAGES, expandProductVideo, type PlannedTask, type PlannedKind, type WorkflowSnapshot, type SnapshotNode, type SnapshotEdge } from '../../src/lib/batch/plan'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -54,174 +57,7 @@ async function canViewJob(admin: Admin, jobId: string, userId: string): Promise<
   return data === true
 }
 
-// ───────────────────────── ワークフローの写し → タスク計画 ─────────────────────────
-
-export interface SnapshotNode { id: string; type?: string; data?: any }
-export interface SnapshotEdge { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
-export interface WorkflowSnapshot { nodes?: SnapshotNode[]; edges?: SnapshotEdge[]; promptTranslations?: Record<string, string> }   // promptTranslations: 商品動画の日本語プロンプト → 英語（create で作って写しに添える）
-
-export type PlannedKind = 'cutout' | 'imageGen' | 'imageEdit' | 'videoShot' | 'videoMerge'
-export interface PlannedTask {
-  nodeId: string
-  scope: 'item' | 'job'
-  endpoint: string
-  input: Record<string, unknown>   // アイテムごとのタスクは image_url / image_urls を投入時に足す
-  kind: PlannedKind
-  stage: number                    // アイテムごと: 1 = 元の写真を入力、2 = 1 段目の結果を入力。ジョブごとは 1
-  dependsOn: string | string[] | null   // 2 段目が待つ前段のノード id（商品動画の結合は複数のショットを待つ）
-  label: string                    // ノード名（見積の内訳・結果タブ）
-  dualOutput: boolean              // 切り抜き: マスクと透過画像の両方を受け取る（後段が切り抜き画像を使う）
-}
-export const MAX_ITEM_STAGES = 2
-
-const DEFAULT_LABELS: Record<string, string> = { removeBackground: 'Remove Background', imageGen: 'Image Generation' }
-
-/**
- * 写しから AI 処理ノードを抽出する（仕様 4-2・フェーズ C: 1 経路につき AI 処理 2 段まで）。
- * - アイテムごと: Batch Input の写真に行き着く Remove Background / Image Generation（編集。画像入力あり）。
- *   1 段目 = 写真を直接受け取る、2 段目 = 1 段目の結果を受け取る（結果ノード経由を含む）。3 段目以降は対象外（警告）
- * - ジョブごと: Product Layout の背景入力につながる Image Generation（executionScope='job'）1 件（Step 8）
- */
-export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[] } {
-  const nodes = Array.isArray(snapshot?.nodes) ? snapshot!.nodes! : []
-  const edges = Array.isArray(snapshot?.edges) ? snapshot!.edges! : []
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const typeOf = (id: string | undefined) => (id ? (byId.get(id)?.data?.type as string | undefined) : undefined)
-  const labelOf = (n: SnapshotNode | undefined) => {
-    const l = n?.data?.label
-    return typeof l === 'string' && l.trim() ? l.trim() : (DEFAULT_LABELS[typeOf(n?.id) ?? ''] ?? n?.id ?? '')
-  }
-  const tasks: PlannedTask[] = []
-  const warnings: string[] = []
-
-  // 商品訴求動画（2026-10-13）: Product Video ノードがある写しは、ショット（Kling v3 Pro・写真ごと）＋ 結合（ffmpeg・写真ごと・全ショット待ち）だけを実行する
-  const video = videoNodeOf({ nodes })
-  if (video) {
-    if (nodes.some((n) => n?.data?.type === 'removeBackground' || n?.data?.type === 'imageGen')) {
-      warnings.push('商品動画のワークフローでは Remove Background / Image Generation は一括実行の対象外です（動画のショットと結合だけを実行します）')
-    }
-    const shotIds: string[] = []
-    // プロンプトは英語で組む: 組み込み文は対訳、利用者の日本語は create 時の翻訳表（写しの promptTranslations）、英語はそのまま
-    const vparams = applyPromptTranslations(video.params, snapshot?.promptTranslations)
-    vparams.shots.forEach((shot, i) => {
-      const nodeId = shotTaskNodeId(video.id, i)
-      shotIds.push(nodeId)
-      tasks.push({
-        nodeId, scope: 'item', endpoint: KLING_V3_I2V_ENDPOINT, kind: 'videoShot', stage: 1, dependsOn: null, dualOutput: false,
-        label: `${video.label} ${i + 1}: ${shotRoleLabel(shot)}`,
-        input: { prompt: shotPrompt(vparams, shot), duration: String(shot.duration), generate_audio: false, negative_prompt: shotNegativePrompt(vparams, shot), ...(shot.endRole ? { cfg_scale: END_CUT_CFG_SCALE } : {}), __shot: { index: i, role: shot.role, endRole: shot.endRole ?? null, duration: shot.duration } },
-      })
-    })
-    tasks.push({ nodeId: video.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, kind: 'videoMerge', stage: 2, dependsOn: shotIds, dualOutput: false, label: `${video.label}（結合）`, input: {} })
-    return { tasks, warnings }
-  }
-
-  // 画像の出どころ（結果ノードは透過して生成器へ）
-  const producerOf = (sourceId: string): { kind: 'batchInput' | 'ai' | 'other'; nodeId: string } => {
-    const t = typeOf(sourceId)
-    if (t === 'batchInput') return { kind: 'batchInput', nodeId: sourceId }
-    if (t === 'removeBackground' || t === 'imageGen') return { kind: 'ai', nodeId: sourceId }
-    if (t === 'imageDisplay') {
-      const feed = edges.find((e) => e.target === sourceId && typeOf(e.source) === 'imageGen')
-      return feed ? { kind: 'ai', nodeId: feed.source } : { kind: 'other', nodeId: sourceId }
-    }
-    return { kind: 'other', nodeId: sourceId }
-  }
-  // AI ノードの主入力（写真）の辺。Image Generation は in-image-*（Product Layout の背景入力 in-image-background は別物）
-  const imageInputEdges = (node: SnapshotNode): SnapshotEdge[] => {
-    if (node.data?.type === 'removeBackground') return edges.filter((e) => e.target === node.id && e.targetHandle === 'in-image-image')
-    return edges.filter((e) => e.target === node.id && (e.targetHandle ?? '').startsWith('in-image'))
-  }
-  // 写真ごとの AI ノード候補。Image Generation は「一括実行のスコープ」に関わらず、写真由来の画像入力があれば写真ごと（スコープ「ジョブごと」は背景生成＝画像入力なしのときだけ意味を持つ）
-  const isItemAi = (n: SnapshotNode) => n?.data?.type === 'removeBackground' || n?.data?.type === 'imageGen'
-
-  // 段の割り当て（写真 → 1 段目 → 2 段目）。メモ化して循環も止める
-  const stageMemo = new Map<string, { stage: number | null; dependsOn: string | null }>()
-  const stageOf = (nodeId: string, depth = 0): { stage: number | null; dependsOn: string | null } => {
-    const cached = stageMemo.get(nodeId)
-    if (cached) return cached
-    const node = byId.get(nodeId)
-    const none: { stage: number | null; dependsOn: string | null } = { stage: null, dependsOn: null }
-    if (!node || !isItemAi(node) || depth > MAX_ITEM_STAGES + 1) { stageMemo.set(nodeId, none); return none }
-    const ins = imageInputEdges(node)
-    if (!ins.length) { stageMemo.set(nodeId, none); return none }
-    const p = producerOf(ins[0].source)
-    let result: { stage: number | null; dependsOn: string | null } = none
-    if (p.kind === 'batchInput') result = { stage: 1, dependsOn: null }
-    else if (p.kind === 'ai') {
-      const up = stageOf(p.nodeId, depth + 1)
-      if (up.stage !== null) result = { stage: up.stage + 1, dependsOn: p.nodeId }
-    }
-    stageMemo.set(nodeId, result)
-    return result
-  }
-
-  const itemNodes = nodes.filter(isItemAi)
-  const perItemIds = new Set<string>()   // 写真ごとの処理として扱った Image Generation（背景生成とは排他）
-  for (const node of itemNodes) {
-    const label = labelOf(node)
-    const ins = imageInputEdges(node)
-    const { stage, dependsOn } = stageOf(node.id)
-    if (stage === null) {
-      if (node.data?.type === 'removeBackground') warnings.push(`Remove Background（${label}）は Batch Input に接続されていないため一括実行の対象外です`)
-      continue
-    }
-    if (node.data?.type === 'imageGen') perItemIds.add(node.id)
-    if (stage > MAX_ITEM_STAGES) { warnings.push(`AI 処理は 1 経路につき ${MAX_ITEM_STAGES} 段までです（${label} は ${stage} 段目のため対象外）`); continue }
-    if (ins.length > 1) warnings.push(`${label} の画像入力は最初の 1 つだけを使います（複数の画像入力は未対応）`)
-    if (node.data?.type === 'removeBackground') {
-      const req = buildEngineRequest(normalizeCutoutParams(node.data?.params), '__IMAGE_URL__')
-      const input: Record<string, unknown> = { ...req.input }
-      delete input.image_url
-      tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input, kind: 'cutout', stage, dependsOn, label, dualOutput: false })
-    } else {
-      const p = (node.data?.params ?? {}) as Record<string, unknown>
-      const prompt = promptForGenerator({ nodes: nodes as unknown as Array<{ id: string; type?: string; data?: Record<string, unknown> }>, edges }, node.id)
-      if (!prompt) { warnings.push(`Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`); continue }
-      const model = editModelOf(p)
-      const req = buildImageEditRequest(model, prompt, p)
-      tasks.push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input: req.input, kind: 'imageEdit', stage, dependsOn, label, dualOutput: false })
-    }
-  }
-  // 2 段目の生成が切り抜きを受け取るなら、その切り抜きはマスクと透過画像の両方を受け取る（fal 1 回で両方返る）
-  for (const t of tasks) {
-    if (t.kind !== 'imageEdit' || !t.dependsOn) continue
-    const dep = tasks.find((x) => x.nodeId === t.dependsOn)
-    if (dep && dep.kind === 'cutout') { dep.dualOutput = true; if (dep.endpoint.startsWith('fal-ai/birefnet')) dep.input.mask_only = false }
-  }
-  // 段の順に並べる（1 段目 → 2 段目）
-  tasks.sort((x, y) => x.stage - y.stage)
-
-  // 背景生成: レイアウトの背景入力に行き着く生成器ごとに 1 件（ジョブごと）
-  const canvas = { nodes: nodes as unknown as Array<{ id: string; type?: string; data?: Record<string, unknown> }>, edges }
-  const generators = new Set(backgroundSourcesOf(canvas).map((s) => s.generatorNodeId).filter((g): g is string => !!g))
-  for (const genId of generators) {
-    const gen = nodes.find((n) => n.id === genId)
-    const p = (gen?.data?.params ?? {}) as Record<string, unknown>
-    const label = labelOf(gen)
-    if (perItemIds.has(genId)) {
-      warnings.push(`Image Generation（${label}）は写真由来の画像入力があるため写真ごとに実行します。背景には使えません（背景の生成は画像入力の無い「ジョブごと」の Image Generation にしてください）`)
-      continue
-    }
-    if (p.executionScope !== 'job') {
-      warnings.push(`背景の Image Generation（${label}）は「一括実行のスコープ: ジョブごと」にしてください（アイテムごとの背景生成は未対応のため対象外）`)
-      continue
-    }
-    const prompt = promptForGenerator(canvas, genId)
-    if (!prompt) {
-      warnings.push(`背景の Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`)
-      continue
-    }
-    const model = typeof p.model === 'string' && p.model ? p.model : 'fal-ai/nano-banana-2'
-    tasks.push({ nodeId: genId, scope: 'job', endpoint: model, input: buildTextToImageInput(model, prompt, p), kind: 'imageGen', stage: 1, dependsOn: null, label, dualOutput: false })
-  }
-  for (const node of nodes) {
-    if (node?.data?.type === 'imageGen' && node?.data?.params?.executionScope === 'job' && !generators.has(node.id) && !perItemIds.has(node.id)) {
-      warnings.push(`Image Generation（${labelOf(node)}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
-    }
-  }
-  return { tasks, warnings }
-}
+// ───────────────────────── タスクの依存（投入順） ─────────────────────────
 
 /** タスクが待つ前段のノード id（input.__depends_on。文字列 1 つか配列） */
 export function dependenciesOf(task: { input?: Record<string, unknown> | null }): string[] {
@@ -383,7 +219,9 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const m = await memberOf(admin, userId)
   if (!m) return fail(403, 'not_a_member', { message: 'チームに所属していません' })
   const items = Array.isArray(body?.items) ? body.items : []
-  const videoNode = videoNodeOf(body?.workflowSnapshot)
+  const plan = planTasks(body?.workflowSnapshot)
+  const hasVideo = plan.tasks.some((t) => t.kind === 'videoShot')          // 動画を作るジョブ（本で数える・結果欄は動画）
+  const needsCuts = !!inputNodesOf(body?.workflowSnapshot).cutSetInputId    // Cut Set Input がある写し: 1 件 = 1 SKU（役割ごとのカット・正面は必須）
   for (const it of items) {
     if (!it || typeof it.originalName !== 'string' || typeof it.sku !== 'string' || typeof it.interactivePath !== 'string') return fail(400, 'invalid_item')
     if (!it.interactivePath.startsWith(`${m.teamId}/`)) return fail(400, 'invalid_item_path', { message: '他チームのファイルは使えません' })
@@ -391,12 +229,12 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
     if (it.cuts !== undefined) {
       if (!Array.isArray(it.cuts) || it.cuts.some((c) => !c || typeof c.path !== 'string' || !CUT_ROLES.some((r) => r.id === c.role))) return fail(400, 'invalid_item_cuts', { message: 'カットの指定が不正です' })
       if (it.cuts.some((c) => !c.path.startsWith(`${m.teamId}/`))) return fail(400, 'invalid_item_path', { message: '他チームのファイルは使えません' })
-      if (videoNode && !it.cuts.some((c) => c.role === 'front')) return fail(400, 'front_cut_required', { message: `${it.sku}: 正面のカットが必要です` })
-    } else if (videoNode) return fail(400, 'cuts_required', { message: '商品動画には役割ごとのカットが必要です' })
+      if (needsCuts && !it.cuts.some((c) => c.role === 'front')) return fail(400, 'front_cut_required', { message: `${it.sku}: 正面のカットが必要です` })
+    } else if (needsCuts) return fail(400, 'cuts_required', { message: '商品動画には役割ごとのカットが必要です' })
   }
 
   // 上限は種類ごと: 写真の処理は daily_item_limit（枚）、商品動画は daily_video_limit（本・既定 20）。本日の利用数も同じ種類だけ数える（0019）
-  const kind: 'cutout' | 'video' = videoNode ? 'video' : 'cutout'
+  const kind: 'cutout' | 'video' = hasVideo ? 'video' : 'cutout'
   const unit = kind === 'video' ? '本' : '枚'
   const { data: team } = await admin.from('teams').select('daily_item_limit, daily_video_limit, show_cost').eq('id', m.teamId).maybeSingle()
   const dailyLimit = kind === 'video'
@@ -407,18 +245,11 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const usedToday = sumUsedTodayByKind(todayJobs as Array<{ item_count: number; status: string; kind?: string | null }> | null, kind)
   const { count: activeJobs } = await admin.from('batch_jobs').select('id', { count: 'exact', head: true }).eq('team_id', m.teamId).in('status', ['uploading', 'submitted', 'processing'])
 
-  const plan = planTasks(body?.workflowSnapshot)
   const itemTasks = plan.tasks.filter((t) => t.scope === 'item')
   const jobTasks = plan.tasks.filter((t) => t.scope === 'job')
-  // 件数: 写真ごとは枚数、ジョブごとは 1。商品動画のショットは「カットが揃っている SKU」の数（無いショットは飛ばす）、結合は「作るショットが 1 つでもある SKU」の数
-  const shotsOf = (it: { cuts?: unknown }) => itemTasks.filter((x) => x.kind === 'videoShot' && shotAvailable(x.input.__shot as VideoShotSpec, (it.cuts ?? []) as ItemCut[]))
-  const countOf = (t: PlannedTask): number => {
-    if (t.scope !== 'item') return 1
-    if (t.kind === 'videoMerge') return items.filter((it) => shotsOf(it).length > 0).length
-    if (t.kind !== 'videoShot') return items.length
-    const shot = t.input.__shot as VideoShotSpec | undefined
-    return shot ? items.filter((it) => shotAvailable(shot, (it.cuts ?? []) as ItemCut[])).length : 0
-  }
+  // 件数: 写真ごとは「入力が揃う SKU」の数（役割のカットが無いショットは飛ばす。結合は作るショットが 1 つでもある SKU）、ジョブごとは 1
+  const byNode = taskMapOf(plan.tasks)
+  const countOf = (t: PlannedTask): number => (t.scope !== 'item' ? 1 : items.filter((it) => taskSatisfied(t, it, byNode)).length)
   const limits = { dailyLimit, usedToday, remaining: Math.max(0, dailyLimit - usedToday), activeJobs: activeJobs ?? 0, maxActiveJobs: MAX_ACTIVE_JOBS, maxItemsPerJob: MAX_ITEMS_PER_JOB, kind, unit }
   const breakdown = plan.tasks.map((t) => {
     const unitUsd = estimatePlannedTaskCost(t.endpoint, t.input)
@@ -431,8 +262,8 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const maxStage = Math.max(1, ...plan.tasks.map((t) => t.stage))
   const planInfo = {
     itemTasks: itemTasks.length, jobTasks: jobTasks.length, totalTasks,
-    estimatedCostUsd, estimatedSeconds: videoNode ? 240 + items.length * 10 : Math.ceil(items.length * 2 * maxStage + jobTasks.length * 10), showCost: !!team?.show_cost, warnings: plan.warnings,
-    breakdown, perItemGenerations, maxStage, video: !!videoNode,
+    estimatedCostUsd, estimatedSeconds: hasVideo ? 240 + items.length * 10 : Math.ceil(items.length * 2 * maxStage + jobTasks.length * 10), showCost: !!team?.show_cost, warnings: plan.warnings,
+    breakdown, perItemGenerations, maxStage, video: hasVideo,
   }
   if (body?.dryRun) return ok({ limits, plan: planInfo })
 
@@ -440,10 +271,10 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   if (!chk.ok) return fail(chk.status, chk.code, { message: chk.message, limits })
   if (plan.tasks.length === 0) return fail(400, 'no_tasks', { message: '一括実行の対象となる AI 処理ノード（Batch Input に接続した Remove Background 等）がありません', warnings: plan.warnings })
 
-  // 商品動画: 日本語のプロンプトは生成前に英語へ（組み込み文は対訳、利用者の文は LLM）。翻訳表を写しに添え、submit の planTasks が使う。失敗したら日本語のまま送らず作成を止める
+  // 動画: 日本語のプロンプトは生成前に英語へ（組み込み文は対訳、利用者の文は LLM）。翻訳表を写しに添え、submit の planTasks が使う。失敗したら日本語のまま送らず作成を止める
   let snapshotToStore: WorkflowSnapshot = body.workflowSnapshot ?? {}
-  if (videoNode) {
-    const texts = promptTextsToTranslate(videoNode.params)
+  if (hasVideo) {
+    const texts = promptTextsToTranslateForPlan(body.workflowSnapshot)
     if (texts.length) {
       if (!opts?.falKey) return fail(500, 'translate_unavailable', { message: 'プロンプトの翻訳に使う設定（FAL_KEY）がありません' })
       try { snapshotToStore = { ...snapshotToStore, promptTranslations: await translatePromptTexts(opts.falKey, texts) } }
@@ -545,22 +376,22 @@ export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts,
   const { data: existingData } = await admin.from('batch_tasks').select('id, node_id, item_id, status').eq('job_id', job.id)
   const existing = new Set(((existingData ?? []) as any[]).map((t) => `${t.node_id}|${t.item_id ?? ''}`))
   const newRows: any[] = []
+  const byNode = taskMapOf(plan.tasks)
   for (const t of plan.tasks) {
     if (t.scope === 'item') {
       for (const it of items) {
         if (!it.source_path || it.status === 'failed') continue
         if (existing.has(`${t.nodeId}|${it.id}`)) continue
-        // 商品動画: その役割のカットが無いショットは作らない（飛ばす）。結合は、その SKU で作るショットだけを待つ
+        // 入力が揃わない SKU では作らない（役割のカットが無いショットは飛ばす）。結合は、その SKU で作るショットだけを待つ
+        if (!taskSatisfied(t, it, byNode)) continue
         let dependsOn: string | string[] | null = t.dependsOn
-        if (t.kind === 'videoShot') {
-          const shot = t.input.__shot as VideoShotSpec | undefined
-          if (!shot || !shotAvailable(shot, (it.cuts ?? []) as ItemCut[])) continue
-        } else if (t.kind === 'videoMerge') {
-          const shotIds = plan.tasks.filter((x) => x.kind === 'videoShot' && shotAvailable(x.input.__shot as VideoShotSpec, (it.cuts ?? []) as ItemCut[])).map((x) => x.nodeId)
-          if (!shotIds.length) continue
-          dependsOn = shotIds
+        let inputs: TaskInputs = t.inputs
+        if (t.kind === 'videoMerge') {
+          const vids = availableVideos(t, it, byNode)
+          dependsOn = vids.length === 1 ? vids[0] : vids
+          inputs = { videos: vids }
         }
-        newRows.push({ job_id: job.id, item_id: it.id, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: t.stage, __depends_on: dependsOn, __dual: t.dualOutput, __label: t.label }, status: 'pending' })
+        newRows.push({ job_id: job.id, item_id: it.id, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: t.stage, __depends_on: dependsOn, __dual: t.dualOutput, __label: t.label, __inputs: inputs, __terminal: t.terminal, ...(t.video ? { __video: t.video } : {}) }, status: 'pending' })
       }
     } else if (!existing.has(`${t.nodeId}|`)) {
       newRows.push({ job_id: job.id, item_id: null, team_id: job.team_id, node_id: t.nodeId, endpoint: t.endpoint, input: { ...t.input, __kind: t.kind, __stage: 1, __depends_on: null, __dual: false, __label: t.label }, status: 'pending' })
@@ -618,7 +449,7 @@ async function submitPendingTasks(admin: Admin, opts: BatchOpts, job: { id: stri
   }
   const webhook = webhookUrlFor(opts, job, disableWebhook)
   const itemsById = new Map(items.map((i) => [i.id, i]))
-  const needItems = ready.some((t) => t.item_id && (!dependenciesOf(t).length || t.input?.__kind === 'videoShot')) && items.length === 0
+  const needItems = ready.some((t) => !!t.item_id) && items.length === 0
   if (needItems) {
     const { data: its } = await admin.from('batch_items').select('*').eq('job_id', job.id)
     for (const i of (its ?? []) as any[]) itemsById.set(i.id, i)
@@ -681,6 +512,9 @@ export async function buildTaskInput(admin: Admin, task: any, item: any | null, 
   const input = falInputOf(task)
   if (!task.item_id) return input
   const kind = task.input?.__kind as string | undefined
+  const refs = task.input?.__inputs as TaskInputs | undefined
+  if (refs && typeof refs === 'object') return buildTaskInputFromRefs(admin, task, item, all, input, refs)
+  // ── 以下は __inputs を持たない古いタスク（2026-10 以前のジョブ）向け ──
   if (kind === 'videoShot') {
     const cuts = Array.isArray(item?.cuts) ? (item.cuts as ItemCut[]) : []
     const shot = task.input?.__shot as { role?: CutRole; endRole?: CutRole | null } | undefined
@@ -718,6 +552,64 @@ export async function buildTaskInput(admin: Admin, task: any, item: any | null, 
   }
   if (!path) return null
   const signed = await signOriginal(admin, path)
+  if (!signed) return null
+  if (kind === 'imageEdit') input.image_urls = [signed]
+  else input.image_url = signed
+  return input
+}
+
+/**
+ * 参照表（input.__inputs・設計 §5.2）から fal の入力を組み立てる。
+ * photo = 元の写真、cut = 役割のカット、set = 正面 + 別角度（elements）、dep = 前段の結果（切り抜きは透過画像を優先）。揃わなければ null
+ */
+async function buildTaskInputFromRefs(admin: Admin, task: any, item: any | null, all: any[], input: Record<string, unknown>, refs: TaskInputs): Promise<Record<string, unknown> | null> {
+  const kind = task.input?.__kind as string | undefined
+  const cuts = Array.isArray(item?.cuts) ? (item.cuts as ItemCut[]) : []
+  const resolve = (ref: InputRef): { path: string; width?: number | null; height?: number | null } | null => {
+    if (ref.kind === 'photo') return item?.source_path ? { path: item.source_path, width: item.width ?? null, height: item.height ?? null } : null
+    if (ref.kind === 'cut') { const c = cutOf(cuts, ref.role); return c ? { path: c.path, width: c.width ?? null, height: c.height ?? null } : null }
+    if (ref.kind === 'dep') {
+      const depTask = all.find((x) => x.item_id === task.item_id && x.node_id === ref.nodeId && x.status === 'completed' && x.result_path)
+      if (!depTask) return null
+      const meta = (depTask.result_meta ?? {}) as { cutout_path?: string | null; width?: number | null; height?: number | null }
+      return { path: (ref.prefer === 'cutout' ? meta.cutout_path : null) ?? (depTask.result_path as string), width: meta.width ?? null, height: meta.height ?? null }
+    }
+    return null
+  }
+  if (kind === 'videoMerge') {
+    const vids = refs.videos ?? []
+    const depTasks = vids.map((v) => all.find((x) => x.item_id === task.item_id && x.node_id === v && x.status === 'completed' && x.result_path))
+    if (!vids.length || depTasks.some((d) => !d)) return null
+    const signed = await signMany(admin, depTasks.map((t) => t!.result_path as string))
+    const urls = depTasks.map((t) => signed[t!.result_path as string]).filter((u): u is string => !!u)
+    if (urls.length !== depTasks.length) return null
+    input.video_urls = urls
+    return input
+  }
+  if (kind === 'videoShot') {
+    const video = task.input?.__video as VideoTaskMeta | undefined
+    if (!video) return null
+    const start = refs.start ? resolve(refs.start) : null
+    if (!start) return null
+    const end = refs.end ? resolve(refs.end) : null
+    if (refs.end && !end) return null
+    const { frontal, references } = video.elements ? elementCutsOf(cuts) : { frontal: null, references: [] as ItemCut[] }
+    if (video.elements && !frontal) return null
+    const signed = await signMany(admin, [start.path, ...(end ? [end.path] : []), ...(frontal ? [frontal.path] : []), ...references.map((c) => c.path)])
+    if (!signed[start.path] || (end && !signed[end.path]) || (frontal && !signed[frontal.path])) return null
+    input[video.startParam] = signed[start.path]
+    if (end && video.endParam) input[video.endParam] = signed[end.path]
+    if (frontal) {
+      const refUrls = references.map((c) => signed[c.path]).filter((u): u is string => !!u)
+      input.elements = [refUrls.length ? { frontal_image_url: signed[frontal.path], reference_image_urls: refUrls } : { frontal_image_url: signed[frontal.path] }]
+    }
+    // Kling（3.0 以外）は 'auto' を受けないので開始画像の寸法から最近傍の比率を選ぶ
+    if (video.aspectAuto) input.aspect_ratio = nearestAspectRatio(start.width, start.height, video.aspectRatios)
+    return input
+  }
+  const src = refs.image ? resolve(refs.image) : null
+  if (!src) return null
+  const signed = await signOriginal(admin, src.path)
   if (!signed) return null
   if (kind === 'imageEdit') input.image_urls = [signed]
   else input.image_url = signed
@@ -1057,6 +949,8 @@ export async function batchRerunItems(admin: Admin, userId: string, _opts: Batch
   input.__depends_on = snapNode.dependsOn
   input.__dual = snapNode.dualOutput
   input.__label = snapNode.label
+  input.__inputs = snapNode.inputs
+  input.__terminal = false
   if (snapNode.dualOutput && req.endpoint.startsWith('fal-ai/birefnet')) input.mask_only = false
 
   const { data: items } = await admin.from('batch_items').select('id').eq('job_id', job.id)

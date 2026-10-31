@@ -25,6 +25,7 @@ import { JobStatusBadge, ProgressBar } from '../badges'
 import { JobActions } from '../JobActions'
 import { VideoReviewPanel } from '../../app/VideoReviewPanel'
 import { videoNodeOf } from '../../../lib/video/productVideo'
+import { snapshotHasVideo } from '../../../lib/batch/plan'
 import { ACCENT } from './reviewStyles'
 import { ReviewGrid } from './ReviewGrid'
 import { ReviewTabs, ReviewToolbar } from './ReviewToolbar'
@@ -209,6 +210,8 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   const cutoutNode = useMemo(() => (job ? cutoutNodesFromSnapshot(job.workflow_snapshot)[0] ?? null : null), [job])
   // 生成結果の列（写真ごとの Image Generation ノード。タスク行から作る。フェーズ C(a)）
   const results = useMemo(() => resultColumnsOf(tasks, job?.workflow_snapshot), [tasks, job])
+  // 動画のジョブ（旧 Product Video ノード / Video Generation を一括実行する写し）: 確認グリッドではなく動画の結果欄
+  const isVideoJob = useMemo(() => !!job && (!!videoNodeOf(job.workflow_snapshot) || snapshotHasVideo(job.workflow_snapshot)), [job])
   // 書き出し設定: node はキャンバスの Export ノードの今の設定、page は投入時の写し
   const exportParams = useMemo<ExportParams>(() => exportParamsFromSnapshot((isNode && liveCanvas ? liveCanvas : job?.workflow_snapshot) as Snapshot | undefined), [job, isNode, liveCanvas])
   const ctx = useMemo<ReviewContext | null>(() => (job && teamId ? {
@@ -406,8 +409,8 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
       </div>
     )
   }
-  // 商品動画のジョブ（2026-10-13）: 確認グリッドではなく動画の結果欄を出す（履歴ページ / 一括結果ノード / App で共通）
-  if (videoNodeOf(job.workflow_snapshot)) return <VideoReviewPanel jobId={jobId} compact={isNode} onDeleted={onDeleted} />
+  // 動画のジョブ（2026-10-13）: 確認グリッドではなく動画の結果欄を出す（履歴ページ / 一括結果ノード / App で共通）
+  if (isVideoJob) return <VideoReviewPanel jobId={jobId} compact={isNode} onDeleted={onDeleted} />
 
   const p = jobProgress(job)
   const summary = { ready: items.filter((i) => i.status === 'ready').length, processing: items.filter((i) => i.status === 'processing').length, pending: items.filter((i) => i.status === 'pending').length, failed: counts.failed }
