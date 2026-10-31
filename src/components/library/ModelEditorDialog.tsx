@@ -92,7 +92,7 @@ export function ModelEditorDialog({ open, onClose, model, onSaved }: Props) {
   if (!open) return null
   const filled = CUT_ROLES.filter((r) => !!cuts[r.id]).length
   return createPortal(
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 20000 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 20000 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }} onDrop={(e) => { e.preventDefault(); e.stopPropagation() }}>
       <div className="flex flex-col rounded-xl overflow-hidden" style={{ width: 'min(720px, 94vw)', maxHeight: '90vh', background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
           <h2 className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>{model ? 'モデルを編集' : 'モデルを登録'}</h2>

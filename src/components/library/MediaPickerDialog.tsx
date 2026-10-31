@@ -168,8 +168,10 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const firstSel = selected.length ? byKey.get(selected[0]) : null
 
   return createPortal(
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 20000 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="flex flex-col rounded-xl overflow-hidden" style={{ width: 'min(1040px, 94vw)', height: 'min(860px, 90vh)', background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void onFiles(e.dataTransfer.files) }}>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 20000 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }} onDrop={(e) => { e.preventDefault(); e.stopPropagation() }}>
+      {/* portal でも React のドロップイベントは親（参照画像ノード → キャンバス）へ伝わるので、ここで止める。止めないとキャンバスが別ノードを作って二重アップロードになる */}
+      <div className="flex flex-col rounded-xl overflow-hidden" style={{ width: 'min(1040px, 94vw)', height: 'min(860px, 90vh)', background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void onFiles(e.dataTransfer.files) }}>
         <input ref={fileInput} type="file" accept={media === 'video' ? 'video/*' : 'image/*'} multiple className="hidden" onChange={(e) => { void onFiles(e.target.files); e.target.value = '' }} />
         {/* ヘッダー */}
         <div className="flex items-center justify-between px-6 pt-5">
