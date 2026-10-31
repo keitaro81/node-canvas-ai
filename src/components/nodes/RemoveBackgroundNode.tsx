@@ -65,7 +65,7 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
   // 上流の画像（in-image-image に接続されたノードから取る。blob: は表示にしか使えない）
   const upstreamEdge = edges.find((e) => e.target === id && e.targetHandle === REMOVE_BACKGROUND_INPUT_HANDLE)
   const upstreamNode = upstreamEdge ? nodes.find((n) => n.id === upstreamEdge.source) : undefined
-  const rawUpstreamUrl = imageUrlFromNodeData(upstreamNode?.data as Record<string, unknown> | undefined)
+  const rawUpstreamUrl = imageUrlFromNodeData(upstreamNode?.data as Record<string, unknown> | undefined, upstreamEdge?.sourceHandle)
   const { freshUrl } = useSignedMedia(rawUpstreamUrl, currentWorkflowId)
   const upstreamCanonical = rawUpstreamUrl ? (toCanonicalRef(rawUpstreamUrl) ?? rawUpstreamUrl) : null
 

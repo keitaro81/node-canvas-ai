@@ -6,7 +6,7 @@ import { useBatchStore } from '../../stores/batchStore'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import {
-  batchCreate, batchDryRun, batchItemsFromNode, buildWorkflowSnapshot, submitJobFully,
+  batchCreate, batchDryRun, batchItemsFromNode, buildWorkflowSnapshot, cutSetItemsFromNode, submitJobFully,
   type BatchLimits, type BatchPlanInfo, type CreateItemInput, type SubmitResult, type WorkflowSnapshot,
 } from '../../lib/api/batch'
 import { formatCost, formatDuration } from '../../lib/batch/cost'
@@ -50,7 +50,7 @@ export function BatchSubmitDialog() {
     else {
       const { nodes, edges } = useCanvasStore.getState()
       const node = nodes.find((n) => n.id === nodeId)
-      its = batchItemsFromNode(node?.data as NodeData | undefined)
+      its = node?.type === 'cutSetInputNode' ? cutSetItemsFromNode(node.data as Record<string, unknown>) : batchItemsFromNode(node?.data as NodeData | undefined)
       snap = buildWorkflowSnapshot(nodes, edges)
     }
     setItems(its); setSnapshot(snap); setName(''); setJobId(null); setProgress(null); setErrorMsg(null); setPhase('estimating')

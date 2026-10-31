@@ -47,7 +47,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
   const { freshUrl: freshOriginalUrl } = useSignedMedia(cutout?.sourceRef ?? null, currentWorkflowId)
   const imageSourceEdge = cutoutNode ? edges.find((e) => e.target === cutoutNode.id && e.targetHandle === REMOVE_BACKGROUND_INPUT_HANDLE) : undefined
   const imageSourceNode = imageSourceEdge ? nodes.find((n) => n.id === imageSourceEdge.source) : undefined
-  const liveOriginalUrl = imageUrlFromNodeData(imageSourceNode?.data as Record<string, unknown> | undefined)
+  const liveOriginalUrl = imageUrlFromNodeData(imageSourceNode?.data as Record<string, unknown> | undefined, imageSourceEdge?.sourceHandle)
   const outputUrl = typeof nodeData.output === 'string' ? nodeData.output : null
   const { url: signedOutput, onError: onOutputError } = useSignedMedia(outputUrl, currentWorkflowId)
 

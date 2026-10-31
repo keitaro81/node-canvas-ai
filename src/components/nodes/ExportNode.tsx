@@ -129,7 +129,7 @@ function ExportNodeInner(props: NodeProps) {
         slot: -1 - out.length, kind: 'cutout', url: null, variant: 'cutout', transparent: true, forcePng: true,
         sourceLabel: (rb.data as NodeData).label,
         cutout: cutoutRefFromNodeData(rb.data as Record<string, unknown>),
-        liveOriginalUrl: imageUrlFromNodeData(nodes.find((n) => n.id === ie?.source)?.data as Record<string, unknown> | undefined),
+        liveOriginalUrl: imageUrlFromNodeData(nodes.find((n) => n.id === ie?.source)?.data as Record<string, unknown> | undefined, ie?.sourceHandle),
       })
     }
     return out

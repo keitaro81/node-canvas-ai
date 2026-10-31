@@ -42,6 +42,8 @@ export interface VideoGenerationRequest {
   imageUrl?: string;               // image-to-video / video-to-video 参照画像URL
   endImageUrl?: string;            // 補完モード用の終了フレームURL
   videoUrl?: string;               // video-to-video 用の入力動画URL
+  negativePrompt?: string;         // 避けたいこと（Kling 系だけ送る）
+  cfgScale?: number;               // 指示への追従（Kling。終了カットありの回転は 0.7）
   elements?: VideoElementRef[];    // 参照カット（Kling 3.0 elements）: 被写体ごとに 正面 1 枚 + 別角度 1〜3 枚
   shots?: VideoShot[];             // マルチショット（Kling 3.0 multi_prompt）: 指定時は prompt を各ショットの前置きにして multi_prompt を送る
 }

@@ -6,8 +6,11 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** ノードのデータから画像URLを取得する共通ユーティリティ */
-export function getImageUrlFromNodeData(data: unknown): string | null {
+export function getImageUrlFromNodeData(data: unknown, sourceHandle?: string | null): string | null {
   const d = data as Record<string, unknown>
+  // ポートごとの出力（Cut Set Input の役割ポートなど）: 辺の sourceHandle で引く
+  const outs = d.outputs as Record<string, unknown> | undefined
+  if (sourceHandle && outs && typeof outs === 'object') { const o = outs[sourceHandle]; return typeof o === 'string' && o ? o : null }
   if (typeof d.output === 'string' && d.output) return d.output
   if (typeof d.imageUrl === 'string' && d.imageUrl) return d.imageUrl
   if (typeof d.uploadedImagePreview === 'string' && d.uploadedImagePreview) return d.uploadedImagePreview
