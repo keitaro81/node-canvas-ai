@@ -23,6 +23,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   export:         ['image', 'item'],
   batchResults:   [],
   productVideo:   [],
+  videoMerge:     ['video'],
   imageGen:       ['text', 'image', 'list'],
   videoGen:       ['text', 'image', 'video'],
   note:           [],
@@ -41,6 +42,7 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   export:         [],
   batchResults:   [],
   productVideo:   [],
+  videoMerge:     ['video'],
   imageGen:       ['image'],
   referenceImage: ['image'],
   videoGen:       ['video'],
@@ -69,6 +71,7 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
     items: [
       { type: 'videoGen',       label: 'Video Generation', icon: <Film size={14} />,  color: '#EC4899' },
       { type: 'referenceVideo', label: 'Reference Video',  icon: <Video size={14} />, color: '#EC4899' },
+      { type: 'videoMerge',     label: 'Video Merge',      icon: <Film size={14} />,  color: '#EC4899' },
     ],
   },
   {

@@ -6,6 +6,7 @@ import { normalizeCutoutParams } from '../cutout/engines'
 import type { LayoutIdentityInput } from '../layout/identity'
 import { normalizeExportParams, planExportEntries, sanitizeFileName, dateToken, type PlannedEntry } from '../export/naming'
 import { stripExtension } from '../batch/items'
+import { planTasks, type WorkflowSnapshot } from '../batch/plan'
 
 export type Snapshot = BatchJobDetail['workflow_snapshot']
 
@@ -104,50 +105,21 @@ export function variantsFromSnapshot(snapshot: Snapshot | null | undefined, over
   return [...fromSnapshot, ...added]
 }
 
-/** 一括実行で写真ごとに動く AI ノードの「段」（サーバーの planTasks と同じ規則）。
+/** 一括実行で写真ごとに動く AI ノードの「段」（サーバーと同じ計画 src/lib/batch/plan.ts を使う）。
  *  1 = Batch Input の写真を直接、2 = 1 段目の結果（結果ノード Result は透過して生成器へ）。対象外・3 段目以降は null */
-export const MAX_ITEM_STAGES = 2
+export { MAX_ITEM_STAGES } from '../batch/plan'
+const firstDep = (d: string | string[] | null): string | null => (typeof d === 'string' ? d : Array.isArray(d) ? d[0] ?? null : null)
 export function itemAiStageOf(snapshot: Snapshot | null | undefined, nodeId: string): { stage: number; dependsOn: string | null } | null {
-  const nodes = nodesOf(snapshot)
-  const edges = edgesOf(snapshot)
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const typeOf = (id: string | undefined) => (id ? (byId.get(id)?.data?.type as string | undefined) : undefined)
-  // Image Generation はスコープに関わらず候補（写真由来の画像入力があれば写真ごと。「ジョブごと」は画像入力の無い背景生成だけ）
-  const isItemAi = (id: string) => typeOf(id) === 'removeBackground' || typeOf(id) === 'imageGen'
-  const producerOf = (sourceId: string): { kind: 'batchInput' | 'ai' | 'other'; nodeId: string } => {
-    const t = typeOf(sourceId)
-    if (t === 'batchInput') return { kind: 'batchInput', nodeId: sourceId }
-    if (t === 'removeBackground' || t === 'imageGen') return { kind: 'ai', nodeId: sourceId }
-    if (t === 'imageDisplay') {
-      const feed = edges.find((e) => e.target === sourceId && typeOf(e.source) === 'imageGen')
-      return feed ? { kind: 'ai', nodeId: feed.source } : { kind: 'other', nodeId: sourceId }
-    }
-    return { kind: 'other', nodeId: sourceId }
-  }
-  const imageInputEdges = (id: string) => (typeOf(id) === 'removeBackground'
-    ? edges.filter((e) => e.target === id && e.targetHandle === 'in-image-image')
-    : edges.filter((e) => e.target === id && (e.targetHandle ?? '').startsWith('in-image')))
-  const walk = (id: string, depth: number): { stage: number; dependsOn: string | null } | null => {
-    if (!isItemAi(id) || depth > MAX_ITEM_STAGES + 1) return null
-    const ins = imageInputEdges(id)
-    if (!ins.length) return null
-    const p = producerOf(ins[0].source)
-    if (p.kind === 'batchInput') return { stage: 1, dependsOn: null }
-    if (p.kind !== 'ai') return null
-    const up = walk(p.nodeId, depth + 1)
-    return up ? { stage: up.stage + 1, dependsOn: p.nodeId } : null
-  }
-  const r = walk(nodeId, 0)
-  return r && r.stage <= MAX_ITEM_STAGES ? r : null
+  const t = planTasks(snapshot as WorkflowSnapshot | null | undefined).tasks.find((x) => x.nodeId === nodeId && x.scope === 'item' && (x.kind === 'cutout' || x.kind === 'imageEdit'))
+  return t ? { stage: t.stage, dependsOn: firstDep(t.dependsOn) } : null
 }
 
-/** 写しの切り抜きノード（Batch Input の写真に 2 段以内で行き着く Remove Background ＝一括実行の対象。サーバーの planTasks と同じ規則） */
+/** 写しの切り抜きノード（写真に 2 段以内で行き着く Remove Background ＝一括実行の対象。サーバーの planTasks と同じ規則。動画のジョブでは動画につながる切り抜きだけ） */
 export function cutoutNodesFromSnapshot(snapshot: Snapshot | null | undefined): Array<{ nodeId: string; params: CutoutParams; stage: number; dependsOn: string | null }> {
-  return nodesOf(snapshot)
-    .filter((n) => n?.data?.type === 'removeBackground')
-    .map((n) => ({ n, st: itemAiStageOf(snapshot, n.id) }))
-    .filter((x): x is { n: NonNullable<Snapshot['nodes']>[number]; st: { stage: number; dependsOn: string | null } } => !!x.st)
-    .map(({ n, st }) => ({ nodeId: n.id, params: normalizeCutoutParams(n.data?.params), stage: st.stage, dependsOn: st.dependsOn }))
+  const nodes = nodesOf(snapshot)
+  return planTasks(snapshot as WorkflowSnapshot | null | undefined).tasks
+    .filter((t) => t.kind === 'cutout')
+    .map((t) => ({ nodeId: t.nodeId, params: normalizeCutoutParams(nodes.find((n) => n.id === t.nodeId)?.data?.params), stage: t.stage, dependsOn: firstDep(t.dependsOn) }))
 }
 
 /** 写しの Export ノードの設定（無ければ既定） */

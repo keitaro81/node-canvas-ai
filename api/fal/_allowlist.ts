@@ -25,6 +25,7 @@ export const ALLOWED_MODEL_PREFIXES = [
   // 動画生成
   'fal-ai/ltx-2.3',
   'fal-ai/kling-video',
+  'bytedance/seedance-2.0',
   // LLM / 画像解析
   'fal-ai/any-llm',
   'fal-ai/llava-next',

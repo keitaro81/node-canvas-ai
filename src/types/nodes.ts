@@ -23,6 +23,7 @@ export type NodeType =
   | 'export'
   | 'batchResults'
   | 'productVideo'
+  | 'videoMerge'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -90,6 +91,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   export:          '#14B8A6',
   batchResults:    '#14B8A6',
   productVideo:    '#EC4899',
+  videoMerge:      '#EC4899',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -265,6 +267,18 @@ export interface ProductVideoNodeData {
     negativePrompt: string
   }
   status: 'idle'
+}
+
+/** Video Merge ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.3）: 順序付きの動画入力（in-video-1…8）を 1 本に結合（fal ffmpeg）。一括実行では SKU ごとの結合タスク */
+export interface VideoMergeNodeData {
+  type: 'videoMerge'
+  label: string
+  params: Record<string, unknown>
+  status: NodeStatus
+  videoUrl: string | null          // 結合結果（canonical。表示は署名して使う）
+  fileName?: string | null
+  error?: string | null
+  progress?: string
 }
 
 export interface BatchItem {

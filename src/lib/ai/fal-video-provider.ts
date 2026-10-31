@@ -1,161 +1,12 @@
 import { fal } from './fal-client';
-import { buildKlingElements, buildMultiPrompt } from './videoShots';
+import { VIDEO_MODELS, buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoEndpointFor } from './videoModels';
 import type {
   VideoProvider,
   VideoGenerationRequest,
   VideoGenerationResult,
   VideoGenerationProgress,
   VideoModelDefinition,
-  VideoDuration,
 } from './types';
-
-const KLING_V3_DURATIONS = ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
-const SEEDANCE_DURATIONS  = ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
-const SEEDANCE_ASPECTS    = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] as const;
-
-const VIDEO_MODELS: VideoModelDefinition[] = [
-  {
-    id: 'ltx-2.3-fast',
-    name: 'LTX-2.3 Fast',
-    endpoint: 'fal-ai/ltx-2.3/text-to-video/fast',
-    i2vEndpoint: 'fal-ai/ltx-2.3/image-to-video/fast',
-    pricePerSecond: 0.04,
-    maxDuration: '20',
-    supportedDurations: ['6', '8', '10', '12', '14', '16', '18', '20'],
-    supportedResolutions: ['1080p', '1440p', '2160p'],
-    supportedAspectRatios: ['16:9', '9:16'],
-    features: ['audio'],
-    paramStyle: 'ltx',
-    supportedModes: ['text-to-video'],
-    supportedFps: [24, 25, 48, 50],
-  },
-  {
-    id: 'ltx-2.3-pro',
-    name: 'LTX-2.3 Pro',
-    endpoint: 'fal-ai/ltx-2.3/text-to-video',
-    i2vEndpoint: 'fal-ai/ltx-2.3/image-to-video',
-    pricePerSecond: 0.06,
-    maxDuration: '10',
-    supportedDurations: ['6', '8', '10'],
-    supportedResolutions: ['1080p', '1440p', '2160p'],
-    supportedAspectRatios: ['16:9', '9:16'],
-    features: ['audio', '4k'],
-    paramStyle: 'ltx',
-    supportedModes: ['text-to-video'],
-    supportedFps: [24, 25, 48, 50],
-  },
-  {
-    id: 'kling-2.5-turbo',
-    name: 'Kling 2.5 Turbo Pro',
-    endpoint: 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video',
-    i2vEndpoint: 'fal-ai/kling-video/v2.5-turbo/pro/image-to-video',
-    pricePerSecond: 0.07,
-    maxDuration: '10',
-    supportedDurations: ['5', '10'],
-    supportedResolutions: [],
-    supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    features: [],
-    paramStyle: 'kling',
-    supportedModes: ['text-to-video', 'image-to-video'],
-    endImageParam: 'tail_image_url',
-  },
-  {
-    id: 'kling-v3-pro',
-    name: 'Kling v3 Pro',
-    endpoint: 'fal-ai/kling-video/v3/pro/text-to-video',
-    i2vEndpoint: 'fal-ai/kling-video/v3/pro/image-to-video',
-    pricePerSecond: 0.1,
-    maxDuration: '15',
-    supportedDurations: KLING_V3_DURATIONS,
-    supportedResolutions: [],
-    supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    features: ['audio', 'elements', 'multi-shot'],   // elements = 参照カット（正面 + 別角度）、multi-shot = multi_prompt
-    paramStyle: 'kling',
-    supportedModes: ['text-to-video', 'image-to-video'],
-    endImageParam: 'end_image_url',
-    startImageParam: 'start_image_url',               // fal docs（2026-10）: v3 の image-to-video は start_image_url
-  },
-  {
-    id: 'kling-o3-pro-i2v',
-    name: 'Kling o3 Pro',
-    endpoint: 'fal-ai/kling-video/o3/pro/image-to-video',
-    pricePerSecond: 0.1,
-    maxDuration: '15',
-    supportedDurations: KLING_V3_DURATIONS,
-    supportedResolutions: [],
-    supportedAspectRatios: ['16:9', '9:16', '1:1'],
-    features: ['audio'],
-    paramStyle: 'kling-o3-i2v',
-    supportedModes: ['image-to-video'],
-    endImageParam: 'end_image_url',
-  },
-  {
-    id: 'seedance-2.0-fast',
-    name: 'Seedance 2.0',
-    endpoint: 'bytedance/seedance-2.0/text-to-video',
-    pricePerSecond: 0.05,
-    maxDuration: '15',
-    supportedDurations: SEEDANCE_DURATIONS,
-    supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: [...SEEDANCE_ASPECTS],
-    features: ['audio'],
-    paramStyle: 'seedance',
-    supportedModes: ['text-to-video'],
-  },
-  {
-    id: 'seedance-2.0-i2v',
-    name: 'Seedance 2.0',
-    endpoint: 'bytedance/seedance-2.0/image-to-video',
-    pricePerSecond: 0.05,
-    maxDuration: '15',
-    supportedDurations: SEEDANCE_DURATIONS,
-    supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: [...SEEDANCE_ASPECTS],
-    features: ['audio'],
-    paramStyle: 'seedance',
-    supportedModes: ['image-to-video'],
-    endImageParam: 'end_image_url',
-  },
-  {
-    id: 'seedance-2.0-r2v',
-    name: 'Seedance 2.0 Reference',
-    endpoint: 'bytedance/seedance-2.0/reference-to-video',
-    pricePerSecond: 0.06,
-    maxDuration: '15',
-    supportedDurations: SEEDANCE_DURATIONS,
-    supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: [...SEEDANCE_ASPECTS],
-    features: ['audio'],
-    paramStyle: 'seedance-r2v',
-    supportedModes: ['video-to-video'],
-  },
-  {
-    id: 'kling-o3-standard-v2v',
-    name: 'Kling O3 Standard V2V',
-    endpoint: 'fal-ai/kling-video/o3/standard/video-to-video/reference',
-    pricePerSecond: 0.07,
-    maxDuration: '15',
-    supportedDurations: KLING_V3_DURATIONS,
-    supportedResolutions: [],
-    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
-    features: [],
-    paramStyle: 'kling-v2v',
-    supportedModes: ['video-to-video'],
-  },
-  {
-    id: 'kling-o3-pro-v2v',
-    name: 'Kling O3 Pro V2V',
-    endpoint: 'fal-ai/kling-video/o3/pro/video-to-video/reference',
-    pricePerSecond: 0.1,
-    maxDuration: '15',
-    supportedDurations: KLING_V3_DURATIONS,
-    supportedResolutions: [],
-    supportedAspectRatios: ['auto', '16:9', '9:16', '1:1'],
-    features: [],
-    paramStyle: 'kling-v2v',
-    supportedModes: ['video-to-video'],
-  },
-];
 
 /** 画像URLから自然サイズを取得し、16:9 / 9:16 / 1:1 の中で最も近い比率を返す */
 async function detectAspectRatio(imageUrl: string): Promise<'16:9' | '9:16' | '1:1'> {
@@ -173,121 +24,6 @@ async function detectAspectRatio(imageUrl: string): Promise<'16:9' | '9:16' | '1
   })
 }
 
-async function buildInput(
-  modelDef: VideoModelDefinition,
-  request: VideoGenerationRequest,
-  safeDuration: string,
-  safeFps: number
-): Promise<Record<string, unknown>> {
-  let aspectRatio: string | undefined
-
-  if (request.aspectRatio === 'auto' || !request.aspectRatio) {
-    if (modelDef.paramStyle === 'kling' && request.imageUrl) {
-      // Kling は 'auto' をサポートしないため画像サイズから最近傍比率を自動検出
-      aspectRatio = await detectAspectRatio(request.imageUrl)
-    } else if (modelDef.paramStyle === 'seedance' || modelDef.paramStyle === 'seedance-r2v') {
-      // Seedance は 'auto' を明示的に渡す
-      aspectRatio = 'auto'
-    } else {
-      // LTX は aspect_ratio を省略すれば自動判定してくれる
-      aspectRatio = undefined
-    }
-  } else {
-    aspectRatio = request.aspectRatio
-  }
-
-  if (modelDef.paramStyle === 'kling-o3-i2v') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      duration: safeDuration,
-    }
-    if (aspectRatio) input.aspect_ratio = aspectRatio
-    if (request.imageUrl) input.image_url = request.imageUrl
-    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
-    if (request.seed != null) input.seed = request.seed
-    if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
-    return input
-  }
-
-  if (modelDef.paramStyle === 'kling-v2v') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      video_url: request.videoUrl,
-      duration: safeDuration,
-    }
-    if (aspectRatio && aspectRatio !== 'auto') input.aspect_ratio = aspectRatio
-    if (request.imageUrl) input.image_urls = [request.imageUrl]
-    if (request.seed != null) input.seed = request.seed
-    return input
-  }
-
-  if (modelDef.paramStyle === 'kling') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      duration: safeDuration,
-    }
-    // Kling 3.0 の image-to-video は aspect_ratio を受けず開始画像の比率になる（fal docs）。それ以外は従来どおり送る
-    const omitAspect = !!modelDef.startImageParam && !!request.imageUrl
-    if (aspectRatio && !omitAspect) input.aspect_ratio = aspectRatio
-    if (request.imageUrl) input[modelDef.startImageParam ?? 'image_url'] = request.imageUrl
-    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
-    if (request.seed != null) input.seed = request.seed
-    if (modelDef.features.includes('audio')) input.generate_audio = request.audioEnabled ?? false
-    // 参照カット（Kling 3.0 elements）: 人物と服の見え方を動画全体で保つ
-    if (modelDef.features.includes('elements')) {
-      const elements = buildKlingElements(request.elements)
-      if (elements.length) input.elements = elements
-    }
-    // マルチショット: prompt の代わりに multi_prompt（API は両方は不可）。全体の長さはショットの合計
-    if (modelDef.features.includes('multi-shot')) {
-      const multi = buildMultiPrompt(request.shots, request.prompt)
-      if (multi) { delete input.prompt; input.multi_prompt = multi.multi_prompt; input.duration = multi.duration }
-    }
-    return input
-  }
-
-  if (modelDef.paramStyle === 'seedance') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      resolution: request.resolution || '720p',
-      duration: safeDuration,
-      generate_audio: request.audioEnabled ?? true,
-      aspect_ratio: aspectRatio,
-    }
-    if (request.imageUrl) input.image_url = request.imageUrl
-    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
-    if (request.seed != null) input.seed = request.seed
-    return input
-  }
-
-  if (modelDef.paramStyle === 'seedance-r2v') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      resolution: request.resolution || '720p',
-      duration: safeDuration,
-      generate_audio: request.audioEnabled ?? true,
-      aspect_ratio: aspectRatio,
-    }
-    if (request.imageUrl) input.image_urls = [request.imageUrl]
-    if (request.videoUrl) input.video_urls = [request.videoUrl]
-    if (request.seed != null) input.seed = request.seed
-    return input
-  }
-
-  // LTX: duration は整数
-  const input: Record<string, unknown> = {
-    prompt: request.prompt,
-    duration: parseInt(safeDuration, 10),
-    resolution: request.resolution || '1080p',
-    fps: safeFps,
-    generate_audio: request.audioEnabled ?? true,
-  }
-  if (aspectRatio) input.aspect_ratio = aspectRatio
-  if (request.imageUrl) input.image_url = request.imageUrl
-  if (request.seed != null) input.seed = request.seed
-  return input
-}
-
 export class FalVideoProvider implements VideoProvider {
   name = 'fal-video';
 
@@ -301,30 +37,15 @@ export class FalVideoProvider implements VideoProvider {
       return { id: '', status: 'failed', error: `Unknown video model: ${request.model}` };
     }
 
-    // 'auto' はそのまま渡す（Seedance が対応）
-    const isAutoDuration = request.duration === 'auto'
-    const requestedDuration = isAutoDuration ? 0 : parseInt(request.duration || modelDef.supportedDurations[0], 10);
-    const maxDuration = parseInt(modelDef.maxDuration, 10);
-    const clampedDuration = isAutoDuration ? 'auto' : String(Math.min(requestedDuration, maxDuration));
-    // supportedDurations に含まれない値はリストの最近傍値にスナップ
-    const safeDuration = (modelDef.supportedDurations.includes(clampedDuration)
-      ? clampedDuration
-      : modelDef.supportedDurations.filter((d) => d !== 'auto').reduce((prev, cur) =>
-          Math.abs(parseInt(cur, 10) - requestedDuration) < Math.abs(parseInt(prev, 10) - requestedDuration) ? cur : prev
-        )
-    ) as VideoDuration;
-
-    // 48/50fps は 10秒以下のみ（それ以上は 24/25fps にダウングレード）
-    const reqFps = request.fps ?? 25;
-    const safeFps = (reqFps === 50 || reqFps === 48) && !isAutoDuration && requestedDuration > 10
-      ? (reqFps === 50 ? 25 : 24)
-      : reqFps;
+    const { safeDuration, requestedDuration, isAutoDuration } = resolveSafeDuration(modelDef, request.duration)
+    const safeFps = resolveSafeFps(request.fps, isAutoDuration, requestedDuration)
 
     try {
-      const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v' || modelDef.paramStyle === 'seedance-r2v';
-      const isI2V = !isV2V && !!request.imageUrl;
-      const endpoint = isV2V ? modelDef.endpoint : (isI2V && modelDef.i2vEndpoint ? modelDef.i2vEndpoint : modelDef.endpoint);
-      const input = await buildInput(modelDef, request, safeDuration, safeFps);
+      const { endpoint } = videoEndpointFor(modelDef, request)
+      // 比率: 'auto' で Kling（3.0 以外）に開始画像があるときだけ画像を読んで決める（共有の純関数は null を返す）
+      const resolved = resolveAspectRatio(modelDef, request)
+      const aspectRatio = resolved === null && request.imageUrl ? await detectAspectRatio(request.imageUrl) : (resolved ?? undefined)
+      const input = buildVideoInput(modelDef, request, safeDuration, safeFps, aspectRatio);
       console.log('[fal-video] request input:', input);
 
       const result = await fal.subscribe(endpoint, {

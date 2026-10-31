@@ -49,6 +49,7 @@ import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_L
 import { BatchInputNode } from '../nodes/BatchInputNode'
 import { BatchResultsNode } from '../nodes/BatchResultsNode'
 import { ProductVideoNode } from '../nodes/ProductVideoNode'
+import { VideoMergeNode } from '../nodes/VideoMergeNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
@@ -81,6 +82,7 @@ const nodeTypes: NodeTypes = {
   exportNode: ExportNode,
   batchResultsNode: BatchResultsNode,
   productVideoNode: ProductVideoNode,
+  videoMergeNode: VideoMergeNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -106,6 +108,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   export:          'exportNode',
   batchResults:    'batchResultsNode',
   productVideo:    'productVideoNode',
+  videoMerge:      'videoMergeNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -295,6 +298,7 @@ function expandGroupIfNeeded(
 
 // ノードタイプ別のデフォルト入力ハンドルID（ポートタイプ → ハンドルID）
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
+  videoMerge:     { video: 'in-video-1' },
   promptEnhancer: {},
   imageGen:       { text: 'in-text', image: 'in-image', list: 'in-list' },
   videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video' },
@@ -321,6 +325,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   removeBackground: REMOVE_BACKGROUND_OUTPUT_HANDLE,
   productLayout:  PRODUCT_LAYOUT_OUTPUT,
   batchInput:     'out-image-image',
+  videoMerge:     'out-video',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -635,6 +640,8 @@ export function Canvas() {
         data = { ...BATCH_INPUT_DEFAULT_DATA, params: { ...DEFAULT_BATCH_INPUT_PARAMS }, items: [], label }
       } else if (type === 'export') {
         data = { ...EXPORT_DEFAULT_DATA, params: { ...DEFAULT_EXPORT_PARAMS }, label }
+      } else if (type === 'videoMerge') {
+        data = { type: 'videoMerge', label, params: {}, status: 'idle', videoUrl: null }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }

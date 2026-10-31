@@ -71,6 +71,7 @@ const PALETTE = [
     items: [
       { type: 'videoGen' as NodeType,       label: 'Video Generation', description: 'AI動画を生成',         icon: <FilmStrip size={15} />, color: '#EC4899' },
       { type: 'referenceVideo' as NodeType, label: 'Reference Video',  description: '参照動画をアップロード', icon: <Video size={15} />,     color: '#EC4899' },
+      { type: 'videoMerge' as NodeType,     label: 'Video Merge',      description: '複数の動画を順に 1 本に結合（一括実行では SKU ごと）', icon: <FilmSlate size={15} />, color: '#EC4899' },
     ],
   },
   {
@@ -109,6 +110,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   export: 'exportNode',
   batchResults: 'batchResultsNode',
   productVideo: 'productVideoNode',
+  videoMerge: 'videoMergeNode',
 }
 
 let nodeIdCounter = 1000
@@ -146,6 +148,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'export') {
     return { type: 'export', label, params: { ...DEFAULT_EXPORT_PARAMS }, status: 'idle' }
+  }
+  if (type === 'videoMerge') {
+    return { type: 'videoMerge', label, params: {}, status: 'idle', videoUrl: null }
   }
   return { type, label, params: {}, status: 'idle' }
 }
