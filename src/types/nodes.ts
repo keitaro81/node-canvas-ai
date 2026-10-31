@@ -345,7 +345,7 @@ export interface ExportParams {
 export interface ExportFileResult {
   path: string                     // ZIP 内のパス（フォルダ含む）
   bytes: number
-  format: ExportFormat
+  format: ExportFormat | 'mp4'     // 動画は mp4 のまま
   quality: number | null
   warnings: string[]
 }

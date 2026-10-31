@@ -22,7 +22,7 @@ export const EXPORT_ITEM_HANDLE = 'in-item-item'
 
 interface SlotInput {
   slot: number
-  kind: 'image' | 'cutout'           // cutout = 切り抜きの透過 PNG（Product Layout につながる Remove Background から）
+  kind: 'image' | 'cutout' | 'video' // cutout = 切り抜きの透過 PNG（Product Layout につながる Remove Background から）/ video = 動画（mp4 のまま）
   url: string | null
   variant: string
   transparent: boolean | null
@@ -55,7 +55,7 @@ function findUpstreamItemInfo(startIds: string[], nodes: AppNode[], edges: { sou
       seen.add(nid)
       const n = nodes.find((x) => x.id === nid)
       const d = n?.data as NodeData | undefined
-      if (d?.type === 'batchInput' && d.itemInfo && typeof d.itemInfo === 'object') return d.itemInfo as BatchItemInfo
+      if ((d?.type === 'batchInput' || d?.type === 'cutSetInput') && d.itemInfo && typeof d.itemInfo === 'object') return d.itemInfo as BatchItemInfo
       for (const e of edges) if (e.target === nid) next.push(e.source)
     }
     frontier = next
@@ -104,11 +104,24 @@ function ExportNodeInner(props: NodeProps) {
     .sort((a, b) => a.slot - b.slot)
     .map(({ slot, node }) => describeSource(node, slot)), [slotEdges, nodes])
 
+  // 動画スロット（in-video-vN・設計 §4.4）: Video Result / Video Merge / Reference Video の動画を mp4 のまま命名規則で書き出す（形式・品質は適用しない）
+  const videoEdges = edges.filter((e) => e.target === id && e.targetHandle?.startsWith('in-video-v'))
+  const connectedVideoSlots = videoEdges.map((e) => Number(e.targetHandle!.slice('in-video-v'.length))).filter((n) => Number.isInteger(n))
+  const videoSlotCount = Math.min(EXPORT_MAX_IMAGE_SLOTS, Math.max(1, (connectedVideoSlots.length ? Math.max(...connectedVideoSlots) + 1 : 0) + 1))
+  const videoInputs: SlotInput[] = useMemo(() => videoEdges
+    .map((e) => ({ slot: Number(e.targetHandle!.slice('in-video-v'.length)), node: nodes.find((n) => n.id === e.source) }))
+    .sort((a, b) => a.slot - b.slot)
+    .map(({ slot, node }) => {
+      const d = node?.data as Record<string, unknown> | undefined
+      const label = typeof d?.label === 'string' && d.label.trim() ? d.label.trim() : 'video'
+      return { slot, kind: 'video' as const, url: typeof d?.videoUrl === 'string' && d.videoUrl ? d.videoUrl : null, variant: label, transparent: false, sourceLabel: label }
+    }), [videoEdges, nodes])
+
   // アイテム情報: 接続があればそれ、無ければ上流をたどる
   const itemEdge = edges.find((e) => e.target === id && e.targetHandle === EXPORT_ITEM_HANDLE)
   const itemNode = itemEdge ? nodes.find((n) => n.id === itemEdge.source) : undefined
   const connectedInfo = (itemNode?.data as NodeData | undefined)?.itemInfo as BatchItemInfo | undefined
-  const upstreamInfo = useMemo(() => (connectedInfo ? null : findUpstreamItemInfo(slotEdges.map((e) => e.source), nodes, edges)), [connectedInfo, slotEdges, nodes, edges])
+  const upstreamInfo = useMemo(() => (connectedInfo ? null : findUpstreamItemInfo([...slotEdges, ...videoEdges].map((e) => e.source), nodes, edges)), [connectedInfo, slotEdges, videoEdges, nodes, edges])
   const itemInfo: BatchItemInfo = connectedInfo ?? upstreamInfo ?? DEFAULT_ITEM
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
 
@@ -134,16 +147,16 @@ function ExportNodeInner(props: NodeProps) {
     }
     return out
   }, [params.includeCutout, slotEdges, nodes, edges])
-  const allInputs = useMemo(() => [...cutoutInputs, ...inputs], [cutoutInputs, inputs])
+  const allInputs = useMemo(() => [...cutoutInputs, ...inputs, ...videoInputs], [cutoutInputs, inputs, videoInputs])
 
   const now = useMemo(() => new Date(), [])
-  const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng }))
+  const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng, video: i.kind === 'video' }))
   const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now), [allInputs, params, itemInfo, now])
 
   const setParams = useCallback((patch: Partial<ExportParams>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
   const handleExport = useCallback(async () => {
-    if (!inputs.length || busy) return
+    if ((!inputs.length && !videoInputs.length) || busy) return
     setBusy(true)
     updateNode(id, { status: 'generating', error: null })
     const startedAt = new Date()
@@ -166,6 +179,17 @@ function ExportNodeInner(props: NodeProps) {
           files.push({ path, bytes: png.size, format: 'png', quality: null, warnings: w })
           if (params.zip) zipFiles.push({ path, data: new Uint8Array(await png.arrayBuffer()) })
           else { downloadBlob(png, path); await sleep(400) }
+          continue
+        }
+        if (inp.kind === 'video') {
+          // 動画: そのまま mp4（再エンコードなし）
+          if (!inp.url) { warnings.push(`動画 ${inp.slot + 1}（${inp.variant}）に動画がありません`); continue }
+          setProgress(`${i + 1} / ${allInputs.length}: 動画を取得中…`)
+          const blob = await fetchImage(inp.url, currentWorkflowId)
+          const path = `${entry.folder}${entry.base}.mp4`
+          files.push({ path, bytes: blob.size, format: 'mp4', quality: null, warnings: [] })
+          if (params.zip) zipFiles.push({ path, data: new Uint8Array(await blob.arrayBuffer()) })
+          else { downloadBlob(blob, path); await sleep(400) }
           continue
         }
         if (!inp.url) { warnings.push(`入力 ${inp.slot + 1}（${inp.variant}）に画像がありません`); continue }
@@ -200,7 +224,7 @@ function ExportNodeInner(props: NodeProps) {
       setBusy(false)
       setProgress('')
     }
-  }, [id, inputs, allInputs, busy, params, itemInfo, currentWorkflowId, updateNode])
+  }, [id, inputs, videoInputs, allInputs, busy, params, itemInfo, currentWorkflowId, updateNode])
 
   const error = typeof nodeData.error === 'string' ? nodeData.error : null
   const showQuality = params.format !== 'png'
@@ -213,6 +237,7 @@ function ExportNodeInner(props: NodeProps) {
       hideStatus
       inputs={[
         ...Array.from({ length: slotCount }, (_, i) => ({ id: String(i), portType: 'image' as const, label: `画像 ${i + 1}` })),
+        ...Array.from({ length: videoSlotCount }, (_, i) => ({ id: `v${i}`, portType: 'video' as const, label: `動画 ${i + 1}` })),
         { id: 'item', portType: 'item' as const, label: 'アイテム情報' },
       ]}
     >
@@ -254,7 +279,7 @@ function ExportNodeInner(props: NodeProps) {
         {/* ファイル名のプレビュー */}
         <Field label={`書き出すファイル（${allInputs.length} 件）`}>
           <div className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-mono leading-relaxed" style={{ background: 'var(--bg-canvas)' }}>
-            {inputs.length === 0 && <div className="text-[var(--text-tertiary)] font-sans">Product Layout の出力を「画像」に接続してください</div>}
+            {inputs.length === 0 && videoInputs.length === 0 && <div className="text-[var(--text-tertiary)] font-sans">Product Layout の出力を「画像」に、Video Result / Video Merge の動画を「動画」に接続してください</div>}
             {plan.entries.map((e, i) => (
               <div key={i} className="truncate text-[var(--text-primary)]" title={`${e.folder}${e.base}.${e.ext}`}>{e.folder}{e.base}.{e.ext}</div>
             ))}
@@ -271,7 +296,7 @@ function ExportNodeInner(props: NodeProps) {
           className="w-full h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12px] font-medium text-white transition-all duration-150 disabled:opacity-50 nodrag"
           style={{ background: PP_ACCENT }}
           onClick={() => void handleExport()}
-          disabled={busy || inputs.length === 0}
+          disabled={busy || (inputs.length === 0 && videoInputs.length === 0)}
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
           {busy ? (progress || '書き出し中…') : params.zip ? 'ZIP で書き出す' : '書き出す'}

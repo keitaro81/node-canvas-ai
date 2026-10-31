@@ -20,7 +20,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   removeBackground: ['image'],
   productLayout:  ['cutout', 'image'],
   batchInput:     [],
-  export:         ['image', 'item'],
+  export:         ['image', 'item', 'video'],
   batchResults:   [],
   productVideo:   [],
   videoMerge:     ['video'],

@@ -2,7 +2,10 @@
 // App（mode 'app'）と、履歴ページ / 一括結果ノード（JobReviewPanel が動画のジョブなら委譲）で共用。
 // 終端 / ショットの判定: 新しいタスクは input.__terminal・__kind、旧ジョブ（Product Video ノード）は結合 = ノード id・ショット = <id>:shot:<i>
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
+import { batchRerun, submitJobFully } from '../../lib/api/batch'
+import { exportParamsFromSnapshot, itemInfoOfRow } from '../../lib/review/model'
+import { planExportEntries } from '../../lib/export/naming'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, subscribeJobItems } from '../../lib/api/batchJobs'
 import { signBatchPaths } from '../../lib/cutout/store'
 import { useBatchStore } from '../../stores/batchStore'
@@ -33,6 +36,8 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [zipping, setZipping] = useState(false)
+  const [rerunFor, setRerunFor] = useState<string | null>(null)     // やり直しの確認中のショット（タスク id）
+  const [rerunBusy, setRerunBusy] = useState<string | null>(null)   // やり直しを投入中のショット
 
   const loadAll = useCallback(async () => {
     try {
@@ -65,6 +70,29 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   const mergeOf = (itemId: string) => tasksOf(itemId).filter(isVideoTask).find(isTerminal) ?? null
   const shotsOf = (itemId: string) => tasksOf(itemId).filter((t) => isVideoTask(t) && !isTerminal(t)).sort((a, b) => shotIndex(a) - shotIndex(b))
 
+  // 書き出しの命名（設計 §4.4）: 写しに Export ノードがあればその規則（{sku}_{variant}_{index:02}・ZIP のフォルダ分け）、無ければ <SKU>.mp4
+  const hasExport = !!job?.workflow_snapshot?.nodes?.some((n) => n?.data?.type === 'export')
+  const exportParams = exportParamsFromSnapshot(job?.workflow_snapshot)
+  const fileNameFor = (it: BatchItemRow, t: BatchTaskRow | null, inZip: boolean): string => {
+    if (!hasExport) return `${safeFile(it.sku)}.mp4`
+    const variant = typeof t?.input?.__label === 'string' && t.input.__label.trim() ? t.input.__label.trim() : 'video'
+    const e = planExportEntries([{ variant, transparent: false, video: true }], { ...exportParams, zip: inZip }, itemInfoOfRow(it), new Date()).entries[0]
+    return `${e.folder}${e.base}.mp4`
+  }
+  // ショット単位のやり直し（設計 §5.6）: そのショットのタスクを未投入に戻し、終わると結合もやり直す。設定は写しのまま
+  const rerunShot = async (it: BatchItemRow, s: BatchTaskRow) => {
+    setRerunFor(null); setRerunBusy(s.id)
+    try {
+      const r = await batchRerun({ jobId, nodeId: s.node_id, itemIds: [it.id], params: null })
+      if (!r.rerunTasks) { showToast(`このショットはいまやり直せません（${r.skipped.map((x) => x.reason).join(', ') || '処理中'}）`, 'warning'); return }
+      showToast('ショットを作り直しています。終わると結合もやり直します', 'success')
+      bump()
+      await submitJobFully(jobId)
+      await loadAll()
+    } catch (e) { showToast(e instanceof Error ? e.message : 'やり直しに失敗しました', 'error') }
+    finally { setRerunBusy(null); bump() }
+  }
+
   const download = async (path: string, name: string) => {
     const url = signed[path] ?? (await signBatchPaths([path]))[path]
     if (!url) { showToast('ダウンロード用の URL を取得できません', 'error'); return }
@@ -85,7 +113,7 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
         const url = map[t.m.result_path as string]
         if (!url) continue
         const buf = await (await fetch(url)).arrayBuffer()
-        zip.add(`${safeFile(t.it.sku)}.mp4`, new Uint8Array(buf))
+        zip.add(fileNameFor(t.it, t.m, true), new Uint8Array(buf))
       }
       const blob = zip.finish()
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${safeFile(job?.name ?? 'videos')}.zip`; a.click()
@@ -153,7 +181,7 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                   <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={it.sku}>{it.sort_order}. {it.sku}</span>
                   <div className="flex-1" />
                   {shots.length > 0 && <button className="text-[11px] hover:underline" style={{ color: 'var(--text-secondary)' }} onClick={() => setOpen((o) => ({ ...o, [it.id]: !isOpen }))}>{isOpen ? 'カットを閉じる' : `カット ${shots.length}`}</button>}
-                  {mergedUrl && merge?.result_path && <button className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="この動画をダウンロード（MP4）" onClick={() => void download(merge.result_path as string, `${safeFile(it.sku)}.mp4`)}><DownloadSimple size={14} /></button>}
+                  {mergedUrl && merge?.result_path && <button className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="この動画をダウンロード（MP4）" onClick={() => void download(merge.result_path as string, fileNameFor(it, merge, false))}><DownloadSimple size={14} /></button>}
                 </div>
                 {isOpen && (
                   <div className="grid grid-cols-3 gap-1">
@@ -162,9 +190,23 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                       const roleLabel = shotLabel(s)
                       const url = s.result_path ? signed[s.result_path] : null
                       return (
-                        <div key={s.id} className="relative rounded overflow-hidden" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
+                        <div key={s.id} className="relative rounded overflow-hidden group/shot" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
                           {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : s.status === 'submitted' ? '生成中' : '待機'}</div>}
                           <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{n} {roleLabel}</span>
+                          {/* このショットだけ作り直す（完了 / 失敗のときだけ。確認 → 投入） */}
+                          {(s.status === 'completed' || s.status === 'failed') && rerunBusy !== s.id && (rerunFor === s.id ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] px-1 text-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
+                              <span className="text-white">このショットを作り直す？</span>
+                              <span style={{ color: '#D1D5DB' }}>終わると結合もやり直します（費用は秒数分）</span>
+                              <div className="flex gap-1 mt-0.5">
+                                <button className="px-2 h-6 rounded text-white font-medium" style={{ background: '#F59E0B' }} onClick={() => void rerunShot(it, s)}>やり直す</button>
+                                <button className="px-2 h-6 rounded text-white" style={{ background: 'rgba(255,255,255,0.2)' }} onClick={() => setRerunFor(null)}>やめる</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button className="absolute top-0.5 right-0.5 w-6 h-6 rounded-full flex items-center justify-center text-white opacity-0 group-hover/shot:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)' }} title="このショットだけ作り直す（終わると結合もやり直します。費用は秒数分）" onClick={() => setRerunFor(s.id)} disabled={!!rerunBusy}><ArrowCounterClockwise size={12} weight="bold" /></button>
+                          ))}
+                          {rerunBusy === s.id && <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}><CircleNotch size={16} className="animate-spin" color="#fff" /></div>}
                         </div>
                       )
                     })}
