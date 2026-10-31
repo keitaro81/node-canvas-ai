@@ -1,7 +1,8 @@
 // ライブラリ（2026-10-18）: アップロードした素材（自分＋チーム共有）と生成した画像・動画を一覧し、ピン留め・チーム共有・削除ができる。History の置き換え
 // 生成画像タブには一括処理（切り抜き等）の結果が「1 ジョブ = 1 フォルダ」のカードで混ざる（2026-10-31）。クリックで中身のダイアログ
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowSquareOut, CircleNotch, CloudArrowUp, Download, PencilSimple, Play, PushPin, Trash, UserCircle, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowSquareOut, ArrowsOut, CircleNotch, CloudArrowUp, Download, PencilSimple, Play, PushPin, Trash, UserCircle, UsersThree, X } from '@phosphor-icons/react'
+import { VideoLightbox } from '../library/VideoLightbox'
 import { useNavigate } from 'react-router'
 import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
 import { deleteLibraryItem, libraryDaysLeft, listLibraryItems, signLibraryItems, touchLibraryItems, updateLibraryItem, uploadToLibrary, type LibraryItem, type LibraryMedia } from '../../lib/api/library'
@@ -232,17 +233,20 @@ export function LibraryPage() {
   )
 }
 
+/** 商品動画（一括実行の終端の動画）のカード。ボタンの並びは生成動画のカード（GenerationCard）と同じ: ダウンロード / 拡大表示 / …（保存・削除は処理の履歴の画面で）。クリックで拡大表示 */
 function BatchVideoCard({ video, url, mine, onOpen }: { video: BatchVideo; url?: string; mine: boolean; onOpen: () => void }) {
+  const [lightbox, setLightbox] = useState(false)
   const download = async () => { if (!url) return; downloadFile(url, `${video.sku || 'video'}.mp4`) }
   return (
-    <div className="group flex flex-col rounded-xl overflow-hidden transition-all duration-150" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div className="group flex flex-col rounded-xl overflow-hidden transition-all duration-150 cursor-pointer" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }} onClick={() => { if (url) setLightbox(true) }}>
       <div className="relative w-full overflow-hidden" style={{ aspectRatio: '1 / 1', background: 'var(--bg-placeholder)' }}>
         <MediaImg src={url ?? ''} video muted playsInline className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}><Play size={16} weight="fill" color="#fff" /></div></div>
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
-          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={() => void download()} title="ダウンロード"><Download size={15} weight="bold" /></button>
-          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={onOpen} title="結果の画面で開く"><ArrowSquareOut size={15} weight="bold" /></button>
+          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); void download() }} title="ダウンロード"><Download size={15} weight="bold" /></button>
+          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); if (url) setLightbox(true) }} title="拡大表示"><ArrowsOut size={15} weight="bold" /></button>
+          <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); onOpen() }} title="結果の画面で開く"><ArrowSquareOut size={15} weight="bold" /></button>
         </div>
+        {lightbox && url && <VideoLightbox url={url} onClose={() => setLightbox(false)} onDownload={() => void download()} />}
         <div className="absolute bottom-2 left-2 flex items-center gap-1">
           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-white" style={{ background: 'rgba(236,72,153,0.85)' }}>商品動画</span>
           {!mine && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>チーム</span>}
