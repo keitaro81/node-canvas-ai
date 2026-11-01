@@ -8,6 +8,7 @@ import { Upload, X, Loader2, Check, AlertCircle, RefreshCw } from 'lucide-react'
 import { showToast } from '../../hooks/useToast'
 import type { BatchItem } from '../../types/nodes'
 import { MAX_BATCH_ITEMS, extractSku, safeFileName, sortAndIndexItems } from '../../lib/batch/items'
+import { initialAppPhotos, saveAppPhotos } from '../../lib/batch/appPhotos'
 import { readImageSize, runWithConcurrency } from '../../lib/batch/upload'
 import { interactiveCutoutDir, resolveTeamId, signBatchPaths, uploadBatchObject } from '../../lib/cutout/store'
 import type { CreateItemInput } from '../../lib/api/batch'
@@ -16,6 +17,8 @@ const ACCENT = '#14B8A6'
 const UPLOAD_CONCURRENCY = 3
 
 interface Props {
+  storageKey?: string | null        // 写真の一覧の記憶キー（ワークフロー + ノード・2026-11-02）
+  initialItems?: BatchItem[] | null // ノードに以前の写真の一覧があれば一度だけ引き継ぐ
   nodeId: string                 // Batch Input ノード（アップロード先のフォルダ名）
   skuPattern: string             // ノードの SKU 規則（ここでは変更しない）
   canSubmit: boolean             // 一括実行できるか（ワークフロー未保存などで false）
@@ -23,9 +26,10 @@ interface Props {
 }
 
 /** 投入完了後に一覧を空にするには、親が key を変えて作り直す */
-export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit }: Props) {
+export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit, storageKey, initialItems }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [items, setItems] = useState<BatchItem[]>([])
+  const [items, setItems] = useState<BatchItem[]>(() => initialAppPhotos(storageKey, initialItems))   // このブラウザの記憶 → 以前のノードの一覧（一度だけ）→ 空
+  useEffect(() => { saveAppPhotos(storageKey, items) }, [items, storageKey])
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
