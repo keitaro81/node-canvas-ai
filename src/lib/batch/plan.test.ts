@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ELEMENT_TAG, expandProductVideo, inputNodesOf, planTasks, promptTextsToTranslateForPlan, shotsFromCanvas, snapshotHasVideo, taskMapOf, taskSatisfied, availableVideos, type WorkflowSnapshot } from './plan'
+import { ELEMENT_TAG, expandProductVideo, imageRoleOfSource, inputNodesOf, planTasks, promptTextsToTranslateForPlan, shotsFromCanvas, snapshotHasVideo, taskMapOf, taskSatisfied, availableVideos, type WorkflowSnapshot } from './plan'
 
 const RB_PARAMS = { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '1024x1024', alphaThreshold: 8, featherPx: 0 }
 const bi = { id: 'bi', data: { type: 'batchInput', params: {} } }
@@ -225,5 +225,44 @@ describe('planTasks: Try-On（2b-3・写真ごとの試着）', () => {
     const fixed = planTasks({ nodes: [bi, ri, tryOn('t1')], edges: [e('ri', 'out-image', 't1', 'in-image-garment')] })
     expect(fixed.tasks).toEqual([])
     expect(fixed.warnings).toEqual([])
+  })
+})
+
+describe('2b-4: Try-On の向きを Video Generation の始点・終点に引き継ぐ', () => {
+  const MODEL = (role: string) => `https://x.supabase.co/storage/v1/object/public/generated-images/library/u/${role}.jpg`
+  const tryOn = (id: string, role: string, data: Record<string, unknown> = {}) => ({ id, type: 'tryOnNode', data: { type: 'tryOn', label: id, params: { resolution: '2K', note: '' }, model: { url: MODEL(role), role, itemId: role }, ...data } })
+  it('試着（正面）→ 始点、試着（右側面）→ 終点: 参照に向きが載り、ショットの見出しと回転指示に使う', () => {
+    const snap: WorkflowSnapshot = {
+      nodes: [bi, tryOn('tf', 'front'), tryOn('tr', 'right'), tp('tp', 'p'), vg('v1'), merge('m')],
+      edges: [e('bi', 'out-image-image', 'tf', 'in-image-garment'), e('bi', 'out-image-image', 'tr', 'in-image-garment'), e('tf', 'out-image-image-out', 'v1', 'in-image'), e('tr', 'out-image-image-out', 'v1', 'in-image-end'), e('tp', 'out-text-text-out', 'v1', 'in-text'), e('v1', 'out-video', 'm', 'in-video-1')],
+    }
+    const { tasks, warnings } = planTasks(snap)
+    expect(warnings).toEqual([])
+    expect(ids(snap)).toEqual(['tf:imageEdit:1', 'tr:imageEdit:1', 'v1:videoShot:2', 'm:videoMerge:3'])
+    const v = tasks.find((t) => t.nodeId === 'v1')!
+    expect(v.inputs).toEqual({ start: { kind: 'dep', nodeId: 'tf', prefer: 'result', role: 'front' }, end: { kind: 'dep', nodeId: 'tr', prefer: 'result', role: 'right' } })
+    expect(v.dependsOn).toEqual(['tf', 'tr'])
+    expect(v.input.__shot).toMatchObject({ role: 'front', endRole: 'right' })
+    expect(String(v.input.prompt)).toMatch(/quarter turn/)
+    expect(v.input.cfg_scale).toBe(0.7)
+  })
+  it('画像の出どころの向き: 役割ポート / Try-On（選んだカット・Cut Set の役割ポートから・別の Try-On から）/ Try-On の結果ノード。それ以外は null', () => {
+    const nodes = [cs, tryOn('t1', 'back'), tryOn('t2', 'front', { model: null }), tryOn('t3', 'left', { model: null }), { id: 'disp', type: 'imageDisplayNode', data: { type: 'imageDisplay' } }, { id: 'ri', type: 'referenceImageNode', data: { type: 'referenceImage' } }]
+    const edges = [e('cs', 'out-image-right', 't2', 'in-image-model'), e('t2', 'out-image-image-out', 't3', 'in-image-model'), e('t1', 'out-image-image-out', 'disp', 'in-image-image-in')]
+    expect(imageRoleOfSource(nodes, edges, 'cs', 'out-image-left')).toBe('left')
+    expect(imageRoleOfSource(nodes, edges, 't1', 'out-image-image-out')).toBe('back')
+    expect(imageRoleOfSource(nodes, edges, 't2', 'out-image-image-out')).toBe('right')
+    expect(imageRoleOfSource(nodes, edges, 't3', 'out-image-image-out')).toBe('right')
+    expect(imageRoleOfSource(nodes, edges, 'disp', 'out-image-image-out')).toBe('back')
+    expect(imageRoleOfSource(nodes, edges, 'ri', 'out-image')).toBeNull()
+  })
+  it('App の構成: Cut Set Input の服のカット → Try-On → Video Generation でも、必要な役割カットでショットが出る', () => {
+    const snap: WorkflowSnapshot = {
+      nodes: [cs, tryOn('tf', 'front'), tryOn('tr', 'right'), tp('tp', 'p'), vg('v1')],
+      edges: [e('cs', 'out-image-front', 'tf', 'in-image-garment'), e('cs', 'out-image-right', 'tr', 'in-image-garment'), e('tf', 'out-image-image-out', 'v1', 'in-image'), e('tr', 'out-image-image-out', 'v1', 'in-image-end'), e('tp', 'out-text-text-out', 'v1', 'in-text')],
+    }
+    expect(shotsFromCanvas(snap).map((s) => `${s.role}>${s.endRole}:${s.duration}`)).toEqual(['front>right:3'])
+    const { tasks } = planTasks(snap)
+    expect(tasks.find((t) => t.nodeId === 'tf')!.inputs).toEqual({ image: { kind: 'cut', role: 'front' }, model: { kind: 'asset', url: MODEL('front') } })
   })
 })
