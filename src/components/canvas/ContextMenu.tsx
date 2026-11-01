@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download, LayoutGrid, Clapperboard, Shirt, UserRound } from 'lucide-react'
+import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download, LayoutGrid, Shirt, UserRound } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -22,13 +22,11 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   batchInput:     [],
   export:         ['image', 'item', 'video'],
   batchResults:   [],
-  productVideo:   [],
   videoMerge:     ['video'],
-  cutSetInput:    [],
   tryOn:          ['image', 'cutout'],
   libraryModel:   [],
   imageGen:       ['text', 'image', 'list'],
-  videoGen:       ['text', 'image', 'video', 'cuts'],
+  videoGen:       ['text', 'image', 'video'],
   note:           [],
   utility:        ['text'],
 }
@@ -44,9 +42,7 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   batchInput:     ['image', 'item'],
   export:         [],
   batchResults:   [],
-  productVideo:   [],
   videoMerge:     ['video'],
-  cutSetInput:    ['image', 'cuts', 'item'],
   tryOn:          ['image'],
   libraryModel:   ['image'],
   imageGen:       ['image'],
@@ -98,12 +94,6 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
       { type: 'batchInput',       label: 'Batch Input',       icon: <Images size={14} />, color: '#14B8A6' },
       { type: 'export',           label: 'Export',            icon: <Download size={14} />, color: '#14B8A6' },
       { type: 'batchResults',     label: 'Batch Results',     icon: <LayoutGrid size={14} />, color: '#14B8A6' },
-    ],
-  },
-  {
-    category: '商品動画',
-    items: [
-      { type: 'cutSetInput',      label: 'Cut Set Input',     icon: <Clapperboard size={14} />, color: '#EC4899' },
     ],
   },
 ]

@@ -9,14 +9,14 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
-import { CUT_ROLE_LABEL, FRONTAL_ROLE, REFERENCE_PRIORITY, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
-import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, cutSetRoleHandle, imageRoleOfSource, inputNodesOf, planTasksForNode, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { CUT_ROLE_LABEL, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
+import { autoElementSources, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, inputNodesOf, planTasksForNode, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
 import { CapsuleFieldToggle } from './CapsuleFieldToggle'
 import type { VideoGenerationRequest, VideoGenerationProgress, VideoShot } from '../../lib/ai/types'
-import { cutsToElement, shotsTotalSeconds, MAX_ELEMENT_REFS, SHOT_MAX, SHOT_MIN, TOTAL_MAX, TOTAL_MIN } from '../../lib/ai/videoShots'
+import { shotsTotalSeconds, SHOT_MAX, SHOT_MIN, TOTAL_MAX, TOTAL_MIN } from '../../lib/ai/videoShots'
 import { saveGeneration, updateGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadVideoFromUrl, signOwnUpload } from '../../lib/api/storage'
@@ -69,27 +69,11 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const hasConnectedImageNode = !!startEdge
 
-  // 参照カット（従来の in-image-cuts。1 接続しか残らないので互換のためだけ）: Kling 3.0 の elements
-  const connectedCuts = rfEdges
-    .filter((e) => e.target === id && e.targetHandle === 'in-image-cuts')
-    .map((e) => { const n = rfNodes.find((x) => x.id === e.source); return n ? { nodeId: n.id, url: getImageUrlFromNodeData(n.data, e.sourceHandle) ?? '', label: ((n.data as Record<string, unknown>).label as string) || n.id } : null })
-    .filter((c): c is { nodeId: string; url: string; label: string } => !!c)
-  const { element: legacyElement, ignored: ignoredCuts } = cutsToElement(connectedCuts, nodeData.cutsFrontalNodeId)
-  const frontalNodeId = connectedCuts.find((c) => c.url && c.nodeId === nodeData.cutsFrontalNodeId)?.nodeId ?? connectedCuts.find((c) => c.url)?.nodeId ?? null
-  // カット一式（in-cuts-set ← Cut Set Input）: 正面 + 別角度（優先順で最大 3）を elements に。開始フレーム未接続なら正面を開始に（設計 §4.2）
-  const setEdge = rfEdges.find((e) => e.target === id && e.targetHandle === VIDEO_GEN_SET_HANDLE)
-  const setNode = setEdge ? rfNodes.find((n) => n.id === setEdge.source && n.type === 'cutSetInputNode') : undefined
-  const hasSetInput = !!setNode
-  const setOutputsKey = JSON.stringify(((setNode?.data as Record<string, unknown> | undefined)?.outputs as Record<string, string> | undefined) ?? null)
-  const setElement = useMemo(() => {
-    const outs = JSON.parse(setOutputsKey) as Record<string, string> | null
-    const frontal = outs?.[cutSetRoleHandle(FRONTAL_ROLE)]
-    if (!frontal) return null
-    const refs = REFERENCE_PRIORITY.map((r) => outs?.[cutSetRoleHandle(r)]).filter((u): u is string => !!u && u !== frontal).slice(0, MAX_ELEMENT_REFS)
-    return { frontalUrl: frontal, referenceUrls: refs }
-  }, [setOutputsKey])
-  const cutsElement = hasSetInput ? setElement : legacyElement
-  const hasImageInput = hasConnectedImageNode || connectedCuts.length > 0 || hasSetInput
+  // Kling の参照一式（elements）: このショットと、同じ Video Merge につながる兄弟ショットの開始・終了フレームにある向きつきの画像から自動で選ぶ
+  // （正面 1 + 別角度 最大 3。正面が無ければ付けない・2026-11-01。Cut Set Input のカット一式・従来の参照カット接続は廃止）
+  const elementUrlsKey = JSON.stringify(autoElementSources(rfNodes as unknown as SnapshotNode[], rfEdges as unknown as SnapshotEdge[], id).map((src) => { const n = rfNodes.find((x) => x.id === src.source); return n ? getImageUrlFromNodeData(n.data, src.sourceHandle) ?? '' : '' }))
+  const cutsElement = useMemo(() => { const urls = JSON.parse(elementUrlsKey) as string[]; return urls.length && urls[0] ? { frontalUrl: urls[0], referenceUrls: urls.slice(1).filter(Boolean) } : null }, [elementUrlsKey])
+  const hasImageInput = hasConnectedImageNode
   const shots: VideoShot[] = nodeData.shots ?? EMPTY_SHOTS
 
   // 終了フレーム（in-image-end）
@@ -127,7 +111,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const supportsElements = !!currentModel?.features.includes('elements')
   const supportsShots = !!currentModel?.features.includes('multi-shot')
   // 開始フレーム: in-image があればそれ、無ければ参照カットの正面（カットだけつないでも動かせる）
-  const startImageUrl = connectedImageUrl ?? (supportsElements ? cutsElement?.frontalUrl ?? null : null)
+  const startImageUrl = connectedImageUrl
   const activeShots = useMemo(() => (supportsShots ? shots.filter((x) => x.prompt.trim() !== '') : EMPTY_SHOTS), [supportsShots, shots])
   const shotsSeconds = shotsTotalSeconds(activeShots)
 
@@ -149,7 +133,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const batchInfo = useMemo(() => {
     const snap = live as unknown as WorkflowSnapshot
     const ins = inputNodesOf(snap)
-    if (!ins.batchInputId && !ins.cutSetInputId) return null
+    if (!ins.batchInputId) return null
     const { tasks, excluded } = planTasksForNode(snap, id)   // 自分の入口の枝だけで計画（メモ 24）
     const t = tasks.find((x) => x.nodeId === id)
     if (t) return { ok: true as const, stage: t.stage, reason: null }
@@ -170,7 +154,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       edges: snapEdges.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),
     }
     const thisSnap = snap.nodes!.find((n) => n.id === id)!
-    const refs: TaskInputs = { start: startRole ? { kind: 'cut', role: startRole } : { kind: 'photo' }, ...(endRole ? { end: { kind: 'cut', role: endRole } } : {}), ...(hasSetInput ? { elements: { kind: 'set' } } : {}) }
+    const refs: TaskInputs = { start: { kind: 'photo' }, ...(supportsEndImage && connectedEndImageUrl ? { end: { kind: 'photo' } } : {}) }   // 計画と同じプロンプトの組み立て（終点があれば追従を強める）
     const withElements = !!supportsElements && !!cutsElement
     let translations: Record<string, string> | null = null
     const toTranslate = textsNeedingTranslation(videoPromptSources(snap.nodes!, snap.edges!, id, refs))
@@ -192,10 +176,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     const cfgScale = built.turned && currentModel?.paramStyle === 'kling' ? cfgScaleOf(nodeData as unknown as Record<string, unknown>) : undefined
     if (hasConnectedImageNode && !connectedImageUrl) {
       upd(updateNode, id, { status: 'failed', error: '参照画像をアップロードしてください' })
-      return
-    }
-    if (connectedCuts.length > 0 && !cutsElement) {
-      upd(updateNode, id, { status: 'failed', error: '参照カットの画像を用意してください' })
       return
     }
 
@@ -419,7 +399,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
       ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
-  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, updateNode, activeShots, connectedCuts.length, cutsElement, startImageUrl, supportsElements, startRole, endRole, hasSetInput, supportsNegative])
+  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, updateNode, activeShots, cutsElement, startImageUrl, supportsElements, supportsNegative])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -585,11 +565,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           { id: 'in-text', color: '#6366F1', title: 'プロンプト' },
           { id: 'in-image', color: '#8B5CF6', title: '開始フレーム' },
           ...(supportsEndImage ? [{ id: 'in-image-end', color: '#A78BFA', title: '終了フレーム' }] : []),
-          ...(supportsElements ? [{ id: VIDEO_GEN_SET_HANDLE, color: '#F472B6', title: `参照カット一式（Cut Set Input のカット一式。正面 1 + 別角度 最大 ${MAX_ELEMENT_REFS}）` }] : []),
-          ...(connectedCuts.length > 0 ? [{ id: 'in-image-cuts', color: '#F472B6', title: '参照カット（従来の接続）' }] : []),
           { id: 'in-video', color: '#EC4899', title: '参照動画' },
         ]
-        const names: Record<string, string> = { 'in-text': 'プロンプト', 'in-image': '開始フレーム', 'in-image-end': '終了フレーム', [VIDEO_GEN_SET_HANDLE]: '参照カット一式', 'in-image-cuts': '参照カット', 'in-video': '参照動画' }
+        const names: Record<string, string> = { 'in-text': 'プロンプト', 'in-image': '開始フレーム', 'in-image-end': '終了フレーム', 'in-video': '参照動画' }
         return list.map((h, i) => {
           const top = `${Math.round(18 + (i * 64) / (list.length - 1))}%`
           return (
@@ -633,7 +611,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             {hasConnectedImageNode ? '参照画像あり → Image to Video' : '参照カットの正面を開始フレームにして Image to Video'}
           </div>
         )}
-        {!connectedVideoUrl && hasImageInput && !connectedEndImageUrl && supportsEndImage && (
+        {!connectedVideoUrl && hasImageInput && !endEdge && supportsEndImage && (
           <div className="text-[10px] px-1 leading-snug" style={{ color: 'var(--text-tertiary)' }}>終了フレーム: 未接続。左の 3 つ目のポート（終了フレーム）に画像をつなぐと、始点 → 終点の動画になります</div>
         )}
 
@@ -653,23 +631,10 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* カット一式（Cut Set Input → in-cuts-set）: 正面 + 別角度（最大 3）を elements に */}
-        {supportsElements && hasSetInput && (
-          <div className="rounded-md px-2 py-1.5 flex flex-col gap-1.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-              <Images size={11} />参照カット一式<span className="font-normal" style={{ color: 'var(--text-tertiary)' }} title="Kling の elements。全ショット共通で、服と人物を揃えるための参照です。動画の始点・終点ではありません">（全ショット共通・服と人物を揃える参照）</span>
-              <span className="ml-auto font-normal" style={{ color: 'var(--text-tertiary)' }}>{setElement ? `正面 1 + 別角度 ${setElement.referenceUrls.length}` : '正面のカットがありません'}</span>
-            </div>
-            {setElement && (
-              <div className="grid grid-cols-4 gap-1">
-                {[setElement.frontalUrl, ...setElement.referenceUrls].map((u, i) => (
-                  <div key={i} className="relative rounded overflow-hidden" style={{ aspectRatio: '3 / 4', background: 'var(--bg-placeholder)', outline: i === 0 ? '2px solid #F472B6' : '1px solid var(--border)', outlineOffset: -1 }}>
-                    <img src={u} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} />
-                    {i === 0 && <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] font-semibold text-white" style={{ background: '#F472B6' }}>正面</span>}
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Kling の参照一式（自動）: 1 行だけ */}
+        {supportsElements && cutsElement && (
+          <div className="flex items-center gap-1.5 text-[11px] px-1" style={{ color: 'var(--text-tertiary)' }} title="同じ Video Merge につながるショットの向きつきの画像から、正面 1 + 別角度を Kling の参照（人物と服の見た目を揃える）に使います">
+            <Images size={11} />参照 {1 + cutsElement.referenceUrls.length} 枚（自動）
           </div>
         )}
 
@@ -704,40 +669,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         )}
         {batchInfo && (
           <div className="text-[10px] leading-snug px-2 py-1 rounded" style={{ background: batchInfo.ok ? 'rgba(34,197,94,0.10)' : 'rgba(245,158,11,0.10)', color: batchInfo.ok ? '#22C55E' : '#F59E0B' }}>
-            {batchInfo.ok ? `一括実行: 対象（${batchInfo.stage} 段目・SKU ごとに 1 本）` : `一括実行: 対象外（${batchInfo.reason ?? 'Batch Input / Cut Set Input の写真・カットに接続されていません'}）`}
-          </div>
-        )}
-
-        {/* 参照カット（従来の in-image-cuts。Kling 3.0 elements）: つないだカットの一覧と「正面」の選択 */}
-        {supportsElements && !hasSetInput && connectedCuts.length > 0 && (
-          <div className="rounded-md px-2 py-1.5 flex flex-col gap-1.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-              <Images size={11} />参照カット {connectedCuts.length} 枚
-              <span className="ml-auto font-normal" style={{ color: 'var(--text-tertiary)' }}>正面 1 + 別角度 {Math.min(MAX_ELEMENT_REFS, Math.max(0, connectedCuts.length - 1))}</span>
-            </div>
-            <div className="grid grid-cols-4 gap-1">
-              {connectedCuts.map((c) => {
-                const isFrontal = c.nodeId === frontalNodeId
-                return (
-                  <button
-                    key={c.nodeId}
-                    type="button"
-                    className="relative rounded overflow-hidden nodrag"
-                    style={{ aspectRatio: '3 / 4', background: 'var(--bg-placeholder)', outline: isFrontal ? '2px solid #F472B6' : '1px solid var(--border)', outlineOffset: -1 }}
-                    title={isFrontal ? '正面（エレメントの主カット）' : 'クリックして正面にする'}
-                    onClick={() => upd(updateNode, id, { cutsFrontalNodeId: c.nodeId })}
-                    disabled={isGenerating}
-                  >
-                    {c.url ? <img src={c.url} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} /> : null}
-                    {isFrontal && <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] font-semibold text-white" style={{ background: '#F472B6' }}>正面</span>}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
-              同じ人物・同じ服のカットだけをつなぎます（別人を混ぜると顔がすり替わります）。プロンプトでは @Element1 で参照できます。
-              {ignoredCuts > 0 ? ` 別角度は ${MAX_ELEMENT_REFS} 枚までなので ${ignoredCuts} 枚は使われません。` : ''}
-            </div>
+            {batchInfo.ok ? `一括実行: 対象（${batchInfo.stage} 段目・写真ごとに 1 本）` : `一括実行: 対象外（${batchInfo.reason ?? 'Batch Input / Cut Set Input の写真・カットに接続されていません'}）`}
           </div>
         )}
 

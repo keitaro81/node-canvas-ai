@@ -55,7 +55,7 @@ function findUpstreamItemInfo(startIds: string[], nodes: AppNode[], edges: { sou
       seen.add(nid)
       const n = nodes.find((x) => x.id === nid)
       const d = n?.data as NodeData | undefined
-      if ((d?.type === 'batchInput' || d?.type === 'cutSetInput') && d.itemInfo && typeof d.itemInfo === 'object') return d.itemInfo as BatchItemInfo
+      if (d?.type === 'batchInput' && d.itemInfo && typeof d.itemInfo === 'object') return d.itemInfo as BatchItemInfo
       for (const e of edges) if (e.target === nid) next.push(e.source)
     }
     frontier = next
@@ -123,7 +123,9 @@ function ExportNodeInner(props: NodeProps) {
   const itemNode = itemEdge ? nodes.find((n) => n.id === itemEdge.source) : undefined
   const connectedInfo = (itemNode?.data as NodeData | undefined)?.itemInfo as BatchItemInfo | undefined
   const upstreamInfo = useMemo(() => (connectedInfo ? null : findUpstreamItemInfo([...slotEdges, ...videoEdges].map((e) => e.source), nodes, edges)), [connectedInfo, slotEdges, videoEdges, nodes, edges])
-  const itemInfo: BatchItemInfo = connectedInfo ?? upstreamInfo ?? DEFAULT_ITEM
+  // 入口（Batch Input）が無い構成は「商品名」の欄を {sku} に使う（空ならワークフロー名・2026-11-01）
+  const fallbackSku = params.productName.trim() || currentWorkflowName?.trim() || DEFAULT_ITEM.sku
+  const itemInfo: BatchItemInfo = useMemo(() => connectedInfo ?? upstreamInfo ?? { ...DEFAULT_ITEM, sku: fallbackSku }, [connectedInfo, upstreamInfo, fallbackSku])
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
   const itemConnected = !!itemEdge   // つないであるが SKU がまだ無い（Cut Set Input に SKU 0 件など）: 「未接続」とは出さない（2026-11-01）
 
@@ -167,7 +169,7 @@ function ExportNodeInner(props: NodeProps) {
     try {
       const planNow = planExportEntries(toPlanned(allInputs), params, itemInfo, startedAt, { skus: 1 })
       // ZIP 名（アイテム情報が無いときはワークフロー名）。解凍後のフォルダ名も同じにするため、中身は ZIP 名のルートフォルダで包む（2026-11-01 メモ 19）
-      const zipBase = zipFileName(itemInfo, startedAt, itemSource === 'none' ? currentWorkflowName : null)
+      const zipBase = zipFileName(itemInfo, startedAt)   // 商品名（空ならワークフロー名）か SKU
       const zipRoot = `${zipBase.replace(/\.zip$/i, '')}/`
       const files: ExportFileResult[] = []
       const zipFiles: Array<{ path: string; data: Uint8Array }> = []
@@ -231,7 +233,7 @@ function ExportNodeInner(props: NodeProps) {
       setBusy(false)
       setProgress('')
     }
-  }, [id, inputs, videoInputs, allInputs, busy, params, itemInfo, itemSource, currentWorkflowId, currentWorkflowName, updateNode])
+  }, [id, inputs, videoInputs, allInputs, busy, params, itemInfo, currentWorkflowId, updateNode])
 
   const error = typeof nodeData.error === 'string' ? nodeData.error : null
   const showQuality = params.format !== 'png'
@@ -256,6 +258,11 @@ function ExportNodeInner(props: NodeProps) {
             <div className="rounded-md px-2 py-1 mt-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>{badTokens.join(' ')} は置き換えに使えないので、そのままファイル名に残ります。固定の文字は {'{ }'} なしで書いてください（例: 商品動画_{'{sku}'}_{'{index:02}'}）</div>
           )}
         </Field>
+        {itemSource === 'none' && !itemConnected && (
+          <Field label="商品名（{sku} とファイル名・ZIP 名に使う）">
+            <TextField value={params.productName} onChange={(v) => setParams({ productName: v })} placeholder={currentWorkflowName ? `空なら「${currentWorkflowName}」` : '空ならワークフロー名'} />
+          </Field>
+        )}
 
         <div className="grid grid-cols-2 gap-2">
           {videoOnly ? (
@@ -303,7 +310,7 @@ function ExportNodeInner(props: NodeProps) {
             ))}
           </div>
           <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">
-            アイテム: {itemInfo.sku}（#{itemInfo.index}）{itemSource === 'connected' ? '' : itemSource === 'upstream' ? '・上流の Batch Input から取得' : itemConnected ? '・SKU がまだありません（アイテム情報は接続済み。入れるまでは既定値で表示・ZIP 名はワークフロー名）' : '・アイテム情報が未接続のため既定値（ZIP 名はワークフロー名）'}
+            アイテム: {itemInfo.sku}（#{itemInfo.index}）{itemSource === 'connected' ? '' : itemSource === 'upstream' ? '・上流の Batch Input から取得' : itemConnected ? '・SKU がまだありません（アイテム情報は接続済み。入れるまでは既定値で表示・ZIP 名はワークフロー名）' : '・商品名（空ならワークフロー名）を使います'}
           </div>
         </Field>
         {plan.warnings.map((w) => (

@@ -51,12 +51,10 @@ import { DEFAULT_LAYOUT_PARAMS } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../../lib/layout/nodeIo'
 import { BatchInputNode } from '../nodes/BatchInputNode'
 import { BatchResultsNode } from '../nodes/BatchResultsNode'
-import { ProductVideoNode } from '../nodes/ProductVideoNode'
 import { VideoMergeNode } from '../nodes/VideoMergeNode'
 import { TryOnNode, TRY_ON_GARMENT_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../nodes/TryOnNode'
 import { LibraryModelNode } from '../nodes/LibraryModelNode'
 import { TRY_ON_MODEL_HANDLE, DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
-import { CutSetInputNode } from '../nodes/CutSetInputNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
@@ -88,11 +86,9 @@ const nodeTypes: NodeTypes = {
   batchInputNode: BatchInputNode,
   exportNode: ExportNode,
   batchResultsNode: BatchResultsNode,
-  productVideoNode: ProductVideoNode,
   videoMergeNode: VideoMergeNode,
   tryOnNode: TryOnNode,
   libraryModelNode: LibraryModelNode,
-  cutSetInputNode: CutSetInputNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -117,11 +113,9 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   batchInput:      'batchInputNode',
   export:          'exportNode',
   batchResults:    'batchResultsNode',
-  productVideo:    'productVideoNode',
   videoMerge:      'videoMergeNode',
   tryOn:           'tryOnNode',
   libraryModel:    'libraryModelNode',
-  cutSetInput:     'cutSetInputNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -314,10 +308,9 @@ function expandGroupIfNeeded(
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
   videoMerge:     { video: 'in-video-1' },
   tryOn:          { image: TRY_ON_GARMENT_HANDLE, cutout: TRY_ON_GARMENT_HANDLE },
-  cutSetInput:    {},
   promptEnhancer: {},
   imageGen:       { text: 'in-text', image: 'in-image', list: 'in-list' },
-  videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video', cuts: 'in-cuts-set' },
+  videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video' },
   utility:        { text: 'in-text-in' },
   list:           { image: 'in-image-0', text: 'in-text-0' },
   cameraList:     {},
@@ -348,7 +341,6 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   productLayout:  PRODUCT_LAYOUT_OUTPUT,
   batchInput:     'out-image-image',
   videoMerge:     'out-video',
-  cutSetInput:    'out-image-front',
   tryOn:          TRY_ON_OUTPUT_HANDLE,
   libraryModel:   'out-image-front',
 }
@@ -670,8 +662,6 @@ export function Canvas() {
         data = { ...EXPORT_DEFAULT_DATA, params: { ...DEFAULT_EXPORT_PARAMS }, label }
       } else if (type === 'videoMerge') {
         data = { type: 'videoMerge', label, params: {}, status: 'idle', videoUrl: null }
-      } else if (type === 'cutSetInput') {
-        data = { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }
       } else if (type === 'tryOn') {
         data = { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
       } else if (type === 'libraryModel') {

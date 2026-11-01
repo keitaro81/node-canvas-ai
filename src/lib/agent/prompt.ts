@@ -59,11 +59,12 @@ const EXAMPLES = [
   {
     user: '服の正面と右側面の写真から、正面から右に回る 3 秒の商品動画を SKU ごとに作りたい',
     reply: {
-      message: 'SKU ごとの服のカットに同じ向きのモデルを着せ、その 2 枚を始点・終点にして回る動画を作ります。モデルは Model ノードで選んでください。',
+      message: '服の正面と右側面の写真に同じ向きのモデルを着せ、その 2 枚を始点・終点にして回る動画を作ります（参照画像に服の写真を向きどおりに入れてください）。モデルは Model ノードで選んでください。',
       workflow: {
         name: '試着から回転の商品動画',
         nodes: [
-          { id: 'cuts', type: 'cutSetInput', label: '服のカット（SKU ごと）' },
+          { id: 'garmentFront', type: 'referenceImage', label: '服 正面', params: { role: 'front' } },
+          { id: 'garmentRight', type: 'referenceImage', label: '服 右側面', params: { role: 'right' } },
           { id: 'model', type: 'libraryModel', label: 'モデル' },
           { id: 'base', type: 'textPrompt', label: '共通の説明', params: { prompt: '無地の白いスタジオ背景、やわらかく均一な自然光、三脚に固定したカメラ。服は写真のとおりに保つ。' } },
           { id: 'tryonFront', type: 'tryOn', label: '試着 正面', params: { role: 'front' } },
@@ -73,16 +74,15 @@ const EXAMPLES = [
           { id: 'export', type: 'export', label: '書き出し' },
         ],
         edges: [
-          { from: 'cuts.front', to: 'tryonFront.garment' },
+          { from: 'garmentFront.image', to: 'tryonFront.garment' },
           { from: 'model.front', to: 'tryonFront.model' },
-          { from: 'cuts.right', to: 'tryonRight.garment' },
+          { from: 'garmentRight.image', to: 'tryonRight.garment' },
           { from: 'model.right', to: 'tryonRight.model' },
           { from: 'tryonFront.image', to: 'shot1.start' },
           { from: 'tryonRight.image', to: 'shot1.end' },
           { from: 'base.text', to: 'shot1.text' },
           { from: 'shot1.video', to: 'merge.video' },
           { from: 'merge.video', to: 'export.video' },
-          { from: 'cuts.item', to: 'export.item' },
         ],
       },
     },
@@ -93,7 +93,7 @@ export function buildSystemPrompt(): string {
   return [
     'あなたは「Node Canvas AI」のワークフロー設計アシスタントです。ユーザーの日本語の指示から、ノードをつないだワークフローの JSON を作ります。',
     'Node Canvas AI はアパレル EC 向けのノード式ツールで、商品写真の背景処理（切り抜き・規定サイズへの配置・書き出し）、AI 画像の生成・編集、ライブラリのモデルに服を着せる試着、商品動画（画像から動画・結合）ができます。',
-    '一括処理: Batch Input（写真 1 枚 = 1 アイテム）か Cut Set Input（1 SKU = 向きごとのカット）を入口にすると、つないだ AI 処理が写真ごとに動きます。AI 処理（removeBackground / imageGen / tryOn / videoGen）は 1 経路につき 2 段まで（videoMerge は数えない）。動画を作るジョブは動画だけを作ります。',
+    '一括処理: Batch Input（写真 1 枚 = 1 アイテム）を入口にすると、つないだ AI 処理が写真ごとに動きます（多角度の商品動画は一括ではなく、向きつきの参照画像で 1 商品ずつ作る）。AI 処理（removeBackground / imageGen / tryOn / videoGen）は 1 経路につき 2 段まで（videoMerge は数えない）。動画を作るジョブは動画だけを作ります。',
     '',
     '## ノードのカタログ（type・ポート名・設定）',
     JSON.stringify(catalogForPrompt()),
@@ -103,8 +103,8 @@ export function buildSystemPrompt(): string {
     '- multi の入力（export.image / export.video / videoMerge.video / imageGen.image）には複数つなげる（つないだ順）。それ以外の入力は 1 本だけ。',
     '- Image Generation と Video Generation には Text Prompt を text につなぐ（プロンプトは Text Prompt に書く）。',
     '- 書き出しには export を置き、画像は export.image、動画は export.video、入口の item を export.item につなぐ。',
-    '- 試着（tryOn）には libraryModel（モデル）を 1 つ置き、服のカットと同じ向きの出力（front / right / left / back）を tryOn の model につなぐ（モデルの中身はユーザーが後で選ぶ）。側面・背面を作るときは、同じ向きの服のカット（cutSetInput の right / back など）を garment につなぎ、tryOn の role にその向きを入れる。',
-    '- 回る商品動画は、向きのある 2 枚（tryOn の結果か cutSetInput の向き）を videoGen の start と end につなぐ（回転の指示文は自動で動きの欄に入る）。複数のショットは videoMerge で 1 本にする。',
+    '- 試着（tryOn）には libraryModel（モデル）を 1 つ置き、服のカットと同じ向きの出力（front / right / left / back）を tryOn の model につなぐ（モデルの中身はユーザーが後で選ぶ）。側面・背面を作るときは、同じ向きの服の写真（role 付きの referenceImage）を garment につなぎ、tryOn の role にその向きを入れる。',
+    '- 回る商品動画は、向きのある 2 枚（tryOn の結果か role 付きの referenceImage）を videoGen の start と end につなぐ（回転の指示文は自動で動きの欄に入る）。複数のショットはショットごとに videoGen を置き、videoMerge で 1 本にする。',
     '- Remove Background は、ユーザーが背景処理（切り抜き・白背景・透過）を求めたときだけ入れる。試着や動画の前段に自動で入れない（服の写真はそのまま tryOn.garment につなぐ）。AI 処理が 2 段になると写真 1 枚あたりの費用と時間が 2 倍になる。',
     '- ワークフロー名は日本語で分かりやすく。ノードの label は短い説明（例「試着 正面」）として構成一覧に添えるだけで、ノードの名前は種類名のまま使う。設定は必要なものだけ書く（既定値は省略）。',
     '',

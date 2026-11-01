@@ -24,9 +24,7 @@ export type NodeType =
   | 'batchInput'
   | 'export'
   | 'batchResults'
-  | 'productVideo'
   | 'videoMerge'
-  | 'cutSetInput'
   | 'tryOn'
   | 'libraryModel'
 
@@ -96,9 +94,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   batchInput:      '#14B8A6',
   export:          '#14B8A6',
   batchResults:    '#14B8A6',
-  productVideo:    '#EC4899',
   videoMerge:      '#EC4899',
-  cutSetInput:     '#EC4899',
   tryOn:           '#8B5CF6',
   libraryModel:    '#8B5CF6',
 }
@@ -269,40 +265,6 @@ export interface BatchInputParams {
 export type BatchItemStatus = 'pending' | 'uploading' | 'ready' | 'error'
 
 /** BatchInputNode が保持するアイテム（画像 1 枚）。File 本体は保存しない。 */
-/** 商品訴求動画ノード（2026-10-13）: ショット構成のテンプレートと設定。実行は App（SKU ごとのカットを入れて一括）で行う */
-export interface ProductVideoNodeData {
-  type: 'productVideo'
-  label: string
-  params: {
-    templateId: string
-    shots: Array<{ role: 'front' | 'right' | 'left' | 'back' | 'detail' | 'full'; duration: number; motion: string }>
-    basePrompt: string
-    negativePrompt: string
-  }
-  status: 'idle'
-}
-
-/** Cut Set Input のアイテム（1 SKU・役割ごとのカット。File 本体は保存しない） */
-export interface CutSetItemCut { path: string; width?: number; height?: number; name?: string }
-export interface CutSetItem {
-  id: string
-  index: number                    // 並び順（1 始まり）
-  sku: string
-  cuts: Partial<Record<CutRole, CutSetItemCut>>
-}
-/** Cut Set Input ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.1）: 1 アイテム = 1 SKU の役割別カット。出力ポートは役割ごと + カット一式 + アイテム情報。
- *  対話実行では ★ の 1 SKU のカットを署名して outputs[ハンドル id] に出す（受け側は辺の sourceHandle で引く） */
-export interface CutSetInputNodeData {
-  type: 'cutSetInput'
-  label: string
-  params: Record<string, unknown>
-  status: NodeStatus
-  items: CutSetItem[]
-  currentItemId: string | null
-  outputs?: Record<string, string>
-  itemInfo?: BatchItemInfo
-}
-
 /** Video Merge ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.3）: 順序付きの動画入力（in-video-1…8）を 1 本に結合（fal ffmpeg）。一括実行では SKU ごとの結合タスク */
 export interface VideoMergeNodeData {
   type: 'videoMerge'
@@ -379,6 +341,7 @@ export interface ExportParams {
   zip: boolean                     // 既定 true
   zipFolders: ExportZipFolders     // 既定 variant
   includeCutout: boolean           // 既定 true: 切り抜きの透過 PNG（元のサイズ）も cutout/ として書き出す
+  productName: string              // 入口（Batch Input）が無い構成の {sku}（空ならワークフロー名・2026-11-01）
 }
 
 export interface ExportFileResult {

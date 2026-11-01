@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { NODE_CATALOG, catalogNode, multiHandle, portsCompatible } from './catalog'
-import { CUT_SET_SET_HANDLE, REMOVE_BACKGROUND_INPUT, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle } from '../batch/plan'
+import { REMOVE_BACKGROUND_INPUT, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle } from '../batch/plan'
 import { TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../tryon/prompt'
 import { PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../layout/nodeIo'
 import { REMOVE_BACKGROUND_OUTPUT_HANDLE } from '../cutout/upstream'
@@ -14,8 +14,10 @@ describe('ノードのカタログ', () => {
     expect(port('productLayout', 'outputs', 'image')).toBe(PRODUCT_LAYOUT_OUTPUT)
     expect(port('videoGen', 'inputs', 'start')).toBe(VIDEO_GEN_START_HANDLE)
     expect(port('videoGen', 'inputs', 'end')).toBe(VIDEO_GEN_END_HANDLE)
-    expect(port('cutSetInput', 'outputs', 'right')).toBe(cutSetRoleHandle('right'))
-    expect(port('cutSetInput', 'outputs', 'set')).toBe(CUT_SET_SET_HANDLE)
+    expect(port('libraryModel', 'outputs', 'left')).toBe(cutSetRoleHandle('left'))
+    expect(catalogNode('cutSetInput')).toBeUndefined()   // 2026-11-01 廃止
+    expect(catalogNode('referenceImage')!.build('x', { role: 'right' }).role).toBe('right')
+    expect(catalogNode('referenceImage')!.build('x', { role: 'none' }).role).toBeNull()
     expect(port('tryOn', 'inputs', 'model')).toBe(TRY_ON_MODEL_HANDLE)
     expect(port('tryOn', 'inputs', 'garment')).toBe(TRY_ON_GARMENT_HANDLE)
     expect(port('tryOn', 'outputs', 'image')).toBe(TRY_ON_OUTPUT_HANDLE)

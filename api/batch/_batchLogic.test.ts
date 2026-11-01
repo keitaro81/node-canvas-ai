@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkLimits, cutPath, sumUsedTodayByKind, dependenciesOf, dependencyOf, dependentTaskIds, extOf, falInputOf, jstDayRangeUtc, originalPath, pickCutoutImage, pickResultFile, planRerun, planRetry, planTasks, resultPath, selectSubmittable, MAX_ITEMS_PER_JOB, falErrorDetail } from './_batchLogic'
+import { checkLimits, sumUsedTodayByKind, dependencyOf, dependentTaskIds, extOf, falInputOf, jstDayRangeUtc, originalPath, pickCutoutImage, pickResultFile, planRerun, planRetry, planTasks, resultPath, selectSubmittable, MAX_ITEMS_PER_JOB, falErrorDetail } from './_batchLogic'
 
 describe('planTasks（写しから AI 処理を抽出）', () => {
   const snapshot = {
@@ -296,74 +296,10 @@ describe('planTasks: 「ジョブごと」でも写真由来の画像入力が�
   })
 })
 
-describe('商品動画（Product Video ノードの写し）', () => {
-  const snap = {
-    nodes: [
-      { id: 'pv', data: { type: 'productVideo', label: '商品動画', params: { templateId: 'short9', basePrompt: 'Studio.', negativePrompt: 'blur' } } },
-      { id: 'rb', data: { type: 'removeBackground', params: { engine: 'bria' } } },
-    ],
-    edges: [],
-  }
-  it('ショット（写真ごと・Kling v3 Pro）と結合（写真ごと・全ショット待ち）だけを計画し、他の AI ノードは警告', () => {
-    const { tasks, warnings } = planTasks(snap)
-    expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}`)).toEqual(['pv:shot:0:videoShot:1', 'pv:shot:1:videoShot:1', 'pv:shot:2:videoShot:1', 'pv:videoMerge:2'])
-    expect(tasks[0].endpoint).toBe('fal-ai/kling-video/v3/pro/image-to-video')
-    expect(tasks[0].input).toMatchObject({ duration: '3', generate_audio: false, negative_prompt: 'blur', __shot: { index: 0, role: 'right', endRole: null, duration: 3 } })
-    expect(String(tasks[0].input.prompt)).toMatch(/^Studio\.\n@Element1 wearing the garment\. The model stands in profile/)
-    expect(tasks[3]).toMatchObject({ endpoint: 'fal-ai/ffmpeg-api/merge-videos', dependsOn: ['pv:shot:0', 'pv:shot:1', 'pv:shot:2'], label: 'Video Merge' })
-    expect(warnings.some((w) => w.includes('対象外'))).toBe(true)
-  })
-  it('前段が複数のときは全部の完了を待ち、1 つでも失敗なら投入できない', () => {
-    const merge = { id: 'm', item_id: 'i1', node_id: 'pv', status: 'pending', input: { __depends_on: ['pv:shot:0', 'pv:shot:1'] } }
-    const s0 = { id: 'a', item_id: 'i1', node_id: 'pv:shot:0', status: 'completed', input: {} }
-    const s1 = { id: 'b', item_id: 'i1', node_id: 'pv:shot:1', status: 'submitted', input: {} }
-    expect(selectSubmittable([merge], [merge, s0, s1]).waiting).toEqual([merge])
-    expect(selectSubmittable([merge], [merge, s0, { ...s1, status: 'completed' }]).ready).toEqual([merge])
-    expect(selectSubmittable([merge], [merge, s0, { ...s1, status: 'failed' }]).blockedByFailure).toEqual([merge])
-    expect(selectSubmittable([merge], [merge, s0]).blockedByFailure).toEqual([merge])   // 前段が無い
-    expect(dependenciesOf(merge)).toEqual(['pv:shot:0', 'pv:shot:1']); expect(dependencyOf(merge)).toBe('pv:shot:0')
-    expect(dependentTaskIds([merge, s0], 'pv:shot:1', ['i1'])).toEqual(['m'])
-  })
-  it('動画の結果は video を取り、mp4 として保存する', () => {
-    expect(pickResultFile('fal-ai/kling-video/v3/pro/image-to-video', { video: { url: 'https://x/v.mp4' } })).toEqual({ url: 'https://x/v.mp4', kind: 'video', width: undefined, height: undefined })
-    expect(pickResultFile('fal-ai/ffmpeg-api/merge-videos', { video: { url: 'https://x/m.mp4' }, metadata: {} })?.kind).toBe('video')
-    expect(resultPath({ team_id: 't', job_id: 'j', item_id: 'i', node_id: 'pv' }, 'video/mp4')).toBe('t/j/i/pv-result.mp4')
-    expect(cutPath('t', 'j', 'i', 'front', 't/interactive/pv/items/app-x-front.JPEG')).toBe('t/j/i/cut-front.jpg')
-  })
-})
-
-describe('商品動画（ターンテーブル: 始点と終点）', () => {
-  it('終了カット付きのショットは __shot.endRole を持ち、見出しに矢印が入る', () => {
-    const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'turntable12' } } }], edges: [] })
-    expect(tasks.filter((t) => t.kind === 'videoShot').map((t) => (t.input.__shot as { role: string; endRole: string | null }).endRole)).toEqual(['right', 'back', 'left', 'front'])
-    expect(tasks[0].label).toBe('Video Generation')   // 展開のノード名は種類名のまま（2026-11-01）
-    // 終了カットあり: 回転の指示・見せてはいけない向きの negative・cfg_scale
-    expect(tasks[1].input.prompt).toContain('keeps turning away from the camera')
-    expect(tasks[1].input.negative_prompt).toContain('facing the camera, front view')
-    expect(tasks[1].input.cfg_scale).toBe(0.7)
-    expect(tasks[0].input.negative_prompt).toContain('back view')
-    expect(tasks.find((t) => t.kind === 'videoMerge')?.dependsOn).toEqual(['pv:shot:0', 'pv:shot:1', 'pv:shot:2', 'pv:shot:3'])
-  })
-})
-
 describe('fal のエラー本文', () => {
   it('detail 配列の msg をつなぎ、無ければ status だけ', () => {
     expect(falErrorDetail({ detail: [{ type: 'too_short', loc: ['body', 'video_urls'], msg: 'List should have at least 2 items after validation, not 1' }] }, 422)).toBe('fal エラー (422): List should have at least 2 items after validation, not 1')
     expect(falErrorDetail({ detail: 'bad input' }, 400)).toBe('fal エラー (400): bad input')
     expect(falErrorDetail(null, 422)).toBe('fal エラー (422)')
-  })
-})
-
-describe('商品動画のプロンプト翻訳（写しの promptTranslations）', () => {
-  it('テンプレートの日本語は対訳で英語になり、利用者の日本語は翻訳表で置き換わる', () => {
-    const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'short9' } } }], edges: [] })
-    expect(tasks[0].input.prompt).toContain('Plain seamless studio background')
-    expect(tasks[0].input.prompt).toContain('The model stands in profile')
-    expect(tasks[0].input.negative_prompt).toContain('fast motion')
-    const { tasks: t2 } = planTasks({
-      nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'custom', basePrompt: '白いスタジオ', shots: [{ role: 'front', duration: 3, motion: 'ゆっくり呼吸する' }] } } }], edges: [],
-      promptTranslations: { '白いスタジオ': 'White studio', 'ゆっくり呼吸する': 'breathes slowly' },
-    })
-    expect(t2[0].input.prompt).toBe('White studio\n@Element1 wearing the garment. breathes slowly')
   })
 })
