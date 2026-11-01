@@ -23,6 +23,9 @@ import '@xyflow/react/dist/style.css'
 import { useCanvasStore, undoCanvas, redoCanvas, pushSnapshot, type AppNode, type PartialCanvasState } from '../../stores/canvasStore'
 import { rfInstanceRef } from '../../lib/rfInstanceRef'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
+import { TemplatePickerDialog } from '../home/TemplatePickerDialog'
+import { AgentBuilderDialog } from '../home/AgentBuilderDialog'
+import type { CompiledCanvas } from '../../lib/agent/compile'
 import { ContextMenu } from './ContextMenu'
 import { TextNode } from '../nodes/TextNode'
 import { ImageNode } from '../nodes/ImageNode'
@@ -434,6 +437,8 @@ export function Canvas() {
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const isOwned = useWorkflowStore(selectCanEditNow)   // いま編集できるか（所有者 / ロックを持つ編集者）
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  // 空のキャンバスの入口（2026-11-01・段階 0'/1）: テンプレートから選ぶ / チャットで組む → このキャンバスにノードを入れる
+  const [starterOpen, setStarterOpen] = useState<null | 'template' | 'agent'>(null)
   const [selectionNodes, setSelectionNodes] = useState<AppNode[]>([])
   const selectionRef = useRef<AppNode[]>([])
   const [vp, setVp] = useState({ x: 0, y: 0, zoom: 1 })
@@ -1194,6 +1199,16 @@ export function Canvas() {
     [addNode, nodes, updateNode]
   )
 
+  const showStarter = isOwned && appMode === 'graph' && !isLoadingWorkflow && !!currentWorkflowId && nodes.length === 0
+  const insertCanvas = useCallback((canvas: { nodes: unknown[]; edges: unknown[] }) => {
+    const store = useCanvasStore.getState()
+    store.setNodes(JSON.parse(JSON.stringify(canvas.nodes)) as AppNode[])
+    store.setEdges(JSON.parse(JSON.stringify(canvas.edges)) as Edge[])
+    setStarterOpen(null)
+    void useWorkflowStore.getState().saveCurrentWorkflow()
+    setTimeout(() => rfInstance.current?.fitView({ padding: 0.2, duration: 400 }), 80)
+  }, [])
+
   return (
     <div
       className={`h-full w-full${!isOwned ? ' canvas-readonly' : ''}`}
@@ -1290,6 +1305,21 @@ export function Canvas() {
           />
         )}
       </ReactFlow>
+      {showStarter && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 30 }}>
+          <div className="pointer-events-auto rounded-2xl p-6 flex flex-col gap-3 items-center text-center" style={{ width: 440, background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.35)' }}>
+            <div className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>何を作りますか？</div>
+            <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>テンプレートから選ぶか、作りたいものをチャットで書くと、ノードが組まれた状態から始められます。</p>
+            <div className="flex gap-2 w-full">
+              <button className="flex-1 h-10 rounded-lg text-[13px] font-medium" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => setStarterOpen('template')}>テンプレートから選ぶ</button>
+              <button className="flex-1 h-10 rounded-lg text-[13px] font-medium text-white" style={{ background: '#8B5CF6' }} onClick={() => setStarterOpen('agent')}>チャットで組む</button>
+            </div>
+            <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>自分で組むときは、左の「＋」か右クリックでノードを置けます</p>
+          </div>
+        </div>
+      )}
+      <TemplatePickerDialog open={starterOpen === 'template'} busy={false} onClose={() => setStarterOpen(null)} onPick={(t) => insertCanvas(t.build())} />
+      <AgentBuilderDialog open={starterOpen === 'agent'} onClose={() => setStarterOpen(null)} onCreate={async (canvas: CompiledCanvas) => insertCanvas(canvas)} actionLabel="このキャンバスに組む" />
 
       {/* ミニマップ トグルボタン */}
       <div

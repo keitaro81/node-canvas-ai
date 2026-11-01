@@ -15,7 +15,7 @@ export function jsonResponse(data: object, status: number): Response {
 /**
  * クォータ対象の生成リクエストかを判定する（生成 submit のみ）。
  * - POST かつ生成実行ホスト（queue.* または同期 fal.run/fal.ai）
- * - /requests/（poll/result/cancel）・LLM（any-llm/llava）は対象外
+ * - /requests/（poll/result/cancel）・LLM（openrouter/router・any-llm）・画像解析（llava）は対象外
  * - 背景切り抜き（撮影後工程）は月次画像クォータと別建てのため対象外（バッチ側の上限で制御）
  * - path に -video を含めば動画、それ以外は画像
  */
@@ -24,7 +24,7 @@ export function classifyGeneration(method: string, url: URL): 'image' | 'video' 
   if (!QUEUE_OR_SYNC_HOSTS.includes(url.hostname)) return null
   const path = modelPathOf(url)
   if (path.includes('/requests/')) return null
-  if (path.includes('any-llm') || path.includes('llava')) return null
+  if (path.includes('any-llm') || path.includes('llava') || path.includes('openrouter/router')) return null
   if (isBgRemovalPath(path)) return null
   if (path.includes('-video')) return 'video'
   return 'image'

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sanitizeTranslation, translatePromptTexts } from './_translate'
 
-describe('プロンプト翻訳（any-llm）', () => {
+describe('プロンプト翻訳（openrouter/router 主・any-llm 予備）', () => {
   it('出力を 1 行に整える（引用符・改行・前置き）', () => {
     expect(sanitizeTranslation('"Turns slowly to face the camera."')).toBe('Turns slowly to face the camera.')
     expect(sanitizeTranslation('Translation: arms relaxed\n')).toBe('arms relaxed')
@@ -20,7 +20,7 @@ describe('プロンプト翻訳（any-llm）', () => {
     const map = await translatePromptTexts('key', ['ゆっくり回る', 'ゆっくり回る ', '腕はリラックス'], fakeFetch)
     expect(map).toEqual({ 'ゆっくり回る': 'EN(ゆっくり回る)', '腕はリラックス': 'EN(腕はリラックス)' })
     expect(calls).toHaveLength(2)
-    await expect(translatePromptTexts('key', ['だめ'], fakeFetch)).rejects.toThrow('any-llm 500')
+    await expect(translatePromptTexts('key', ['だめ'], fakeFetch)).rejects.toThrow(/500/)
     expect(await translatePromptTexts('key', ['旧モデル'], fakeFetch)).toEqual({ '旧モデル': 'EN(旧モデル)' })   // 422 で次の候補にフォールバック
   })
 })

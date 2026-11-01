@@ -2,7 +2,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { CircleNotch, FilmSlate, TShirt, X } from '@phosphor-icons/react'
-import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from '../../lib/templates'
+import { TEMPLATE_GOALS, WORKFLOW_TEMPLATES, type WorkflowTemplate } from '../../lib/templates'
 
 interface Props { open: boolean; busy: boolean; onClose: () => void; onPick: (t: WorkflowTemplate) => void }
 
@@ -22,8 +22,11 @@ export function TemplatePickerDialog({ open, busy, onClose, onPick }: Props) {
           <button onClick={onClose} disabled={busy} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-elevated)] disabled:opacity-40" style={{ color: 'var(--text-secondary)' }} title="閉じる"><X size={14} /></button>
         </div>
         <p className="text-[12px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>必要なノードが組まれた状態で新しいワークフローを作ります。作った後は自由に組み替えられます。</p>
-        <div className="flex flex-col gap-2">
-          {WORKFLOW_TEMPLATES.map((t) => (
+        <div className="flex flex-col gap-3 overflow-auto" style={{ maxHeight: '70vh' }}>
+          {TEMPLATE_GOALS.map((g) => { const list = WORKFLOW_TEMPLATES.filter((t) => t.goal === g.id); return list.length ? (
+          <div key={g.id} className="flex flex-col gap-2">
+          <div className="text-[11px] font-medium" style={{ color: 'var(--text-tertiary)' }}>{g.label}</div>
+          {list.map((t) => (
             <button key={t.id} disabled={busy} onClick={() => onPick(t)} className="flex items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[var(--bg-elevated)] disabled:opacity-60" style={{ border: '1px solid var(--border)' }}>
               <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={t.kind === 'image' ? { background: 'rgba(139,92,246,0.12)', color: '#8B5CF6' } : { background: 'rgba(236,72,153,0.12)', color: '#EC4899' }}>{t.kind === 'image' ? <TShirt size={16} /> : <FilmSlate size={16} />}</span>
               <span className="min-w-0 flex-1">
@@ -34,6 +37,8 @@ export function TemplatePickerDialog({ open, busy, onClose, onPick }: Props) {
               {busy && <CircleNotch size={14} className="animate-spin shrink-0 mt-1" style={{ color: 'var(--text-tertiary)' }} />}
             </button>
           ))}
+          </div>
+          ) : null })}
         </div>
       </div>
     </div>,

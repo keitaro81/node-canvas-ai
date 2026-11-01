@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Sparkles, LayoutGrid, Copy, Check, ChevronDown, Play, Loader2, Settings, FileOutput } from 'lucide-react'
 import { X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { fal } from '../../lib/ai/fal-client'
+import { llmComplete } from '../../lib/ai/llmClient'
 import { PORT_COLORS } from '../../types/nodes'
 
 type Tab = 'input' | 'output'
@@ -86,13 +86,7 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
     updateNode(id, { status: 'generating' } as never)
 
     try {
-      type LLMOutput = { output?: string }
-      const result = await fal.subscribe('fal-ai/any-llm', {
-        input: { model, system_prompt: systemPrompt, prompt },
-        logs: false,
-      })
-      const data = (result as unknown as { data?: LLMOutput }).data
-      const enhanced = data?.output ?? ''
+      const enhanced = (await llmComplete({ models: [model], systemPrompt, prompt })).output
       updateNode(id, { outputText: enhanced, status: 'done' } as never)
       setLocalOutput(enhanced)
       setTab('output')

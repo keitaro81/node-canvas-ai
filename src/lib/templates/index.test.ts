@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { WORKFLOW_TEMPLATES, buildProductVideoTemplate, buildTryOnImagesTemplate, buildTryOnTurntableTemplate, type TemplateCanvas } from './index'
+import { WORKFLOW_TEMPLATES, buildPostProductionTemplate, buildProductVideoTemplate, buildTryOnImagesTemplate, buildTryOnTurntableTemplate, type TemplateCanvas } from './index'
 import { planTasks, shotsFromCanvas, type WorkflowSnapshot } from '../batch/plan'
 import { appKindOf } from '../apps/appKind'
 
@@ -20,10 +20,19 @@ describe('テンプレートから作成（商品動画）', () => {
     expect(shotsFromCanvas(c).map((s) => `${s.role}>${s.endRole}`)).toEqual(['front>right', 'right>back', 'back>left', 'left>front'])
     expect(appKindOf(c)).toBe('video')
   })
-  it('一覧は商品動画 3 構成 + 試着 2 構成で、ショット数と秒数を持つ', () => {
-    expect(WORKFLOW_TEMPLATES.map((t) => `${t.id}:${t.kind}:${t.shots}:${t.seconds}`)).toEqual(['video-ec15:video:5:15', 'video-turntable12:video:4:12', 'video-short9:video:3:9', 'tryon-turntable12:video:4:12', 'tryon-images:image:0:0'])
-    expect(WORKFLOW_TEMPLATES[0].build().nodes.length).toBe(5 + 4)
+  it('一覧は 商品写真 1 + 商品動画 3 + 試着 2 で、目的・ショット数・秒数を持つ', () => {
+    expect(WORKFLOW_TEMPLATES.map((t) => `${t.id}:${t.goal}:${t.kind}:${t.shots}:${t.seconds}`)).toEqual(['pp-cutout-layout:photo:image:0:0', 'video-ec15:video:video:5:15', 'video-turntable12:video:video:4:12', 'video-short9:video:video:3:9', 'tryon-turntable12:video:video:4:12', 'tryon-images:tryon:image:0:0'])
+    expect(WORKFLOW_TEMPLATES[1].build().nodes.length).toBe(5 + 4)
     expect(new Set(WORKFLOW_TEMPLATES.map((t) => t.id)).size).toBe(WORKFLOW_TEMPLATES.length)
+  })
+  it('商品写真の背景処理: Batch Input → Remove Background → Product Layout → Export（切り抜き 1 段の計画・App は撮影後工程）', () => {
+    const c = buildPostProductionTemplate()
+    expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['batch-input:batchInputNode', 'cutout:removeBackgroundNode', 'layout:productLayoutNode', 'export:exportNode'])
+    expect(c.edges.map((e) => `${e.source}:${e.sourceHandle}→${e.target}:${e.targetHandle}`)).toEqual(['batch-input:out-image-image→cutout:in-image-image', 'cutout:out-cutout-cutout→layout:in-cutout-cutout', 'layout:out-image-image→export:in-image-0', 'batch-input:out-item-item→export:in-item-item'])
+    const { tasks, warnings } = planTasks(c)
+    expect(warnings).toEqual([])
+    expect(tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['cutout:cutout'])
+    expect(appKindOf(c)).toBe('batch')
   })
 })
 

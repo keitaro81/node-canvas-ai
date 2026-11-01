@@ -8,13 +8,22 @@ import { CUT_SET_ITEM_HANDLE, PRODUCT_VIDEO_DEFAULT_MODEL, VIDEO_GEN_END_HANDLE,
 import { DEFAULT_EXPORT_PARAMS } from '../export/naming'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../batch/items'
 import { DEFAULT_TRY_ON_PARAMS, TRY_ON_GARMENT_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../tryon/prompt'
+import { DEFAULT_CUTOUT_PARAMS } from '../cutout/engines'
+import { DEFAULT_LAYOUT_PARAMS } from '../layout/computeLayout'
+import { PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../layout/nodeIo'
+import { REMOVE_BACKGROUND_INPUT } from '../batch/plan'
+import { REMOVE_BACKGROUND_OUTPUT_HANDLE } from '../cutout/upstream'
 
 export interface TemplateCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null }
+/** 目的（一覧のグループ）: 商品写真を整える / モデルに着せる / 商品動画を作る */
+export type TemplateGoal = 'photo' | 'tryon' | 'video'
+export const TEMPLATE_GOALS: Array<{ id: TemplateGoal; label: string }> = [{ id: 'photo', label: '商品写真を整える' }, { id: 'tryon', label: 'モデルに着せる（着用画像）' }, { id: 'video', label: '商品動画を作る' }]
 export interface WorkflowTemplate {
   id: string
   name: string
   description: string
   kind: 'video' | 'image'
+  goal: TemplateGoal
   shots: number
   seconds: number
   summary: string        // 一覧の 3 行目（構成と、作った後にすること）
@@ -94,6 +103,24 @@ export function buildTryOnTurntableTemplate(): TemplateCanvas {
   return { nodes, edges, viewport: null }
 }
 
+/** 商品写真の背景処理: Batch Input → Remove Background → Product Layout（白背景 1200×1200）→ Export（画像とアイテム情報） */
+export function buildPostProductionTemplate(): TemplateCanvas {
+  const x = 80, y = 80
+  const nodes: SnapshotNode[] = [
+    { id: 'batch-input', type: 'batchInputNode', position: { x, y }, data: { type: 'batchInput', label: 'Batch Input', params: { ...DEFAULT_BATCH_INPUT_PARAMS }, status: 'idle', items: [], currentItemId: null } },
+    { id: 'cutout', type: 'removeBackgroundNode', position: { x: x + 420, y }, data: { type: 'removeBackground', label: 'Remove Background', params: { ...DEFAULT_CUTOUT_PARAMS }, status: 'idle' } },
+    { id: 'layout', type: 'productLayoutNode', position: { x: x + 840, y }, data: { type: 'productLayout', label: 'Product Layout', params: { ...DEFAULT_LAYOUT_PARAMS }, status: 'idle' } },
+    exportNode({ x: x + 1260, y }),
+  ]
+  const edges: SnapshotEdge[] = [
+    edge('batch-input', 'out-image-image', 'cutout', REMOVE_BACKGROUND_INPUT),
+    edge('cutout', REMOVE_BACKGROUND_OUTPUT_HANDLE, 'layout', PRODUCT_LAYOUT_INPUT_CUTOUT),
+    edge('layout', PRODUCT_LAYOUT_OUTPUT, 'export', 'in-image-0'),
+    edge('batch-input', 'out-item-item', 'export', 'in-item-item'),
+  ]
+  return { nodes, edges, viewport: null }
+}
+
 /** 商品写真から着用画像（一括）: Batch Input（服の写真）→ Try-On（正面）→ Export。作った後に Try-On の「モデル」でモデルを選ぶ */
 export function buildTryOnImagesTemplate(): TemplateCanvas {
   const x = 80, y = 80
@@ -111,11 +138,23 @@ export function buildTryOnImagesTemplate(): TemplateCanvas {
 }
 
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  {
+    id: 'pp-cutout-layout',
+    name: '商品写真の背景処理: 切り抜き → 白背景 1200×1200 → 書き出し',
+    description: '商品写真をまとめて切り抜き、白背景の規定サイズに配置して SKU 名で書き出す（EC の基本の流れ）',
+    kind: 'image',
+    goal: 'photo',
+    shots: 0,
+    seconds: 0,
+    summary: 'Batch Input → Remove Background → Product Layout → Export。サイズ・余白・背景は Product Layout で変えられる',
+    build: buildPostProductionTemplate,
+  },
   ...VIDEO_TEMPLATES.map((t): WorkflowTemplate => ({
     id: `video-${t.id}`,
     name: `商品動画: ${t.label}`,
     description: t.description,
     kind: 'video',
+    goal: 'video',
     shots: t.shots.length,
     seconds: totalSeconds(t.shots),
     summary: `${t.shots.length} ショット・約 ${totalSeconds(t.shots)} 秒・Cut Set Input → Video Generation × ${t.shots.length} → Video Merge → Export`,
@@ -126,6 +165,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     name: '商品写真から商品動画: 試着 → ターンテーブル 12 秒',
     description: '服のカット（正面・右側面・背面・左側面）にライブラリのモデルを着せ、その着用画像でターンテーブルの動画を作る（SKU ごと・1 回の一括実行）',
     kind: 'video',
+    goal: 'video',
     shots: 4,
     seconds: 12,
     summary: '4 ショット・約 12 秒・Cut Set Input（服）→ Try-On × 4 → Video Generation × 4 → Video Merge → Export。作ったら Try-On の「モデル」でモデルを選ぶ（1 回で 4 つに向きごとに入る）',
@@ -136,6 +176,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     name: '商品写真から着用画像（一括）',
     description: '商品写真（服）ごとに、ライブラリのモデルを着せた着用画像を 1 枚ずつ作る',
     kind: 'image',
+    goal: 'tryon',
     shots: 0,
     seconds: 0,
     summary: 'Batch Input（服の写真）→ Try-On → Export。作ったら Try-On の「モデル」でモデルを選ぶ',

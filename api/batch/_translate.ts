@@ -1,29 +1,16 @@
-// 商品動画のプロンプト翻訳（日本語 → 英語・2026-10-17 ユーザー要望「日本語で編集し、生成時に裏で英訳」）。
-// fal の any-llm（Claude Haiku 4.5）を同期エンドポイント fal.run で呼ぶ。英語の文はここに来ない（呼び出し側 promptTextsToTranslate が日本語だけ渡す）。
+// 商品動画・試着のプロンプト翻訳（日本語 → 英語・2026-10-17 ユーザー要望「日本語で編集し、生成時に裏で英訳」）。
+// LLM はサーバー共通の llmCompleteServer（openrouter/router 主・any-llm 予備・fal.run 同期）で呼ぶ。英語の文はここに来ない（呼び出し側 promptTextsToTranslate が日本語だけ渡す）。
 // 組み込みの定型文は対訳（BUILTIN_EN）を使うので LLM には来ない。失敗したらジョブ作成を止める（日本語のまま Kling に送らない）
-import { isAllowedTarget } from '../fal/_allowlist'
+import { llmCompleteServer } from '../fal/_llm'
 import { TRANSLATE_MODELS, TRANSLATE_SYSTEM_PROMPT as SYSTEM_PROMPT, sanitizeTranslation } from '../../src/lib/video/translate'
 
 export { TRANSLATE_MODELS, sanitizeTranslation } from '../../src/lib/video/translate'
 
 export async function translateOne(falKey: string, text: string, fetchImpl: typeof fetch = fetch): Promise<string> {
-  const url = 'https://fal.run/fal-ai/any-llm'
-  if (!isAllowedTarget(new URL(url))) throw new Error('fal target not allowed: any-llm')
-  let lastErr = 'any-llm: no model'
-  for (const model of TRANSLATE_MODELS) {
-    const res = await fetchImpl(url, {
-      method: 'POST',
-      headers: { Authorization: `Key ${falKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, system_prompt: SYSTEM_PROMPT, prompt: text }),
-    })
-    if (res.status === 422) { lastErr = `any-llm 422 (${model})`; continue }   // model id が無効 → 次の候補
-    if (!res.ok) throw new Error(`any-llm ${res.status}`)
-    const j = (await res.json().catch(() => null)) as { output?: string; error?: string } | null
-    const out = sanitizeTranslation(j?.output)
-    if (!out) throw new Error(j?.error ? `any-llm: ${j.error}` : 'any-llm: empty output')
-    return out
-  }
-  throw new Error(lastErr)
+  const r = await llmCompleteServer(falKey, { models: TRANSLATE_MODELS, systemPrompt: SYSTEM_PROMPT, prompt: text }, fetchImpl)
+  const out = sanitizeTranslation(r.output)
+  if (!out) throw new Error(`${r.endpoint}: empty output`)
+  return out
 }
 
 /** 重複を除いて並列に翻訳し、{ 原文: 英訳 } を返す。1 つでも失敗したら throw */
