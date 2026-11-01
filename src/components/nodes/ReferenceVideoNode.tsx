@@ -1,5 +1,7 @@
 import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Film, X, Loader2, Play, Pause } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -9,6 +11,7 @@ import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceVideoNodeData, NodeData } from '../../types/nodes'
 
 function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'referenceVideoNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as ReferenceVideoNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
@@ -226,8 +229,10 @@ function ReferenceVideoNodeInner({ id, data, selected }: NodeProps) {
           background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
           border: 'none',
           borderRadius: 0,
+          ...dimIfNotTarget(drag, drag.outputOk('out-video')),
         }}
       />
+      <PortLabel top="50%" at="output" text="動画" show={drag.outputOk('out-video')} />
     </div>
   )
 }

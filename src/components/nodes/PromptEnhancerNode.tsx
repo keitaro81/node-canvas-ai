@@ -1,6 +1,8 @@
 import { memo, useState, useCallback, useRef, useEffect } from 'react'
 import { LLM_MODELS, normalizeLlmModel } from '../../lib/ai/llmModels'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Sparkles, LayoutGrid, Copy, Check, ChevronDown, Play, Loader2, Settings, FileOutput } from 'lucide-react'
 import { X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -21,6 +23,7 @@ const SYSTEM_PROMPT = `You are an expert at writing detailed, evocative prompts 
 const SYSTEM_PROMPT_FREE_ANGLE = `You are an expert at writing detailed, evocative prompts for AI image and video generation tools. When given a prompt, enhance it to be more detailed, specific, and professionally descriptive. Add lighting descriptions, mood, color grading, and technical details where appropriate. Do NOT add any instructions about camera angles or poses — these will be controlled separately. Maintain the core intent of the original prompt. Respond only with the enhanced prompt in the same language as the input—no explanations, no preamble.`
 
 function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'promptEnhancerNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const updateNode = useCanvasStore((s) => s.updateNode)
   const removeNode = useCanvasStore((s) => s.removeNode)
 
@@ -393,12 +396,14 @@ function PromptEnhancerNodeInner({ id, data, selected }: NodeProps) {
           background: `radial-gradient(circle, ${PORT_COLORS.text} 3px, var(--bg-surface) 3px 5px, transparent 5px)`,
           border: 'none',
           borderRadius: 0,
+          ...dimIfNotTarget(drag, drag.outputOk('out-text-enhanced')),
         }}
       />
+      <PortLabel top="50%" at="output" text="強化したプロンプト" show={drag.outputOk('out-text-enhanced')} />
     </div>
   )
 }
 
 export const PromptEnhancerNode = memo(function PromptEnhancerNodeWrapper(props: NodeProps) {
-  return <PromptEnhancerNodeInner {...props} />
+  return <div className="group"><PromptEnhancerNodeInner {...props} /></div>
 })

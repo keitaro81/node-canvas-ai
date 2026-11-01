@@ -1,6 +1,8 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { MonitorPlay, Play, Pause, RotateCcw, Download, Maximize2, Video as VideoIcon, X, Volume2, VolumeX, Loader2, AlertCircle } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import type { VideoDisplayNodeData } from '../../types/nodes'
@@ -8,6 +10,7 @@ import { downloadFile } from '../../lib/downloadFile'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 
 function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'videoDisplayNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as VideoDisplayNodeData
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -75,8 +78,10 @@ function VideoDisplayNodeInner({ id, data, selected }: NodeProps) {
             background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
+            ...dimIfNotTarget(drag, drag.inputOk('in-video')),
           }}
         />
+        <PortLabel top="50%" at="input" text="動画" show={drag.inputOk('in-video')} />
 
         {/* Body */}
         <div className="px-3 py-3 flex flex-col gap-2">

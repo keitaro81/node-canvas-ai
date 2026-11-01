@@ -2,8 +2,10 @@
 // 対話実行: 「結合」でつないだ動画（Video Result / Reference Video / 他の Video Merge）をスロット順に fal の ffmpeg merge-videos へ渡し、
 // Video Generation と同じく結果用の Video Result ノードを右に作って接続し、そこに動画を出す（1 本だけならそのまま通す。fal は呼ばない）。
 // 一括実行では SKU ごとの結合タスクになる（計画は src/lib/batch/plan.ts・サーバーは完了したショットの結果を順に結合）
-import { memo, useCallback, useMemo, useState } from 'react'
+import { Fragment, memo, useCallback, useMemo, useState } from 'react'
 import { Handle, Position, useEdges, useNodes, type Edge, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { AlertCircle, Film, Loader2, Play, X } from 'lucide-react'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -54,6 +56,7 @@ function createResultNode(mergeId: string, progress: string): string | null {
 }
 
 function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'videoMergeNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as VideoMergeNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const rfNodes = useNodes()
@@ -131,7 +134,10 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
 
       {/* 入力ハンドル: スロット順（接続数 + 1 の空き・最大 8） */}
       {Array.from({ length: slotCount }, (_, i) => i + 1).map((n) => (
-        <Handle key={n} id={videoMergeSlotHandle(n)} type="target" position={Position.Left} title={`動画 ${n}（結合順）`} style={{ top: `${Math.round(((n) / (slotCount + 1)) * 100)}%`, ...HANDLE_STYLE(ACCENT) }} />
+        <Fragment key={n}>
+          <Handle id={videoMergeSlotHandle(n)} type="target" position={Position.Left} title={`動画 ${n}（結合順）`} style={{ top: `${Math.round(((n) / (slotCount + 1)) * 100)}%`, ...HANDLE_STYLE(ACCENT), ...dimIfNotTarget(drag, drag.inputOk(videoMergeSlotHandle(n))) }} />
+          <PortLabel top={`${Math.round(((n) / (slotCount + 1)) * 100)}%`} at="input" text={`動画 ${n}`} show={drag.inputOk(videoMergeSlotHandle(n))} />
+        </Fragment>
       ))}
 
       {/* Body */}
@@ -171,7 +177,8 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
       </div>
 
       {/* 出力ハンドル */}
-      <Handle id="out-video" type="source" position={Position.Right} title="結合した動画" style={{ top: '50%', ...HANDLE_STYLE(ACCENT) }} />
+      <Handle id="out-video" type="source" position={Position.Right} title="結合した動画" style={{ top: '50%', ...HANDLE_STYLE(ACCENT), ...dimIfNotTarget(drag, drag.outputOk('out-video')) }} />
+      <PortLabel top="50%" at="output" text="結合した動画" show={drag.outputOk('out-video')} />
     </div>
   )
 }

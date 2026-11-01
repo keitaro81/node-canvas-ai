@@ -1,6 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { GPT_IMAGE_2_MODELS, NB_ASPECT_RATIOS, NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS, RECRAFT_MODELS } from '../../lib/ai/imageGenModels'
 import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
@@ -279,6 +281,7 @@ async function runGeneration(
 }
 
 function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'imageGenerationNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as NodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
 
@@ -820,27 +823,32 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
+            ...dimIfNotTarget(drag, drag.inputOk('in-text')),
           }}
         />
+        <PortLabel top="18%" at="input" text="プロンプト" show={drag.inputOk('in-text')} />
         {/* 参照画像ハンドル: 常に MAX_REF_SLOTS 分描画し、refSlotCount 外は非表示にする
             （ハンドルを動的にアンマウントすると React Flow が #008 警告を出すため） */}
         {Array.from({ length: MAX_REF_SLOTS }, (_, i) => (
-          <Handle
-            key={refHandleId(i)}
-            id={refHandleId(i)}
-            type="target"
-            position={Position.Left}
-            style={{
-              position: 'absolute',
-              top: refHandleTop(i),
-              width: 20,
-              height: 20,
-              background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
-              border: 'none',
-              borderRadius: 0,
-              ...(i >= refSlotCount ? { opacity: 0, pointerEvents: 'none' } : {}),
-            }}
-          />
+          <Fragment key={refHandleId(i)}>
+            <Handle
+              id={refHandleId(i)}
+              type="target"
+              position={Position.Left}
+              style={{
+                position: 'absolute',
+                top: refHandleTop(i),
+                width: 20,
+                height: 20,
+                background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+                border: 'none',
+                borderRadius: 0,
+                ...dimIfNotTarget(drag, drag.inputOk(refHandleId(i))),
+                ...(i >= refSlotCount ? { opacity: 0, pointerEvents: 'none' } : {}),
+              }}
+            />
+            {i < refSlotCount && <PortLabel top={refHandleTop(i)} at="input" text={`参照 ${i + 1}`} show={drag.inputOk(refHandleId(i))} />}
+          </Fragment>
         ))}
         {/* ListNode 専用ハンドル */}
         <Handle
@@ -854,8 +862,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
+            ...dimIfNotTarget(drag, drag.inputOk('in-list')),
           }}
         />
+        <PortLabel top="85%" at="input" text="リスト" show={drag.inputOk('in-list')} />
         {/* 後方互換: 旧ハンドルID（スロット0と同じ位置、非表示） */}
         <Handle id="in-text-prompt"     type="target" position={Position.Left} style={{ top: '18%', ...hiddenHandleStyle }} />
         <Handle id="in-image-1"         type="target" position={Position.Left} style={{ top: refHandleTop(0), ...hiddenHandleStyle }} />
@@ -1183,8 +1193,10 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
+            ...dimIfNotTarget(drag, drag.outputOk('out-image-image-out')),
           }}
         />
+        <PortLabel top="50%" at="output" text="生成画像" show={drag.outputOk('out-image-image-out')} />
       </div>
 
     </>
