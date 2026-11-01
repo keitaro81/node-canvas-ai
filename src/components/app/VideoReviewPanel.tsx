@@ -1,7 +1,7 @@
-// 動画の結果欄（2026-10-13）: 1 件 = 1 SKU。終端の動画（結合、無ければ生成）を再生・ダウンロードし、ショット別の動画も開ける。
+// 動画の結果欄（2026-10-13）: 1 件 = 1 SKU。終端の動画（結合、無ければ生成）を再生・ダウンロードする。
 // App（mode 'app'）と、履歴ページ / 一括結果ノード（JobReviewPanel が動画のジョブなら委譲）で共用。
 // 終端 / ショットの判定: 新しいタスクは input.__terminal・__kind、旧ジョブ（Product Video ノード）は結合 = ノード id・ショット = <id>:shot:<i>
-// 2026-11-01 決定: 結果欄は見る・ダウンロードだけ（ショット単位のやり直しは外した。作り直しはキャンバスの対話実行で）
+// 2026-11-01 決定: 結果欄は結合済み動画の再生・ダウンロードだけ（ショット別の表示とショット単位のやり直しは外した。作り直しはキャンバスの対話実行で）
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
 import { exportParamsFromSnapshot, itemInfoOfRow } from '../../lib/review/model'
@@ -9,7 +9,7 @@ import { planExportEntries } from '../../lib/export/naming'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, subscribeJobItems } from '../../lib/api/batchJobs'
 import { signBatchPaths } from '../../lib/cutout/store'
 import { useBatchStore } from '../../stores/batchStore'
-import { parseShotTaskNodeId, videoNodeOf, shotRoleLabel, type VideoShotSpec } from '../../lib/video/productVideo'
+import { parseShotTaskNodeId, videoNodeOf } from '../../lib/video/productVideo'
 import { isTerminalVideoTask } from '../../lib/api/batchVideos'
 import { isActiveJob, jobProgress } from '../../lib/batch/jobsQuery'
 import { ITEM_STATUS_META, type BatchItemRow, type BatchJobDetail, type BatchTaskRow } from '../../types/batch'
@@ -34,7 +34,6 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   const [signed, setSigned] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [open, setOpen] = useState<Record<string, boolean>>({})
   const [zipping, setZipping] = useState(false)
 
   const loadAll = useCallback(async () => {
@@ -63,7 +62,6 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   const isVideoTask = (t: BatchTaskRow) => { const k = t.input?.__kind; return k === 'videoShot' || k === 'videoMerge' || !!parseShotTaskNodeId(t.node_id) || (!!video && t.node_id === video.id) }
   const isTerminal = (t: BatchTaskRow) => (t.input?.__inputs === undefined && video ? t.node_id === video.id : isTerminalVideoTask(t))
   const shotIndex = (t: BatchTaskRow) => ((t.input?.__shot as { index?: number } | undefined)?.index ?? parseShotTaskNodeId(t.node_id)?.index ?? 0)
-  const shotLabel = (t: BatchTaskRow) => { const s = t.input?.__shot as VideoShotSpec | undefined; return s?.role ? shotRoleLabel(s) : (typeof t.input?.__label === 'string' ? t.input.__label : '') }
   // 終端の動画（結合、無ければ生成）= この SKU の結果。ショット = 終端以外の動画タスク（スロット順）
   const mergeOf = (itemId: string) => tasksOf(itemId).filter(isVideoTask).find(isTerminal) ?? null
   const shotsOf = (itemId: string) => tasksOf(itemId).filter((t) => isVideoTask(t) && !isTerminal(t)).sort((a, b) => shotIndex(a) - shotIndex(b))
@@ -74,7 +72,7 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   const fileNameFor = (it: BatchItemRow, t: BatchTaskRow | null, inZip: boolean): string => {
     if (!hasExport) return `${safeFile(it.sku)}.mp4`
     const variant = typeof t?.input?.__label === 'string' && t.input.__label.trim() ? t.input.__label.trim() : 'video'
-    const e = planExportEntries([{ variant, transparent: false, video: true }], { ...exportParams, zip: inZip }, itemInfoOfRow(it), new Date()).entries[0]
+    const e = planExportEntries([{ variant, transparent: false, video: true }], { ...exportParams, zip: inZip }, itemInfoOfRow(it), new Date(), { skus: items.length }).entries[0]
     return `${e.folder}${e.base}.mp4`
   }
   const download = async (path: string, name: string) => {
@@ -149,7 +147,6 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
             const shotsDone = shots.filter((s) => s.status === 'completed').length
             const mergedUrl = merge?.result_path ? signed[merge.result_path] : null
             const st = ITEM_STATUS_META[it.status]
-            const isOpen = !!open[it.id]
             return (
               <div key={it.id} className="flex flex-col gap-1.5">
                 <div className="relative w-full" style={{ background: 'var(--bg-placeholder)', aspectRatio: it.width && it.height ? `${it.width} / ${it.height}` : '4 / 5', maxHeight: 520, border: '1px solid var(--border)' }}>
@@ -169,28 +166,8 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                 <div className="flex items-center gap-2 min-w-0 px-0.5">
                   <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={it.sku}>{it.sort_order}. {it.sku}</span>
                   <div className="flex-1" />
-                  {shots.length > 0 && <button className="text-[11px] hover:underline" style={{ color: 'var(--text-secondary)' }} onClick={() => setOpen((o) => ({ ...o, [it.id]: !isOpen }))}>{isOpen ? 'ショットを閉じる' : `ショット ${shots.length} 本を見る`}</button>}
-                  {mergedUrl && merge?.result_path && <button className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="この動画をダウンロード（MP4）" onClick={() => void download(merge.result_path as string, fileNameFor(it, merge, false))}><DownloadSimple size={14} /></button>}
+                    {mergedUrl && merge?.result_path && <button className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="この動画をダウンロード（MP4）" onClick={() => void download(merge.result_path as string, fileNameFor(it, merge, false))}><DownloadSimple size={14} /></button>}
                 </div>
-                {isOpen && (
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {shots.map((s) => {
-                      const n = shotIndex(s) + 1
-                      const roleLabel = shotLabel(s)
-                      const url = s.result_path ? signed[s.result_path] : null
-                      const working = s.status === 'submitted' || (s.status === 'pending' && isActiveJob(job))
-                      return (
-                        <div key={s.id} className="flex flex-col rounded overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-placeholder)' }} title={`ショット ${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
-                          <div className="relative" style={{ aspectRatio: '4 / 5' }}>
-                            {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : ''}</div>}
-                            {working && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}><CircleNotch size={16} className="animate-spin" />{s.status === 'submitted' ? '生成中…' : '待機中'}</div>}
-                          </div>
-                          <div className="h-6 flex items-center justify-center text-[10px] truncate px-1" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>{n}. {roleLabel}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
               </div>
             )
           })}

@@ -1,5 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus, X, Images, Clapperboard, Trash2 } from 'lucide-react'
 import type { Edge } from '@xyflow/react'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
@@ -131,6 +133,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   // 商品動画向けの設定（動き / 避けたいこと）。始点と終点の向きが違うのに回転の定型文が無ければ、入れるボタンを出す（トグルで裏で付けるのはやめた・2026-11-01）
   const vp = (nodeData.params ?? {}) as { prompt?: string; negativePrompt?: string; autoTurn?: boolean; cfgScale?: number }
+  const drag = useDragTarget(id, 'videoGenerationNode')   // 線のドラッグ中のポート名（メモ 31）
   const setParam = (patch: Partial<typeof vp>) => upd(updateNode, id, { params: { ...vp, ...patch } })
   const supportsNegative = currentModel?.paramStyle === 'kling' || currentModel?.paramStyle === 'kling-o3-i2v'
   const turnApplies = !!startRole && !!endRole && startRole !== endRole
@@ -591,9 +594,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           const top = `${Math.round(18 + (i * 64) / (list.length - 1))}%`
           return (
             <Fragment key={h.id}>
-              <Handle id={h.id} type="target" position={Position.Left} title={h.title} style={{ top, width: 20, height: 20, background: `radial-gradient(circle, ${h.color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`, border: 'none', borderRadius: 0 }} />
+              <Handle id={h.id} type="target" position={Position.Left} title={h.title} style={{ top, width: 20, height: 20, background: `radial-gradient(circle, ${h.color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`, border: 'none', borderRadius: 0, ...dimIfNotTarget(drag, drag.inputOk(h.id)) }} />
               {/* ポート名（ノードにマウスを載せたとき・2026-11-01 メモ 7/16） */}
-              <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: top, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>{names[h.id] ?? h.title}</span>
+              <PortLabel top={top} at="input" text={names[h.id] ?? h.title} show={drag.inputOk(h.id)} />
             </Fragment>
           )
         })
@@ -616,6 +619,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
             style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#A78BFA' }}
+            title="開始フレームから終了フレームの画像へ向かう動きにします。指示への追従を強めます（Kling の cfg 0.7・欄は出しません）"
           >
             <div className="w-1.5 h-1.5 rounded-full bg-[#A78BFA]" />
             補完モード（Start → End）
@@ -632,14 +636,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         )}
         {!connectedVideoUrl && hasImageInput && !connectedEndImageUrl && supportsEndImage && (
           <div className="text-[10px] px-1 leading-snug" style={{ color: 'var(--text-tertiary)' }}>終了フレーム: 未接続。左の 3 つ目のポート（終了フレーム）に画像をつなぐと、始点 → 終点の動画になります</div>
-        )}
-
-        {/* 終了フレームありのショット: 指示への追従（cfg_scale・Kling 系）。裏で固定せず欄で見せる（2026-11-01 決定「見える文だけが指示」） */}
-        {!connectedVideoUrl && connectedEndImageUrl && supportsNegative && (
-          <div className="flex items-center justify-between gap-2 text-[11px] px-1" style={{ color: 'var(--text-secondary)' }}>
-            <span title="終了フレームがあるショットは指示への追従を強めます。大きいほど指示に忠実、小さいほど自然な動き（既定 0.7）">指示への追従（cfg・既定 0.7）</span>
-            <input type="number" min={0.1} max={1} step={0.1} value={cfgScaleOf(nodeData as unknown as Record<string, unknown>)} onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setParam({ cfgScale: Math.min(1, Math.max(0.1, v)) }) }} className="nodrag w-16 h-6 px-1.5 rounded text-[11px] text-right" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={isGenerating} />
-          </div>
         )}
 
         {/* 役割カット（Cut Set Input の役割ポート）: 始点 → 終点 と回転指示の自動生成 */}

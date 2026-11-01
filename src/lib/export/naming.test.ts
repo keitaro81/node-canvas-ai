@@ -80,3 +80,20 @@ describe('切り抜きの透過 PNG（includeCutout / forcePng）', () => {
     expect(normalizeExportParams({ includeCutout: 'yes' }).includeCutout).toBe(true)
   })
 })
+
+describe('ZIP 内のフォルダ分け: 対象が 1 つだけならフォルダを作らない（2026-11-01 メモ 34）', () => {
+  const item = { sku: 'AB-1', original: 'a.jpg', index: 1 }
+  const now = new Date('2026-11-01T00:00:00Z')
+  it('バリアント別: 動画 1 本（バリアント 1 種類）はルート直下、2 種類ならフォルダ', () => {
+    const one = planExportEntries([{ variant: 'Reference Video', transparent: false, video: true }], { ...DEFAULT_EXPORT_PARAMS, zipFolders: 'variant' }, item, now)
+    expect(one.entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['AB-1_Reference Video_01.mp4'])
+    const two = planExportEntries([{ variant: 'ec_white', transparent: false }, { variant: 'ec_gray', transparent: false }], { ...DEFAULT_EXPORT_PARAMS, zipFolders: 'variant' }, item, now)
+    expect(two.entries.map((e) => e.folder)).toEqual(['ec_white/', 'ec_gray/'])
+  })
+  it('SKU 別: SKU が 1 件だけ（Export ノード）はルート直下、件数が分からない / 複数ならフォルダ', () => {
+    const p = { ...DEFAULT_EXPORT_PARAMS, zipFolders: 'sku' as const }
+    expect(planExportEntries([{ variant: 'v', transparent: false }], p, item, now, { skus: 1 }).entries[0].folder).toBe('')
+    expect(planExportEntries([{ variant: 'v', transparent: false }], p, item, now, { skus: 3 }).entries[0].folder).toBe('AB-1/')
+    expect(planExportEntries([{ variant: 'v', transparent: false }], p, item, now).entries[0].folder).toBe('AB-1/')
+  })
+})

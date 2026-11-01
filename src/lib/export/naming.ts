@@ -93,9 +93,12 @@ export function folderFor(grouping: ExportZipFolders, variant: string, sku: stri
  * - 透過バリアントに JPEG → PNG に切り替えて警告
  * - 同じパスになるものは 2 つ目以降に _2, _3 … を付けて警告
  */
-export function planExportEntries(inputs: PlannedInput[], params: ExportParams, item: BatchItemInfo, now: Date): { entries: PlannedEntry[]; warnings: string[] } {
+export function planExportEntries(inputs: PlannedInput[], params: ExportParams, item: BatchItemInfo, now: Date, opts?: { skus?: number }): { entries: PlannedEntry[]; warnings: string[] } {
   const warnings: string[] = []
   const used = new Map<string, number>()
+  // フォルダ分けの対象が 1 つだけ（バリアント 1 種類 / SKU 1 件）なら、フォルダを作らずルート直下に（2026-11-01 メモ 34）
+  const variantCount = new Set(inputs.map((i) => i.variant)).size
+  const flat = (params.zipFolders === 'variant' && variantCount <= 1) || (params.zipFolders === 'sku' && opts?.skus === 1)
   const entries = inputs.map((inp) => {
     const w: string[] = []
     let format = params.format
@@ -105,7 +108,7 @@ export function planExportEntries(inputs: PlannedInput[], params: ExportParams, 
       w.push(`「${inp.variant}」は背景が透過のため JPEG ではなく PNG で書き出します`)
     }
     const ext = inp.video ? 'mp4' : EXT_OF[format]
-    const folder = params.zip ? folderFor(params.zipFolders, inp.variant, item.sku) : ''
+    const folder = params.zip && !flat ? folderFor(params.zipFolders, inp.variant, item.sku) : ''
     let base = applyNamePattern(params.namePattern, { ...item, variant: inp.variant, now })
     const key = `${folder}${base}.${ext}`.toLowerCase()
     const n = (used.get(key) ?? 0) + 1

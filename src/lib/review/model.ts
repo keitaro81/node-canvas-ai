@@ -321,7 +321,7 @@ export interface ExportPlanItem { item: BatchItemRow; entries: PlannedEntry[]; w
 export function planJobExport(items: BatchItemRow[], columns: Array<Pick<ExportColumn, 'name' | 'transparent' | 'forcePng'>>, params: ExportParams, now: Date): ExportPlanItem[] {
   const inputs = columns.map((c) => ({ variant: c.name, transparent: c.transparent, forcePng: c.forcePng }))
   return items.map((item) => {
-    const { entries, warnings } = planExportEntries(inputs, params, itemInfoOfRow(item), now)
+    const { entries, warnings } = planExportEntries(inputs, params, itemInfoOfRow(item), now, { skus: items.length })
     return { item, entries, warnings }
   })
 }
