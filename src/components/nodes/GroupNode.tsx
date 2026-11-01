@@ -13,6 +13,8 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
   const [labelDraft, setLabelDraft] = useState(groupData.label)
 
   const isCapsuleTarget = capsuleGroupId === id
+  // App 化したグループの入口（Batch Input）の数: 2 つ以上は一括 App として動かない（2026-11-02 段階 3）
+  const entryCount = useCanvasStore((s) => s.nodes.filter((n) => n.parentId === id && (n.data as { type?: string }).type === 'batchInput').length)
 
   function commitLabel() {
     const trimmed = labelDraft.trim() || 'Group'
@@ -41,6 +43,10 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
         lineStyle={{ borderColor: 'var(--border-active)' }}
         handleStyle={{ background: 'var(--border-active)', border: 'none', width: 8, height: 8, borderRadius: 2 }}
       />
+
+      {isCapsuleTarget && entryCount > 1 && (
+        <div className="absolute left-2.5 right-2.5 px-2 py-1 rounded text-[11px] pointer-events-none" style={{ top: 34, color: '#F59E0B', background: 'rgba(245,158,11,0.12)', zIndex: 1 }}>入口（Batch Input）が {entryCount} つあります。一括 App として動かすには 1 つにしてください</div>
+      )}
 
       {/* Header bar */}
       <div
