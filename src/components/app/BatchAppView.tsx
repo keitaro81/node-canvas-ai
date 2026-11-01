@@ -13,6 +13,7 @@ import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { buildWorkflowSnapshot, type CreateItemInput } from '../../lib/api/batch'
 import { pruneToEntry } from '../../lib/batch/plan'
+import { appScopeOf } from '../../lib/apps/appKind'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { normalizeBatchInputParams } from '../../lib/batch/items'
 import { jobLabel } from '../../lib/batch/jobLabel'
@@ -40,7 +41,10 @@ export function BatchAppView() {
   const labelOf = useCallback((j: BatchJobRow) => jobLabel(j, j.created_by && j.created_by !== userId ? (memberNames[j.created_by] ?? `${j.created_by.slice(0, 8)}…`) : null), [userId, memberNames])
   useWatchBatchJobs('batch-app')
 
-  const batchInput = useMemo(() => nodes.find((n) => (n.data as unknown as NodeData).type === 'batchInput') ?? null, [nodes])
+  // App = App 化したグループ（段階 3）: グループの中の入口（Batch Input）を使い、計画もグループの中だけ。グループが無い既存ワークフローはキャンバス全体
+  const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
+  const scope = useMemo(() => appScopeOf({ capsuleGroupId, nodes: nodes.map((n) => ({ id: n.id, type: n.type, parentId: n.parentId, data: n.data as unknown as Record<string, unknown> })) }), [nodes, capsuleGroupId])
+  const batchInput = useMemo(() => (scope.entryId ? nodes.find((n) => n.id === scope.entryId) ?? null : null), [nodes, scope.entryId])
   const skuPattern = useMemo(() => normalizeBatchInputParams((batchInput?.data as unknown as NodeData | undefined)?.params).skuPattern, [batchInput])
 
   const [searchParams] = useSearchParams()
@@ -72,17 +76,21 @@ export function BatchAppView() {
   const current = useMemo(() => (jobs ? jobs.find((j) => j.id === selectedId) ?? jobs[0] ?? null : null), [jobs, selectedId])
 
   const submit = useCallback((items: CreateItemInput[]) => {
-    const { nodes: ns, edges } = useCanvasStore.getState()
+    const { nodes: all, edges: allEdges } = useCanvasStore.getState()
+    const inGroup = scope.groupId ? new Set(all.filter((n) => n.parentId === scope.groupId).map((n) => n.id)) : null
+    const ns = inGroup ? all.filter((n) => inGroup.has(n.id)) : all
+    const edges = inGroup ? allEdges.filter((e) => inGroup.has(e.source) && inGroup.has(e.target)) : allEdges
     openSubmitDialogWith({
       items, snapshot: pruneToEntry(buildWorkflowSnapshot(ns, edges), batchInput?.id ?? null), workflowId,   // この入口の枝だけ（メモ 24）
       onDone: (jobId) => { clearAppPhotos(`${workflowId ?? 'draft'}:${batchInput?.id ?? ''}`); setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
     })
-  }, [openSubmitDialogWith, workflowId, bump, batchInput?.id])
+  }, [openSubmitDialogWith, workflowId, bump, batchInput?.id, scope.groupId])
 
   if (!batchInput) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6" style={{ color: 'var(--text-secondary)' }}>
-        <div className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>この App には Batch Input がありません</div>
+        <div className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>{scope.entryCount > 1 ? `この App のグループに入口（Batch Input）が ${scope.entryCount} つあります` : 'この App には Batch Input がありません'}</div>
+        {scope.entryCount > 1 && <div className="text-[12px]" style={{ color: '#F59E0B' }}>一括で回す入口は 1 つだけにしてください（キャンバスでグループの中の Batch Input を 1 つにする）</div>}
         <div className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>キャンバスで Batch Input → Remove Background → Product Layout を組むと、ここで写真の追加と結果の確認ができます。</div>
       </div>
     )

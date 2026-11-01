@@ -42,8 +42,8 @@ export function CanvasPage({ initialMode }: { initialMode?: 'app' } = {}) {
   const appMode = useCanvasStore((s) => s.appMode)
   const setAppMode = useCanvasStore((s) => s.setAppMode)
   const nodes = useCanvasStore((s) => s.nodes)
-  // App の種類: Batch Input があれば撮影後工程の App（写真の投入 → 結果）、無ければ従来のグループ App
-  const appKind = useMemo(() => appKindOf({ nodes: nodes.map((n) => ({ type: n.type, data: n.data as unknown as Record<string, unknown> })) }), [nodes])
+  const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
+  const appKind = useMemo(() => appKindOf({ capsuleGroupId, nodes: nodes.map((n) => ({ id: n.id, type: n.type, parentId: n.parentId, data: n.data as unknown as Record<string, unknown> })) }), [nodes, capsuleGroupId])   // App = App 化したグループ（中身で種類が決まる・2026-11-02）
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
