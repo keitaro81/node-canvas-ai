@@ -7,6 +7,8 @@
 // 生成履歴（node_type 'try-on'）とライブラリの生成画像に入る。一括実行（2b-3）: Batch Input の写真をつなぐと写真ごとに 1 枚（計画は src/lib/batch/plan.ts・モデルは固定の画像として投入時にサーバーが署名）
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Handle, Position, type Edge, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Shirt, Play, Loader2, UserRound, X } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
@@ -116,6 +118,7 @@ function TryOnNodeInner(props: NodeProps) {
   const params = normalizeTryOnParams(nodeData.params)
   const picked = nodeData.model ?? null
   const [busy, setBusy] = useState(false)
+  const drag = useDragTarget(id, 'tryOnNode')   // 線のドラッグ中のポート名（メモ 31）
 
   // ── 上流（配線）──
   const modelEdge = edges.find((e) => e.target === id && e.targetHandle === TRY_ON_MODEL_HANDLE)
@@ -295,10 +298,10 @@ function TryOnNodeInner(props: NodeProps) {
       inputs={[]}
       outputs={[{ id: 'image-out', portType: 'image', label: '着用画像' }]}
     >
-      <Handle id={TRY_ON_MODEL_HANDLE} type="target" position={Position.Left} className="handle-image" title="モデル画像（Model ノードの向き / 参照画像 / Cut Set Input）" style={{ top: MODEL_PORT_TOP, width: 20, height: 20 }} />
-      <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: MODEL_PORT_TOP, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>モデル</span>
-      <Handle id={TRY_ON_GARMENT_HANDLE} type="target" position={Position.Left} className="handle-image" title="服の画像（商品写真 / 切り抜き / 参照画像）" style={{ top: GARMENT_PORT_TOP, width: 20, height: 20 }} />
-      <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: GARMENT_PORT_TOP, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>服</span>
+      <Handle id={TRY_ON_MODEL_HANDLE} type="target" position={Position.Left} className="handle-image" title="モデル画像（Model ノードの向き / 参照画像 / Cut Set Input）" style={{ top: MODEL_PORT_TOP, width: 20, height: 20, ...dimIfNotTarget(drag, drag.inputOk(TRY_ON_MODEL_HANDLE)) }} />
+      <PortLabel top={MODEL_PORT_TOP} at="input" text="モデル" show={drag.inputOk(TRY_ON_MODEL_HANDLE)} />
+      <Handle id={TRY_ON_GARMENT_HANDLE} type="target" position={Position.Left} className="handle-image" title="服の画像（商品写真 / 切り抜き / 参照画像）" style={{ top: GARMENT_PORT_TOP, width: 20, height: 20, ...dimIfNotTarget(drag, drag.inputOk(TRY_ON_GARMENT_HANDLE)) }} />
+      <PortLabel top={GARMENT_PORT_TOP} at="input" text="服" show={drag.inputOk(TRY_ON_GARMENT_HANDLE)} />
       <div className="flex flex-col gap-2 nodrag">
         <SourceRow
           label="モデル（左のポート・上）"

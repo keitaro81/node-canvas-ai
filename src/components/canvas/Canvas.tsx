@@ -55,7 +55,7 @@ import { ProductVideoNode } from '../nodes/ProductVideoNode'
 import { VideoMergeNode } from '../nodes/VideoMergeNode'
 import { TryOnNode, TRY_ON_GARMENT_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../nodes/TryOnNode'
 import { LibraryModelNode } from '../nodes/LibraryModelNode'
-import { DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
+import { TRY_ON_MODEL_HANDLE, DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
 import { CutSetInputNode } from '../nodes/CutSetInputNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
@@ -325,6 +325,12 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   productLayout:  { cutout: PRODUCT_LAYOUT_INPUT_CUTOUT, image: PRODUCT_LAYOUT_INPUT_BACKGROUND },
   batchInput:     {},
   export:         { image: 'in-image-0', item: EXPORT_ITEM_HANDLE, video: 'in-video-v0' },
+}
+
+/** 線を伸ばして新しいノードを出すときの既定の入力ポート。Try-On は出し元で切り替える（Model ノード / 参照画像 → モデル、それ以外 → 服・2026-11-01 メモ 36） */
+function defaultInputHandleFor(targetType: NodeType, sourcePortType: string, sourceNodeType: string | undefined): string | null {
+  if (targetType === 'tryOn' && (sourceNodeType === 'libraryModelNode' || sourceNodeType === 'referenceImageNode')) return TRY_ON_MODEL_HANDLE
+  return NODE_DEFAULT_INPUT_HANDLE[targetType]?.[sourcePortType] ?? null
 }
 
 // ノードタイプ別のデフォルト出力ハンドルID（入力ハンドルからのドラッグ時に逆方向接続に使用）
@@ -689,7 +695,7 @@ export function Canvas() {
               })
             }
           } else {
-            const targetHandle = NODE_DEFAULT_INPUT_HANDLE[type]?.[contextMenu.sourcePortType] ?? null
+            const targetHandle = defaultInputHandleFor(type, contextMenu.sourcePortType, useCanvasStore.getState().nodes.find((n) => n.id === contextMenu.sourceNodeId)?.type)
             if (targetHandle) {
               onConnect({
                 source: contextMenu.sourceNodeId,

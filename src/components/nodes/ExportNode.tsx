@@ -155,7 +155,7 @@ function ExportNodeInner(props: NodeProps) {
   const badTokens = useMemo(() => unknownTokens(params.namePattern), [params.namePattern])
   const now = useMemo(() => new Date(), [])
   const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng, video: i.kind === 'video' }))
-  const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now), [allInputs, params, itemInfo, now])
+  const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now, { skus: 1 }), [allInputs, params, itemInfo, now])
 
   const setParams = useCallback((patch: Partial<ExportParams>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
@@ -165,7 +165,7 @@ function ExportNodeInner(props: NodeProps) {
     updateNode(id, { status: 'generating', error: null })
     const startedAt = new Date()
     try {
-      const planNow = planExportEntries(toPlanned(allInputs), params, itemInfo, startedAt)
+      const planNow = planExportEntries(toPlanned(allInputs), params, itemInfo, startedAt, { skus: 1 })
       // ZIP 名（アイテム情報が無いときはワークフロー名）。解凍後のフォルダ名も同じにするため、中身は ZIP 名のルートフォルダで包む（2026-11-01 メモ 19）
       const zipBase = zipFileName(itemInfo, startedAt, itemSource === 'none' ? currentWorkflowName : null)
       const zipRoot = `${zipBase.replace(/\.zip$/i, '')}/`

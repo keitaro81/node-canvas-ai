@@ -122,7 +122,7 @@ describe('review model', () => {
     const ev = exportVariantsOf([])
     expect(ev.map((v) => `${v.key}:${v.name}:${v.params.backgroundKind}`)).toEqual([`${CUTOUT_VARIANT_KEY}:cutout:transparent`])
     const plan = planJobExport([item({ sort_order: 2 })], exportColumnsOf([], [], true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
-    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/ABC-1_cutout_02.png'])
+    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ABC-1_cutout_02.png'   /* 列が 1 つだけならフォルダ無し（2026-11-01 メモ 34） */])
     expect(exportVariantsOf(variantsFromSnapshot(snapshot, null)).length).toBe(2)
   })
   it('書き出し計画は透過バリアントを PNG にし、連番はアイテムの並び順', () => {
