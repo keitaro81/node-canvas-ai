@@ -2,14 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { pickedToFiles } from '../../lib/api/library'
 import { MediaPickerDialog } from '../library/MediaPickerDialog'
 import type { NodeProps } from '@xyflow/react'
-import { Images, Upload, X, RefreshCw, Star, Loader2, AlertCircle, Check } from 'lucide-react'
+import { Images, Upload, X, Loader2, AlertCircle } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { useBatchStore } from '../../stores/batchStore'
 import { showToast } from '../../hooks/useToast'
 import type { NodeData, BatchItem } from '../../types/nodes'
 import {
-  MAX_BATCH_ITEMS, applySkuPattern, compileSkuPattern, extractSku, itemInfoOf, normalizeBatchInputParams, safeFileName, sortAndIndexItems,
+  applySkuPattern, compileSkuPattern, extractSku, itemInfoOf, normalizeBatchInputParams, safeFileName,
 } from '../../lib/batch/items'
 import { readImageSize, runWithConcurrency } from '../../lib/batch/upload'
 import { interactiveCutoutDir, resolveTeamId, signBatchPath, signBatchPaths, uploadBatchObject } from '../../lib/cutout/store'
@@ -93,27 +92,20 @@ function BatchInputNodeInner(props: NodeProps) {
     }
   }, [id, getItems, patchItem, syncCurrent, updateNode])
 
+  // 試し用の 1 枚（2026-11-02 段階 2）: 入れ直すと置き換え。まとめて処理する写真は App モードで入れる
   const handleFiles = useCallback((fileList: FileList | File[]) => {
     const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
-    if (!files.length) return
-    const existing = getItems()
-    const room = MAX_BATCH_ITEMS - existing.length
-    if (room <= 0) { showToast(`最大 ${MAX_BATCH_ITEMS} 枚までです`, 'warning'); return }
-    const accepted = files.slice(0, room)
-    if (files.length > room) showToast(`上限 ${MAX_BATCH_ITEMS} 枚を超える ${files.length - room} 枚は追加しませんでした`, 'warning')
-    const store = pendingFiles.get(id) ?? new Map<string, File>()
+    const file = files[0]
+    if (!file) return
+    if (files.length > 1) showToast('Batch Input は試し用の 1 枚だけを持ちます（先頭の 1 枚を使います）。まとめて処理する写真は App モードで入れてください', 'info')
+    const store = new Map<string, File>()
     pendingFiles.set(id, store)
-    const newItems: BatchItem[] = accepted.map((f) => {
-      const itemId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
-      store.set(itemId, f)
-      return { id: itemId, index: 0, originalName: f.name, sku: extractSku(f.name, params.skuPattern), path: null, size: f.size, status: 'pending' }
-    })
-    const merged = sortAndIndexItems([...existing, ...newItems])
-    const curId = (getData()?.currentItemId as string | null) ?? merged[0]?.id ?? null
-    const cur = merged.find((i) => i.id === curId) ?? merged[0]
-    updateNode(id, { items: merged, currentItemId: cur?.id ?? null, itemInfo: cur ? itemInfoOf(cur) : undefined })
+    const itemId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+    store.set(itemId, file)
+    const item: BatchItem = { id: itemId, index: 1, originalName: file.name, sku: extractSku(file.name, params.skuPattern), path: null, size: file.size, status: 'pending' }
+    updateNode(id, { items: [item], currentItemId: itemId, itemInfo: itemInfoOf(item), output: undefined })
     void uploadPending()
-  }, [id, params.skuPattern, getItems, getData, updateNode, uploadPending])
+  }, [id, params.skuPattern, updateNode, uploadPending])
 
   // SKU の規則が変わったら全アイテムに適用
   useEffect(() => {
@@ -140,25 +132,12 @@ function BatchInputNodeInner(props: NodeProps) {
     return () => { alive = false }
   }, [readyPathsKey])
 
-  const removeItem = useCallback((itemId: string) => {
-    pendingFiles.get(id)?.delete(itemId)
-    updateNode(id, { items: sortAndIndexItems(getItems().filter((i) => i.id !== itemId)) })
-    void syncCurrent()
-  }, [id, getItems, updateNode, syncCurrent])
-
   const clearAll = useCallback(() => {
     pendingFiles.delete(id)
     updateNode(id, { items: [], currentItemId: null, itemInfo: undefined, output: undefined, status: 'idle' })
   }, [id, updateNode])
 
-  const makeCurrent = useCallback((itemId: string) => {
-    updateNode(id, { currentItemId: itemId })
-    void syncCurrent()
-  }, [id, updateNode, syncCurrent])
-
   const patternError = compileSkuPattern(params.skuPattern) === null
-  const readyCount = items.filter((i) => i.status === 'ready').length
-  const errorCount = items.filter((i) => i.status === 'error').length
   const current = items.find((i) => i.id === currentItemId) ?? items[0]
 
   return (
@@ -182,10 +161,10 @@ function BatchInputNodeInner(props: NodeProps) {
           title="クリックで追加（アップロード / ライブラリから選ぶ）。ここにドロップもできます"
         >
           <Upload size={18} style={{ color: PP_ACCENT }} />
-          <span className="text-[12px]" style={{ color: PP_ACCENT }}>画像をドロップ / クリックして追加</span>
-          <span className="text-[11px] text-[var(--text-tertiary)]">アップロードかライブラリから・最大 {MAX_BATCH_ITEMS} 枚</span>
+          <span className="text-[12px]" style={{ color: PP_ACCENT }}>{current ? '試し用の写真を差し替える' : '試し用の写真をドロップ / クリックして追加'}</span>
+          <span className="text-[11px] text-[var(--text-tertiary)]">1 枚・アップロードかライブラリから</span>
         </button>
-        <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" multiple source="batch-input" onPick={(picked) => { void pickedToFiles(picked).then(handleFiles).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error')) }} />
+        <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="batch-input" onPick={(picked) => { void pickedToFiles(picked).then(handleFiles).catch((e) => showToast(e instanceof Error ? e.message : String(e), 'error')) }} />
 
         <Field label="SKU の抽出規則（正規表現・最初の一致 / 第 1 グループ）">
           <div style={patternError ? { outline: '1px solid #EF4444', borderRadius: 6 } : undefined}>
@@ -196,77 +175,28 @@ function BatchInputNodeInner(props: NodeProps) {
           </div>
         </Field>
 
-        {/* 状態 */}
-        <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)]">
-          <span>{items.length} / {MAX_BATCH_ITEMS} 枚・準備完了 {readyCount}{errorCount ? `・失敗 ${errorCount}` : ''}</span>
-          {items.length > 0 && (
-            <button className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] nodrag" onClick={clearAll}>すべて削除</button>
-          )}
-        </div>
         {uploading && progress && (
-          <div>
-            <div className="h-1.5 rounded bg-[var(--bg-elevated)] overflow-hidden">
-              <div className="h-full transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%`, background: PP_ACCENT }} />
+          <div className="text-[11px]" style={{ color: PP_ACCENT }}>アップロード中…</div>
+        )}
+        {/* 試し用の 1 枚（★）: 各ノードの「実行」（対話実行）で下流に流す写真。まとめて処理する写真は App モードで入れる（2026-11-02） */}
+        {current && (
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-1.5">
+            <div className="w-12 h-12 rounded shrink-0 overflow-hidden flex items-center justify-center" style={{ background: 'var(--bg-placeholder)' }}>
+              {current.path && thumbs[current.path] ? <img src={thumbs[current.path]} alt="" className="w-full h-full object-cover" draggable={false} /> : <Images size={14} className="text-[var(--text-tertiary)]" />}
             </div>
-            <div className="text-[11px] mt-1" style={{ color: PP_ACCENT }}>アップロード中 {progress.done} / {progress.total}（この間はページを離れないでください）</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] text-[var(--text-primary)] truncate" title={current.originalName}>★ 試し用: {current.originalName}</div>
+              <div className="text-[10px] text-[var(--text-secondary)] truncate">SKU: {current.sku}{current.width ? `・${current.width}×${current.height}` : ''}</div>
+            </div>
+            {current.status === 'uploading' || current.status === 'pending' ? <Loader2 size={12} className="animate-spin shrink-0" style={{ color: PP_ACCENT }} /> : current.status === 'error' ? <span title={current.error ?? 'アップロード失敗'}><AlertCircle size={12} className="shrink-0" style={{ color: '#EF4444' }} /></span> : null}
+            <button className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)] text-[var(--text-tertiary)] nodrag shrink-0" title="試し用の写真を外す" onClick={clearAll}><X size={12} /></button>
           </div>
         )}
-
-        {/* 一覧 */}
-        {items.length > 0 && (
-          // nowheel: React Flow がホイールをズームに使うのを止め、一覧そのものをスクロールできるようにする
-          <div className="rounded-lg border border-[var(--border)] overflow-auto nodrag nopan nowheel" style={{ maxHeight: 240 }}>
-            {items.map((it) => {
-              const isCurrent = current?.id === it.id
-              return (
-                <div key={it.id} className="flex items-center gap-1.5 px-1.5 py-1 border-b border-[var(--border)] last:border-b-0" style={isCurrent ? { background: 'rgba(20,184,166,0.10)' } : undefined}>
-                  <div className="w-8 h-8 rounded shrink-0 overflow-hidden flex items-center justify-center" style={{ background: 'var(--bg-elevated)' }}>
-                    {it.path && thumbs[it.path] ? <img src={thumbs[it.path]} alt="" className="w-full h-full object-cover" draggable={false} /> : <span className="text-[10px] text-[var(--text-tertiary)]">{it.index}</span>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-[var(--text-primary)] truncate" title={it.originalName}>{it.index}. {it.originalName}</div>
-                    <div className="text-[10px] text-[var(--text-secondary)] truncate">SKU: {it.sku}{it.width ? `・${it.width}×${it.height}` : ''}{it.error ? `・${it.error}` : ''}</div>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-0.5">
-                    {it.status === 'uploading' && <Loader2 size={12} className="animate-spin" style={{ color: PP_ACCENT }} />}
-                    {it.status === 'ready' && <Check size={12} style={{ color: '#22C55E' }} />}
-                    {it.status === 'error' && (
-                      <button className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)] nodrag" title="再試行" onClick={() => void uploadPending()}>
-                        {pendingFiles.get(id)?.has(it.id) ? <RefreshCw size={12} style={{ color: '#EF4444' }} /> : <AlertCircle size={12} style={{ color: '#EF4444' }} />}
-                      </button>
-                    )}
-                    <button
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)] nodrag"
-                      title={isCurrent ? '対話実行で流す 1 枚' : 'この画像を先頭にする（対話実行で流す）'}
-                      onClick={() => makeCurrent(it.id)}
-                    >
-                      <Star size={12} fill={isCurrent ? PP_ACCENT : 'none'} style={{ color: isCurrent ? PP_ACCENT : 'var(--text-tertiary)' }} />
-                    </button>
-                    <button className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-elevated)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] nodrag" title="削除" onClick={() => removeItem(it.id)}>
-                      <X size={12} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* 一括実行（仕様 4-7 / 4-8）: 準備完了の全アイテムをサーバーのジョブとして投入。確認ダイアログは CanvasPage 側 */}
-        <button
-          className="h-8 w-full rounded-lg text-[12px] font-medium text-white nodrag disabled:opacity-50 transition-opacity hover:opacity-90"
-          style={{ background: PP_ACCENT }}
-          disabled={readyCount === 0 || uploading}
-          title={uploading ? 'アップロードが終わるまで待ってください' : readyCount === 0 ? '準備完了の画像がありません' : '準備完了の全アイテムを一括実行する'}
-          onClick={() => useBatchStore.getState().openSubmitDialog(id)}
-        >
-          一括実行…（{readyCount} 枚）
+        {items.length > 1 && <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>以前ここに入れた写真 {items.length} 枚は、App モードの「写真を追加」に一度だけ引き継がれます（ノードでは ★ の 1 枚だけを使います）</div>}
+        <button className="h-8 w-full rounded-lg text-[12px] font-medium nodrag transition-colors hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => useCanvasStore.getState().setAppMode('capsule')} title="App モードに切り替えて、まとめて処理する写真を入れます">
+          App で写真をまとめて処理する →
         </button>
-        <div className="text-[11px] text-[var(--text-tertiary)] leading-snug">
-          {current
-            ? <>対話実行では ★ の 1 枚（{current.index}. {current.sku}）だけを流します。全アイテムは「一括実行」で裏側の処理に投入します</>
-            : <>対話実行では先頭の 1 枚だけを流します（★ で差し替え可）</>}
-        </div>
+        <div className="text-[11px] text-[var(--text-tertiary)] leading-snug">ここの写真は試し用の 1 枚です（各ノードの「実行」で流れます）。全部の写真をまとめて処理するときは App モードで写真を入れて「処理する」を押します。</div>
       </div>
     </BaseNode>
   )

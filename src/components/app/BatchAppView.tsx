@@ -17,9 +17,10 @@ import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { normalizeBatchInputParams } from '../../lib/batch/items'
 import { jobLabel } from '../../lib/batch/jobLabel'
 import type { BatchJobRow } from '../../types/batch'
-import type { NodeData } from '../../types/nodes'
+import type { NodeData, BatchItem } from '../../types/nodes'
 import { JobReviewPanel } from '../jobs/review/JobReviewPanel'
 import { AppBatchInput } from './AppBatchInput'
+import { clearAppPhotos } from '../../lib/batch/appPhotos'
 import { AppLayoutSettings } from './AppLayoutSettings'
 
 const ACCENT = '#14B8A6'
@@ -74,7 +75,7 @@ export function BatchAppView() {
     const { nodes: ns, edges } = useCanvasStore.getState()
     openSubmitDialogWith({
       items, snapshot: pruneToEntry(buildWorkflowSnapshot(ns, edges), batchInput?.id ?? null), workflowId,   // この入口の枝だけ（メモ 24）
-      onDone: (jobId) => { setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
+      onDone: (jobId) => { clearAppPhotos(`${workflowId ?? 'draft'}:${batchInput?.id ?? ''}`); setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
     })
   }, [openSubmitDialogWith, workflowId, bump, batchInput?.id])
 
@@ -98,7 +99,7 @@ export function BatchAppView() {
         <p className="text-[11px] mb-3" style={{ color: 'var(--text-tertiary)' }}>
           入れた写真すべてに、App「{workflowName}」の処理（切り抜き・レイアウト・生成）を行います。
         </p>
-        <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId} onSubmit={submit} />
+        <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${batchInput.id}`} initialItems={(batchInput.data as unknown as NodeData).items as BatchItem[] | undefined} />
         <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
         <AppLayoutSettings />
       </aside>
