@@ -10,8 +10,9 @@ import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_fal
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 import { CUT_ROLES, cutOf, elementCutsOf, type CutRole, type ItemCut } from '../../src/lib/video/productVideo'
 import { nearestAspectRatio } from '../../src/lib/ai/videoModels'
-import { availableVideos, inputNodesOf, planTasks, promptTextsToTranslateForPlan, taskMapOf, taskSatisfied, type InputRef, type PlannedTask, type TaskInputs, type VideoTaskMeta, type WorkflowSnapshot } from '../../src/lib/batch/plan'
+import { availableVideos, inputNodesOf, planTasks, promptTextsToTranslateForPlan, refsOf, taskMapOf, taskSatisfied, type InputRef, type PlannedTask, type TaskInputs, type VideoTaskMeta, type WorkflowSnapshot } from '../../src/lib/batch/plan'
 import { translatePromptTexts } from './_translate'
+import { parseStorageUrl, signMediaServer } from '../storage/_signMediaLogic'
 
 // 計画は純関数（src/lib/batch/plan.ts）。テストと dev ミドルウェアはここから引けるように再公開する
 export { planTasks, MAX_ITEM_STAGES, expandProductVideo, type PlannedTask, type PlannedKind, type WorkflowSnapshot, type SnapshotNode, type SnapshotEdge } from '../../src/lib/batch/plan'
@@ -233,6 +234,15 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
     } else if (needsCuts) return fail(400, 'cuts_required', { message: '商品動画には役割ごとのカットが必要です' })
   }
 
+  // 固定の画像（Try-On のモデル・参照画像など。全アイテム共通）: 呼び出し者がアクセスできるものだけ受け付ける（sign-media と同じ判定）。投入時は service role で署名する
+  const workflowId = await resolveSourceWorkflow(admin, userId, m.teamId, body.workflowId)
+  const assets = [...new Set(plan.tasks.flatMap((t) => refsOf(t.inputs).filter((r): r is Extract<InputRef, { kind: 'asset' }> => r.kind === 'asset').map((r) => r.url)))]
+  if (assets.length) {
+    const signed = await signMediaServer(admin, userId, { workflowId: workflowId ?? undefined, urls: assets, ownUrls: assets })
+    const map = (signed.status === 200 ? (signed.body.map as Record<string, string> | undefined) : undefined) ?? {}
+    if (assets.some((u) => !map[u])) return fail(403, 'asset_forbidden', { message: '固定の画像（Try-On のモデルや参照画像）にアクセスできません。ライブラリのモデルを選び直すか、画像を入れ直してください' })
+  }
+
   // 上限は種類ごと: 写真の処理は daily_item_limit（枚）、商品動画は daily_video_limit（本・既定 20）。本日の利用数も同じ種類だけ数える（0019）
   const kind: 'cutout' | 'video' = hasVideo ? 'video' : 'cutout'
   const unit = kind === 'video' ? '本' : '枚'
@@ -271,9 +281,9 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   if (!chk.ok) return fail(chk.status, chk.code, { message: chk.message, limits })
   if (plan.tasks.length === 0) return fail(400, 'no_tasks', { message: '一括実行の対象となる AI 処理ノード（Batch Input に接続した Remove Background 等）がありません', warnings: plan.warnings })
 
-  // 動画: 日本語のプロンプトは生成前に英語へ（組み込み文は対訳、利用者の文は LLM）。翻訳表を写しに添え、submit の planTasks が使う。失敗したら日本語のまま送らず作成を止める
+  // 動画・試着: 日本語のプロンプト（動き・避けたいこと・服の説明）は生成前に英語へ（組み込み文は対訳、利用者の文は LLM）。翻訳表を写しに添え、submit の planTasks が使う。失敗したら日本語のまま送らず作成を止める
   let snapshotToStore: WorkflowSnapshot = body.workflowSnapshot ?? {}
-  if (hasVideo) {
+  {
     const texts = promptTextsToTranslateForPlan(body.workflowSnapshot)
     if (texts.length) {
       if (!opts?.falKey) return fail(500, 'translate_unavailable', { message: 'プロンプトの翻訳に使う設定（FAL_KEY）がありません' })
@@ -283,7 +293,6 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   }
 
   const name = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : `${jstDateTimeLabel()} ${items.length}枚`
-  const workflowId = await resolveSourceWorkflow(admin, userId, m.teamId, body.workflowId)
   const { data: job, error: jobErr } = await admin.from('batch_jobs').insert({
     team_id: m.teamId, created_by: userId, name, workflow_snapshot: snapshotToStore, status: 'uploading',
     item_count: items.length, task_count: planInfo.totalTasks, estimated_cost_usd: estimatedCostUsd, workflow_id: workflowId, kind,
@@ -316,6 +325,11 @@ function webhookUrlFor(opts: BatchOpts, job: { id: string; webhook_secret: strin
 async function signOriginal(admin: Admin, path: string): Promise<string | null> {
   const { data } = await admin.storage.from(BATCH_BUCKET).createSignedUrl(path, SIGNED_URL_TTL)
   return data?.signedUrl ?? null
+}
+/** 参照を解決したものの署名: 固定の画像（asset）は元のバケット（generated-images など）、それ以外は batch バケット */
+async function signResolved(admin: Admin, r: { bucket?: string; path: string }): Promise<string | null> {
+  if (r.bucket && r.bucket !== BATCH_BUCKET) { const { data } = await admin.storage.from(r.bucket).createSignedUrl(r.path, SIGNED_URL_TTL); return data?.signedUrl ?? null }
+  return signOriginal(admin, r.path)
 }
 
 export async function batchSubmit(admin: Admin, userId: string, opts: BatchOpts, body: SubmitBody): Promise<BatchResult> {
@@ -565,8 +579,9 @@ export async function buildTaskInput(admin: Admin, task: any, item: any | null, 
 async function buildTaskInputFromRefs(admin: Admin, task: any, item: any | null, all: any[], input: Record<string, unknown>, refs: TaskInputs): Promise<Record<string, unknown> | null> {
   const kind = task.input?.__kind as string | undefined
   const cuts = Array.isArray(item?.cuts) ? (item.cuts as ItemCut[]) : []
-  const resolve = (ref: InputRef): { path: string; width?: number | null; height?: number | null } | null => {
+  const resolve = (ref: InputRef): { bucket?: string; path: string; width?: number | null; height?: number | null } | null => {
     if (ref.kind === 'photo') return item?.source_path ? { path: item.source_path, width: item.width ?? null, height: item.height ?? null } : null
+    if (ref.kind === 'asset') { const p = parseStorageUrl(ref.url); return p ? { bucket: p.bucket, path: p.path } : null }   // 固定の画像（作成時に権限確認済み）
     if (ref.kind === 'cut') { const c = cutOf(cuts, ref.role); return c ? { path: c.path, width: c.width ?? null, height: c.height ?? null } : null }
     if (ref.kind === 'dep') {
       const depTask = all.find((x) => x.item_id === task.item_id && x.node_id === ref.nodeId && x.status === 'completed' && x.result_path)
@@ -609,10 +624,17 @@ async function buildTaskInputFromRefs(admin: Admin, task: any, item: any | null,
   }
   const src = refs.image ? resolve(refs.image) : null
   if (!src) return null
-  const signed = await signOriginal(admin, src.path)
+  const signed = await signResolved(admin, src)
   if (!signed) return null
-  if (kind === 'imageEdit') input.image_urls = [signed]
-  else input.image_url = signed
+  if (kind === 'imageEdit') {
+    // 試着（Try-On）: image_urls は [モデル, 服] の順（src/lib/tryon/prompt.ts の前提）
+    if (refs.model) {
+      const model = resolve(refs.model)
+      const modelSigned = model ? await signResolved(admin, model) : null
+      if (!modelSigned) return null
+      input.image_urls = [modelSigned, signed]
+    } else input.image_urls = [signed]
+  } else input.image_url = signed
   return input
 }
 
