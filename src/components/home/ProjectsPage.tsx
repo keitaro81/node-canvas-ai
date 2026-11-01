@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { Plus, CircleNotch, SquaresFour } from '@phosphor-icons/react'
+import { Plus, CircleNotch, SquaresFour, ChatCircleText } from '@phosphor-icons/react'
 import { TemplatePickerDialog } from './TemplatePickerDialog'
+import { AgentBuilderDialog } from './AgentBuilderDialog'
+import type { CompiledCanvas } from '../../lib/agent/compile'
 import type { WorkflowTemplate } from '../../lib/templates'
 import { showToast } from '../../hooks/useToast'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -65,6 +67,14 @@ export function ProjectsPage() {
     }
   }
 
+  // チャットで組む（2026-11-01・段階 1）: 目的を書いて提案された構成で新しいワークフローを作って開く
+  const [agentOpen, setAgentOpen] = useState(false)
+  async function handleAgentCreate(canvas: CompiledCanvas, name: string) {
+    const id = await useWorkflowStore.getState().createWorkflowFromCanvas(name, canvas)
+    setAgentOpen(false)
+    navigate(`/canvas/${id}`)
+  }
+
   // テンプレートから作成（2026-10-31・設計 §8）: 組み済みのノードで新しいワークフローを作って開く
   const [templateOpen, setTemplateOpen] = useState(false)
   async function handleTemplate(t: WorkflowTemplate) {
@@ -93,6 +103,16 @@ export function ProjectsPage() {
         {!isMobile && (
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setAgentOpen(true)}
+              disabled={creating}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors duration-150 disabled:opacity-60"
+              style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-active)' }}
+              title="作りたいものを日本語で書くと、ノードをつないだ構成を提案します"
+            >
+              <ChatCircleText size={14} weight="bold" />
+              チャットで組む
+            </button>
+            <button
               onClick={() => setTemplateOpen(true)}
               disabled={creating}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors duration-150 disabled:opacity-60"
@@ -117,6 +137,7 @@ export function ProjectsPage() {
           </div>
         )}
         <TemplatePickerDialog open={templateOpen} busy={creating} onClose={() => setTemplateOpen(false)} onPick={(t) => void handleTemplate(t)} />
+        <AgentBuilderDialog open={agentOpen} onClose={() => setAgentOpen(false)} onCreate={handleAgentCreate} />
       </div>
 
       {/* Content */}

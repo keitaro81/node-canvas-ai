@@ -26,7 +26,8 @@ export const ALLOWED_MODEL_PREFIXES = [
   'fal-ai/ltx-2.3',
   'fal-ai/kling-video',
   'bytedance/seedance-2.0',
-  // LLM / 画像解析
+  // LLM / 画像解析（2026-11-01: any-llm は deprecated 表示のため openrouter/router を主にし、any-llm は予備。src/lib/ai/llm.ts）
+  'openrouter/router',
   'fal-ai/any-llm',
   'fal-ai/llava-next',
   // 撮影後工程

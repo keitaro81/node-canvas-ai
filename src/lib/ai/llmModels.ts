@@ -1,4 +1,4 @@
-// fal-ai/any-llm のモデル id（2026-10-17 時点の有効一覧から）。id は入れ替わるので、保存済みの古い id はここで現行に寄せる
+// LLM のモデル id（openrouter/router と fal-ai/any-llm で共通の形・2026-11-01 に openrouter で実測）。id は入れ替わるので、保存済みの古い id はここで現行に寄せる
 // （claude-haiku-4.5 は 2026-10-17 に 422 で拒否されるようになった → claude-haiku-5.5）
 export const LLM_MODELS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5' },

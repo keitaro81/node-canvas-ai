@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom'
 import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
-import { fal } from '../../lib/ai/fal-client'
+import { llmComplete } from '../../lib/ai/llmClient'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
@@ -116,13 +116,8 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
     if (!inputText.trim()) return
     updateNode(nodeId, { status: 'generating' } as never)
     try {
-      type LLMOutput = { output?: string }
-      const result = await fal.subscribe('fal-ai/any-llm', {
-        input: { model, system_prompt: ENHANCER_SYSTEM_PROMPT, prompt: inputText },
-        logs: false,
-      })
-      const data = (result as unknown as { data?: LLMOutput }).data
-      updateNode(nodeId, { outputText: data?.output ?? '', status: 'done' } as never)
+      const r = await llmComplete({ models: [model], systemPrompt: ENHANCER_SYSTEM_PROMPT, prompt: inputText })
+      updateNode(nodeId, { outputText: r.output, status: 'done' } as never)
       setTab('output')
     } catch (err) {
       updateNode(nodeId, { outputText: (err as Error).message, status: 'error' } as never)
