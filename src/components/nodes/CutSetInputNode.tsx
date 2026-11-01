@@ -1,8 +1,10 @@
 // Cut Set Input ノード（2026-10-31・設計 docs/specs/product-video-nodes.md §4.1）: 1 アイテム = 1 SKU の役割別カット（正面 / 右側面 / 左側面 / 背面 / ディテール / 全身）。
 // 出力ポートは役割ごと（画像）+ カット一式（elements 用）+ アイテム情報。対話実行では ★ の 1 SKU のカットを署名して outputs[ハンドル id] に出す。
 // 「一括実行…」で準備完了の全 SKU をジョブとして投入（Batch Input と同じ確認ダイアログ）。カードの UI は App と共用（CutSetCards）
-import { memo, useEffect, useMemo, useState } from 'react'
+import { Fragment, memo, useEffect, useMemo, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Clapperboard, X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useBatchStore } from '../../stores/batchStore'
@@ -24,6 +26,7 @@ const PORTS: Array<{ id: string; label: string; cls: string }> = [
 ]
 
 function CutSetInputNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'cutSetInputNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as CutSetInputNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const live = useLiveCanvas()
@@ -81,7 +84,10 @@ function CutSetInputNodeInner({ id, data, selected }: NodeProps) {
         })}
       </div>
       {PORTS.map((p, i) => (
-        <Handle key={p.id} id={p.id} type="source" position={Position.Right} className={p.cls} title={p.label} style={{ top: PORTS_TOP + i * PORT_ROW_H + PORT_ROW_H / 2, width: 20, height: 20 }} />
+        <Fragment key={p.id}>
+          <Handle id={p.id} type="source" position={Position.Right} className={p.cls} title={p.label} style={{ top: PORTS_TOP + i * PORT_ROW_H + PORT_ROW_H / 2, width: 20, height: 20, ...dimIfNotTarget(drag, drag.outputOk(p.id)) }} />
+          <PortLabel top={PORTS_TOP + i * PORT_ROW_H + PORT_ROW_H / 2} at="output" text={p.label} show={drag.outputOk(p.id)} />
+        </Fragment>
       ))}
 
       <div className="px-3 pb-3 flex flex-col gap-2.5 nodrag">

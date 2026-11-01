@@ -1,8 +1,10 @@
 // Model ノード（2026-11-01・ユーザー提案「モデルは単独のノードで」）: ライブラリのモデルを選ぶと、向きごとのカットが出力ポート（out-image-<role>）に出る。
 // Try-On の model 入力（服と同じ向きに）や Video Generation の始点・終点につなぐ。一括実行では固定の画像（向きつき）として扱う（計画は src/lib/batch/plan.ts）。
 // cuts は保存形式の URL（canonical）で保存し、表示・生成用の署名 URL（outputs[ハンドル id]）は読み込み時に作り直す（Cut Set Input と同じ受け渡し）
-import { memo, useEffect, useMemo, useState } from 'react'
+import { Fragment, memo, useEffect, useMemo, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { UserRound, X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { ModelPickerDialog } from '../library/ModelPickerDialog'
@@ -18,6 +20,7 @@ const ACCENT = '#8B5CF6'
 const HEADER_H = 36, ROWS_TOP = HEADER_H + 10, ROW_H = 58
 
 function LibraryModelNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'libraryModelNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as LibraryModelNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -74,7 +77,10 @@ function LibraryModelNodeInner({ id, data, selected }: NodeProps) {
         })}
       </div>
       {MODEL_ROLES.map((r, i) => (
-        <Handle key={r.id} id={cutSetRoleHandle(r.id)} type="source" position={Position.Right} className="handle-image" title={`${r.label}のカット`} style={{ top: ROWS_TOP + i * ROW_H + ROW_H / 2, width: 20, height: 20 }} />
+        <Fragment key={r.id}>
+          <Handle id={cutSetRoleHandle(r.id)} type="source" position={Position.Right} className="handle-image" title={`${r.label}のカット`} style={{ top: ROWS_TOP + i * ROW_H + ROW_H / 2, width: 20, height: 20, ...dimIfNotTarget(drag, drag.outputOk(cutSetRoleHandle(r.id))) }} />
+          <PortLabel top={ROWS_TOP + i * ROW_H + ROW_H / 2} at="output" text={r.label} show={drag.outputOk(cutSetRoleHandle(r.id))} />
+        </Fragment>
       ))}
 
       <div className="px-3 pb-3 flex flex-col gap-2 nodrag">

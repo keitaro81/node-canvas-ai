@@ -1,5 +1,7 @@
-import { memo } from 'react'
+import { Fragment, memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { List, Plus, Minus, X, ImageIcon, Type } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
@@ -38,6 +40,7 @@ function getTextFromData(data: Record<string, unknown>): string | null {
 }
 
 function ListNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'listNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as ListNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const storeNodes = useCanvasStore((s) => s.nodes)
@@ -116,22 +119,26 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
       >
         {/* Input handles */}
         {showImageHandles && Array.from({ length: slotCount }).map((_, i) => (
-          <Handle
-            key={`in-image-${i}`}
-            id={`in-image-${i}`}
-            type="target"
-            position={Position.Left}
-            style={{ ...IMAGE_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -14 : -10 }}
-          />
+          <Fragment key={`in-image-${i}`}>
+            <Handle
+              id={`in-image-${i}`}
+              type="target"
+              position={Position.Left}
+              style={{ ...IMAGE_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -14 : -10, ...dimIfNotTarget(drag, drag.inputOk(`in-image-${i}`)) }}
+            />
+            <PortLabel top={slotHandleTop(i)} at="input" text={`画像 ${i + 1}`} show={drag.inputOk(`in-image-${i}`)} />
+          </Fragment>
         ))}
         {showTextHandles && Array.from({ length: slotCount }).map((_, i) => (
-          <Handle
-            key={`in-text-${i}`}
-            id={`in-text-${i}`}
-            type="target"
-            position={Position.Left}
-            style={{ ...TEXT_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -10 : -10 }}
-          />
+          <Fragment key={`in-text-${i}`}>
+            <Handle
+              id={`in-text-${i}`}
+              type="target"
+              position={Position.Left}
+              style={{ ...TEXT_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -10 : -10, ...dimIfNotTarget(drag, drag.inputOk(`in-text-${i}`)) }}
+            />
+            <PortLabel top={slotHandleTop(i)} at="input" text={`テキスト ${i + 1}`} show={drag.inputOk(`in-text-${i}`)} />
+          </Fragment>
         ))}
 
         {/* Header */}
@@ -274,8 +281,9 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
           id="out-list"
           type="source"
           position={Position.Right}
-          style={{ ...IMAGE_HANDLE_STYLE, top: '50%' }}
+          style={{ ...IMAGE_HANDLE_STYLE, top: '50%', ...dimIfNotTarget(drag, drag.outputOk('out-list')) }}
         />
+        <PortLabel top="50%" at="output" text="リスト" show={drag.outputOk('out-list')} />
       </div>
     </div>
   )

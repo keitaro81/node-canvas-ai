@@ -619,7 +619,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]"
             style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#A78BFA' }}
-            title="開始フレームから終了フレームの画像へ向かう動きにします。指示への追従を強めます（Kling の cfg 0.7・欄は出しません）"
           >
             <div className="w-1.5 h-1.5 rounded-full bg-[#A78BFA]" />
             補完モード（Start → End）

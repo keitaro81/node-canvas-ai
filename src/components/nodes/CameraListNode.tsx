@@ -1,5 +1,7 @@
 import { memo, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Camera, Plus, X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
@@ -14,6 +16,7 @@ const HANDLE_STYLE = {
 } as const
 
 function CameraListNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'cameraListNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as CameraListNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
 
@@ -164,8 +167,9 @@ function CameraListNodeInner({ id, data, selected }: NodeProps) {
           id="out-list"
           type="source"
           position={Position.Right}
-          style={{ ...HANDLE_STYLE, top: '50%' }}
+          style={{ ...HANDLE_STYLE, top: '50%', ...dimIfNotTarget(drag, drag.outputOk('out-list')) }}
         />
+        <PortLabel top="50%" at="output" text="リスト" show={drag.outputOk('out-list')} />
       </div>
     </div>
   )

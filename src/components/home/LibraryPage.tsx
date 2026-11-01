@@ -298,23 +298,24 @@ function ModelCard({ model, url, mine, onEdit, onShare, onDelete }: { model: Lib
 function LibraryCard({ item, url, mine, onPin, onShare, onDelete, onDownload }: { item: LibraryItem; url?: string; mine: boolean; onPin: () => void; onShare: () => void; onDelete: () => void; onDownload: () => void }) {
   const [confirm, setConfirm] = useState(false)
   const days = libraryDaysLeft(item)
+  const [lightbox, setLightbox] = useState(false)   // サムネイルのクリックで拡大表示（画像）/ 再生（動画）。生成画像・生成動画のカードと同じ（2026-11-01 メモ 37）
   return (
-    <div className="group flex flex-col rounded-xl overflow-hidden transition-all duration-150" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div className="group flex flex-col rounded-xl overflow-hidden transition-all duration-150 cursor-pointer" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }} onClick={() => { if (url) setLightbox(true) }}>
       <div className="relative w-full overflow-hidden" style={{ aspectRatio: '1 / 1', background: 'var(--bg-placeholder)' }}>
         <MediaImg src={url ?? ''} video={item.media === 'video'} muted playsInline className="absolute inset-0 w-full h-full object-cover" />
         {item.media === 'video' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}><Play size={16} weight="fill" color="#fff" /></div></div>}
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
           {confirm ? (
             <>
-              <button className="h-8 px-3 rounded-lg text-[12px] font-medium text-white" style={{ background: 'rgba(239,68,68,0.9)' }} onClick={onDelete}>削除</button>
-              <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={() => setConfirm(false)} title="やめる"><X size={14} /></button>
+              <button className="h-8 px-3 rounded-lg text-[12px] font-medium text-white" style={{ background: 'rgba(239,68,68,0.9)' }} onClick={(e) => { e.stopPropagation(); onDelete() }}>削除</button>
+              <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); setConfirm(false) }} title="やめる"><X size={14} /></button>
             </>
           ) : (
             <>
-              <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={onDownload} title="ダウンロード"><Download size={15} weight="bold" /></button>
-              {mine && <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: item.pinned ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.15)' }} onClick={onPin} title={item.pinned ? '保存を解除（最終利用から 30 日で自動削除に戻す）' : '保存（自動削除しない）'}><PushPin size={15} weight={item.pinned ? 'fill' : 'bold'} /></button>}
-              {mine && <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: item.visibility === 'team' ? 'rgba(139,92,246,0.85)' : 'rgba(255,255,255,0.15)' }} onClick={onShare} title={item.visibility === 'team' ? 'チーム共有をやめる' : 'チームに共有（メンバーも使える）'}><UsersThree size={15} weight="bold" /></button>}
-              {mine && <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(239,68,68,0.85)' }} onClick={() => setConfirm(true)} title="削除"><Trash size={15} weight="bold" /></button>}
+              <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); onDownload() }} title="ダウンロード"><Download size={15} weight="bold" /></button>
+              {mine && <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: item.pinned ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); onPin() }} title={item.pinned ? '保存を解除（最終利用から 30 日で自動削除に戻す）' : '保存（自動削除しない）'}><PushPin size={15} weight={item.pinned ? 'fill' : 'bold'} /></button>}
+              {mine && <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: item.visibility === 'team' ? 'rgba(139,92,246,0.85)' : 'rgba(255,255,255,0.15)' }} onClick={(e) => { e.stopPropagation(); onShare() }} title={item.visibility === 'team' ? 'チーム共有をやめる' : 'チームに共有（メンバーも使える）'}><UsersThree size={15} weight="bold" /></button>}
+              {mine && <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: 'rgba(239,68,68,0.85)' }} onClick={(e) => { e.stopPropagation(); setConfirm(true) }} title="削除"><Trash size={15} weight="bold" /></button>}
             </>
           )}
         </div>
@@ -328,6 +329,7 @@ function LibraryCard({ item, url, mine, onPin, onShare, onDelete, onDownload }: 
         <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{formatRelativeJa(item.created_at)}{item.width && item.height ? ` ・ ${item.width}×${item.height}` : ''}</p>
         <p className="text-[10px] mt-0.5" style={{ color: days !== null && days <= 3 ? '#F59E0B' : 'var(--text-tertiary)' }}>{days === null ? '保存済み（自動削除しない）' : days > 0 ? `最終利用から 30 日で削除（あと ${days} 日）` : 'まもなく削除されます'}</p>
       </div>
+      {lightbox && url && <VideoLightbox url={url} video={item.media === 'video'} onClose={() => setLightbox(false)} onDownload={onDownload} />}
     </div>
   )
 }

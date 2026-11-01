@@ -1,5 +1,7 @@
 import { memo, useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { PortLabel } from './PortLabel'
+import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { ImageIcon, X, Loader2, Paintbrush, Images } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -10,6 +12,7 @@ import type { ReferenceImageNodeData } from '../../types/nodes'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 
 function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
+  const drag = useDragTarget(id, 'referenceImageNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as ReferenceImageNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
@@ -252,8 +255,10 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
             background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
             border: 'none',
             borderRadius: 0,
+            ...dimIfNotTarget(drag, drag.outputOk('out-image')),
           }}
         />
+        <PortLabel top="50%" at="output" text="画像" show={drag.outputOk('out-image')} />
       </div>
 
       {showMaskModal && displayUrl && (
