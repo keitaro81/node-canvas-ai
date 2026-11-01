@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Handle, Position, useNodes, useEdges, type NodeProps } from '@xyflow/react'
 import { Play, Loader2, AlertCircle, Film, Video, Minus, Plus, X, Images, Clapperboard, Trash2 } from 'lucide-react'
 import type { Edge } from '@xyflow/react'
@@ -7,8 +7,8 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
-import { CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, REFERENCE_PRIORITY, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
-import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle, imageRoleOfSource, inputNodesOf, planTasks, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { CUT_ROLE_LABEL, FRONTAL_ROLE, REFERENCE_PRIORITY, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
+import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, cutSetRoleHandle, imageRoleOfSource, inputNodesOf, planTasksForNode, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
@@ -130,7 +130,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const shotsSeconds = shotsTotalSeconds(activeShots)
 
   // 商品動画向けの設定（動き / 避けたいこと）。始点と終点の向きが違うのに回転の定型文が無ければ、入れるボタンを出す（トグルで裏で付けるのはやめた・2026-11-01）
-  const vp = (nodeData.params ?? {}) as { prompt?: string; negativePrompt?: string; autoTurn?: boolean }
+  const vp = (nodeData.params ?? {}) as { prompt?: string; negativePrompt?: string; autoTurn?: boolean; cfgScale?: number }
   const setParam = (patch: Partial<typeof vp>) => upd(updateNode, id, { params: { ...vp, ...patch } })
   const supportsNegative = currentModel?.paramStyle === 'kling' || currentModel?.paramStyle === 'kling-o3-i2v'
   const turnApplies = !!startRole && !!endRole && startRole !== endRole
@@ -147,7 +147,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     const snap = live as unknown as WorkflowSnapshot
     const ins = inputNodesOf(snap)
     if (!ins.batchInputId && !ins.cutSetInputId) return null
-    const { tasks, excluded } = planTasks(snap)
+    const { tasks, excluded } = planTasksForNode(snap, id)   // 自分の入口の枝だけで計画（メモ 24）
     const t = tasks.find((x) => x.nodeId === id)
     if (t) return { ok: true as const, stage: t.stage, reason: null }
     return { ok: false as const, stage: 0, reason: excluded[id] ?? null }
@@ -186,7 +186,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
     const negativePrompt = supportsNegative && built.negative ? built.negative : undefined
-    const cfgScale = built.turned && currentModel?.paramStyle === 'kling' ? END_CUT_CFG_SCALE : undefined
+    const cfgScale = built.turned && currentModel?.paramStyle === 'kling' ? cfgScaleOf(nodeData as unknown as Record<string, unknown>) : undefined
     if (hasConnectedImageNode && !connectedImageUrl) {
       upd(updateNode, id, { status: 'failed', error: '参照画像をアップロードしてください' })
       return
@@ -586,23 +586,17 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           ...(connectedCuts.length > 0 ? [{ id: 'in-image-cuts', color: '#F472B6', title: '参照カット（従来の接続）' }] : []),
           { id: 'in-video', color: '#EC4899', title: '参照動画' },
         ]
-        return list.map((h, i) => (
-          <Handle
-            key={h.id}
-            id={h.id}
-            type="target"
-            position={Position.Left}
-            title={h.title}
-            style={{
-              top: `${Math.round(18 + (i * 64) / (list.length - 1))}%`,
-              width: 20,
-              height: 20,
-              background: `radial-gradient(circle, ${h.color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`,
-              border: 'none',
-              borderRadius: 0,
-            }}
-          />
-        ))
+        const names: Record<string, string> = { 'in-text': 'プロンプト', 'in-image': '開始フレーム', 'in-image-end': '終了フレーム', [VIDEO_GEN_SET_HANDLE]: '参照カット一式', 'in-image-cuts': '参照カット', 'in-video': '参照動画' }
+        return list.map((h, i) => {
+          const top = `${Math.round(18 + (i * 64) / (list.length - 1))}%`
+          return (
+            <Fragment key={h.id}>
+              <Handle id={h.id} type="target" position={Position.Left} title={h.title} style={{ top, width: 20, height: 20, background: `radial-gradient(circle, ${h.color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`, border: 'none', borderRadius: 0 }} />
+              {/* ポート名（ノードにマウスを載せたとき・2026-11-01 メモ 7/16） */}
+              <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: top, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>{names[h.id] ?? h.title}</span>
+            </Fragment>
+          )
+        })
       })()}
 
       {/* Body */}
@@ -636,6 +630,17 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             {hasConnectedImageNode ? '参照画像あり → Image to Video' : '参照カットの正面を開始フレームにして Image to Video'}
           </div>
         )}
+        {!connectedVideoUrl && hasImageInput && !connectedEndImageUrl && supportsEndImage && (
+          <div className="text-[10px] px-1 leading-snug" style={{ color: 'var(--text-tertiary)' }}>終了フレーム: 未接続。左の 3 つ目のポート（終了フレーム）に画像をつなぐと、始点 → 終点の動画になります</div>
+        )}
+
+        {/* 終了フレームありのショット: 指示への追従（cfg_scale・Kling 系）。裏で固定せず欄で見せる（2026-11-01 決定「見える文だけが指示」） */}
+        {!connectedVideoUrl && connectedEndImageUrl && supportsNegative && (
+          <div className="flex items-center justify-between gap-2 text-[11px] px-1" style={{ color: 'var(--text-secondary)' }}>
+            <span title="終了フレームがあるショットは指示への追従を強めます。大きいほど指示に忠実、小さいほど自然な動き（既定 0.7）">指示への追従（cfg・既定 0.7）</span>
+            <input type="number" min={0.1} max={1} step={0.1} value={cfgScaleOf(nodeData as unknown as Record<string, unknown>)} onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setParam({ cfgScale: Math.min(1, Math.max(0.1, v)) }) }} className="nodrag w-16 h-6 px-1.5 rounded text-[11px] text-right" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={isGenerating} />
+          </div>
+        )}
 
         {/* 役割カット（Cut Set Input の役割ポート）: 始点 → 終点 と回転指示の自動生成 */}
         {(startRole || endRole) && (
@@ -657,7 +662,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         {supportsElements && hasSetInput && (
           <div className="rounded-md px-2 py-1.5 flex flex-col gap-1.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
             <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-              <Images size={11} />参照カット一式
+              <Images size={11} />参照カット一式<span className="font-normal" style={{ color: 'var(--text-tertiary)' }} title="Kling の elements。全ショット共通で、服と人物を揃えるための参照です。動画の始点・終点ではありません">（全ショット共通・服と人物を揃える参照）</span>
               <span className="ml-auto font-normal" style={{ color: 'var(--text-tertiary)' }}>{setElement ? `正面 1 + 別角度 ${setElement.referenceUrls.length}` : '正面のカットがありません'}</span>
             </div>
             {setElement && (

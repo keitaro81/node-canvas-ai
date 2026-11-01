@@ -86,7 +86,7 @@ function CutSetInputNodeInner({ id, data, selected }: NodeProps) {
 
       <div className="px-3 pb-3 flex flex-col gap-2.5 nodrag">
         <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
-          1 SKU = 役割ごとのカット。役割のポートを Video Generation の開始・終了フレームに、カット一式を参照カットにつなぎます。対話実行は ★ の SKU だけ、全 SKU は「一括実行」で。
+          1 SKU（商品の管理番号）= 1 つの商品の向きごとの写真（正面は必須）。Video Generation に直接つなぐ商品動画では同じ人物が同じ服を着た写真、Try-On を経由する構成では服の写真（側面・背面は誰かが着た写真でよい）を入れます。向きのポートを Video Generation の開始・終了フレームに、カット一式を参照カットにつなぎます。対話実行は ★ の SKU だけ、全 SKU は「一括実行」で。
         </div>
         <div className="nowheel nopan overflow-auto" style={{ maxHeight: 520 }}>
           <CutSetCards nodeId={id} shots={shots} cards={cards} onChange={setCards} currentId={current?.id ?? null} onMakeCurrent={(cid) => updateNode(id, { currentItemId: cid })} compact />

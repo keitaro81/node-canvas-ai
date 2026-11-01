@@ -9,7 +9,7 @@ import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../ai
 import { backgroundSourcesOf, promptForGenerator } from './background'
 import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoModelById } from '../ai/videoModels'
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
-import { CUT_ROLES, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, TO_END_EN, builtinEnglish, cutOf, hasTurnPreset, isStaticPresetMotion, normalizeProductVideoParams, shotRoleLabel, turnInstruction, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
+import { CUT_ROLES, CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasTurnPreset, normalizeProductVideoParams, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
 import { textsNeedingTranslation } from '../video/translate'
 import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, buildTryOnInput, isCutRole, normalizeTryOnParams, tryOnPromptFromNote } from '../tryon/prompt'
 
@@ -131,14 +131,12 @@ export function hasLegacyProductVideo(snapshot: WorkflowSnapshot | null | undefi
 /** 旧 Product Video ノード 1 つを Cut Set Input + Text Prompt（共通の説明）+ Video Generation ×N + Video Merge に展開する（id は決定的）。 */
 export function expandProductVideoNode(pv: SnapshotNode): { nodes: SnapshotNode[]; edges: SnapshotEdge[] } {
   const params = normalizeProductVideoParams(pv.data?.params)
-  const label = typeof pv.data?.label === 'string' && pv.data.label.trim() ? pv.data.label.trim() : 'Product Video'
-  // 展開後の名前はテンプレートと同じ「ショット n: …」「Video Merge」。ノードに付けた名前があれば前に残す（2026-11-01 ユーザー指摘: 旧ノードの名前が残ると展開されていないように見える）
-  const prefix = label === 'Product Video' || label === '商品動画' ? '' : `${label} `
+  // 展開後のノード名は種類名のまま（Cut Set Input / Text Prompt / Video Generation / Video Merge）。2026-11-01 ユーザー指示: 組んだノードの名前は変えない（向きはノードの中の行で見える）
   const x = pv.position?.x ?? 0, y = pv.position?.y ?? 0
   const cutsId = `${pv.id}${LEGACY_CUTS_SUFFIX}`, baseId = `${pv.id}${LEGACY_BASE_SUFFIX}`
   const nodes: SnapshotNode[] = [
     { id: cutsId, type: 'cutSetInputNode', position: { x, y }, data: { type: 'cutSetInput', label: 'Cut Set Input', params: {}, status: 'idle', items: [], currentItemId: null } },
-    { id: baseId, type: 'textPromptNode', position: { x, y: y + 560 }, data: { type: 'textPrompt', label: '共通の説明', params: { prompt: params.basePrompt }, status: 'idle' } },
+    { id: baseId, type: 'textPromptNode', position: { x, y: y + 560 }, data: { type: 'textPrompt', label: 'Text Prompt', params: { prompt: params.basePrompt }, status: 'idle' } },
   ]
   const edges: SnapshotEdge[] = []
   params.shots.forEach((shot, i) => {
@@ -146,7 +144,7 @@ export function expandProductVideoNode(pv: SnapshotNode): { nodes: SnapshotNode[
     nodes.push({
       id, type: 'videoGenerationNode', position: { x: x + 420, y: y + i * 320 },
       data: {
-        type: 'videoGen', label: `${prefix}ショット ${i + 1}: ${shotRoleLabel(shot)}`,
+        type: 'videoGen', label: 'Video Generation',
         model: PRODUCT_VIDEO_DEFAULT_MODEL, duration: String(shot.duration), resolution: '1080p', aspectRatio: 'auto', fps: 25, audioEnabled: false, seed: null, count: 1,
         status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, activeDisplayNodeId: null,
         // 終了カットあり: 回転の定型文を「動き」に、制約を「避けたいこと」に書き込む（トグルで裏で付けない・2026-11-01）
@@ -162,7 +160,7 @@ export function expandProductVideoNode(pv: SnapshotNode): { nodes: SnapshotNode[
     edges.push(edge(baseId, 'out-text-text-out', id, 'in-text'))
     edges.push(edge(id, VIDEO_OUTPUT_HANDLE, pv.id, videoMergeSlotHandle(i + 1)))
   })
-  nodes.push({ id: pv.id, type: 'videoMergeNode', position: { x: x + 860, y }, data: { type: 'videoMerge', label: `${prefix}Video Merge`, params: {}, status: 'idle', videoUrl: null } })
+  nodes.push({ id: pv.id, type: 'videoMergeNode', position: { x: x + 860, y }, data: { type: 'videoMerge', label: 'Video Merge', params: {}, status: 'idle', videoUrl: null } })
   return { nodes, edges }
 }
 
@@ -188,6 +186,41 @@ export function inputNodesOf(snapshot: WorkflowSnapshot | null | undefined): { b
   }
 }
 
+/** 入口ノード（Batch Input / Cut Set Input）が複数あるキャンバスで、押した入口の枝だけを残す（他の入口ノードとその辺を外す）。
+ *  一括実行はどの入口から押したかで対象が決まる（2026-11-01 メモ 24: 両方あると Cut Set Input の判定と動画ジョブ判定が混ざって 400 になった）。入口が 1 つ以下ならそのまま */
+export function pruneToEntry<T extends WorkflowSnapshot | null | undefined>(snapshot: T, entryNodeId: string | null | undefined): T {
+  if (!snapshot || !entryNodeId) return snapshot
+  const snap = expandProductVideo(snapshot) as WorkflowSnapshot
+  const nodes = nodesOf(snap)
+  const drop = new Set(nodes.filter((n) => n.id !== entryNodeId && (nodeKindOf(n) === 'batchInput' || nodeKindOf(n) === 'cutSetInput')).map((n) => n.id))
+  if (!drop.size) return snapshot
+  return { ...snap, nodes: nodes.filter((n) => !drop.has(n.id)), edges: edgesOf(snap).filter((e) => !drop.has(e.source) && !drop.has(e.target)) } as T
+}
+/** ノードが行き着く入口（上流をたどって最初に見つかる Batch Input / Cut Set Input）。無ければ null */
+export function entryNodeOf(snapshot: WorkflowSnapshot | null | undefined, nodeId: string): string | null {
+  const snap = expandProductVideo(snapshot)
+  const nodes = nodesOf(snap), edges = edgesOf(snap)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const seen = new Set<string>()
+  let frontier = [nodeId]
+  while (frontier.length) {
+    const next: string[] = []
+    for (const id of frontier) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const k = nodeKindOf(byId.get(id))
+      if (id !== nodeId && (k === 'batchInput' || k === 'cutSetInput')) return id
+      for (const e of edges) if (e.target === id) next.push(e.source)
+    }
+    frontier = next
+  }
+  return null
+}
+/** ノードの表示用: そのノードの入口の枝だけで計画を立てる（別の入口の枝の動画タスクに引きずられない） */
+export function planTasksForNode(snapshot: WorkflowSnapshot | null | undefined, nodeId: string): ReturnType<typeof planTasks> {
+  return planTasks(pruneToEntry(snapshot, entryNodeOf(snapshot, nodeId)))
+}
+
 // ───────────────────────── プロンプト ─────────────────────────
 const translator = (map: Record<string, string> | null | undefined) => (text: string): string => {
   const t = text.trim()
@@ -211,22 +244,15 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const splitLines = (text: string): string[] => text.split('\n').map((l) => l.trim()).filter(Boolean)
 const trLines = (tr: (t: string) => string, text: string): string => splitLines(text).map(tr).join(' ')
 
-/** Video Generation のプロンプトと negative（§4.2）。回転の指示文は欄の定型文（2026-11-01〜）。旧ワークフローは自動で付ける（autoTurn 未設定） */
+/** Video Generation のプロンプトと negative（§4.2）。指示は欄に見える文だけ（回転の定型文も欄に入れる。裏で足さない・2026-11-01 決定）。終点があるショットは cfg を強める */
 export function videoPromptOf(nodes: SnapshotNode[], edges: SnapshotEdge[], node: SnapshotNode, inputs: TaskInputs, translations: Record<string, string> | null | undefined, withElements: boolean): { prompt: string; negative: string; turned: boolean } {
   const tr = translator(translations)
   const p = (node.data?.params ?? {}) as Record<string, unknown>
   const base = textsInto(nodes, edges, node.id).map(tr).join('\n\n')
-  const ownRaw = str(p.prompt).trim()
-  const startRole = roleOfRef(inputs.start)
-  const endRole = roleOfRef(inputs.end)
-  // 旧ワークフロー互換（トグル時代）: autoTurn が false でなく、動きに回転の定型文が入っていなければ英語の指示を自動で付ける。
-  // 新しいノード・テンプレート・展開は定型文を欄に持ち autoTurn: false（2026-11-01）
-  const legacyTurn = p.autoTurn !== false && startRole && endRole && startRole !== endRole && !hasTurnPreset(ownRaw) ? turnInstruction(startRole, endRole) : null
-  const own = legacyTurn && isStaticPresetMotion(ownRaw) ? '' : trLines(tr, ownRaw)
-  const motion = legacyTurn ? [legacyTurn.motion, own, TO_END_EN].filter(Boolean).join(' ') : own
-  const prompt = `${base ? base + '\n' : ''}${withElements ? ELEMENT_TAG + ' ' : ''}${motion}`.trim()
-  const negative = [tr(str(p.negativePrompt)), legacyTurn?.negative].filter(Boolean).join(', ')
-  return { prompt, negative, turned: !!inputs.end }   // 終点があるショットは指示への追従を強める（cfg 0.7）
+  const own = trLines(tr, str(p.prompt))
+  const prompt = `${base ? base + '\n' : ''}${withElements ? ELEMENT_TAG + ' ' : ''}${own}`.trim()
+  const negative = tr(str(p.negativePrompt))
+  return { prompt, negative, turned: !!inputs.end }   // 終点があるショットは指示への追従を強める（cfg・欄で変えられる）
 }
 
 /** ジョブ作成時に英訳が要る文（計画対象の Video Generation の動き・避けたいこと・つないだテキスト、Try-On の服の説明・補足のうち日本語で対訳の無いもの） */
@@ -241,20 +267,18 @@ export function promptTextsToTranslateForPlan(snapshot: WorkflowSnapshot | null 
 }
 
 /** Video Generation のプロンプトの素（翻訳の対象）: 動き（回転指示が付くときの静止用定型文は除く）・避けたいこと・つないだテキスト */
-export function videoPromptSources(nodes: SnapshotNode[], edges: SnapshotEdge[], nodeId: string, inputs: TaskInputs): string[] {
+export function videoPromptSources(nodes: SnapshotNode[], edges: SnapshotEdge[], nodeId: string, _inputs?: TaskInputs): string[] {
   const node = nodes.find((n) => n.id === nodeId)
   const p = (node?.data?.params ?? {}) as Record<string, unknown>
-  const startRole = roleOfRef(inputs.start)
-  const endRole = roleOfRef(inputs.end)
-  const legacy = p.autoTurn !== false && startRole && endRole && startRole !== endRole && !hasTurnPreset(str(p.prompt))
-  return [...(legacy && isStaticPresetMotion(str(p.prompt)) ? [] : splitLines(str(p.prompt))), str(p.negativePrompt), ...textsInto(nodes, edges, nodeId)]
+  return [...splitLines(str(p.prompt)), str(p.negativePrompt), ...textsInto(nodes, edges, nodeId)]
 }
 
 /** 保存済みのワークフローを開いたとき / 組んだ直後に、Video Generation の回転の定型文を欄に書き込む（2026-11-01・「回転の指示を自動で付ける」トグルの廃止）。
  *  トグル時代の既定（autoTurn 未設定 = 自動で付く）だったノードは、始点と終点の向きが分かっていれば autoTurn: false にし、向きが違って動きに定型文が無ければ定型文を「動き」と「避けたいこと」に入れる（生成される指示は同じ内容）。
  *  向きが分からないノードはそのまま（計画の旧互換で自動が効く）。autoTurn: false のノードは触らない。変更が無ければ nodes をそのまま返す */
-export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdge[]): { nodes: SnapshotNode[]; changed: boolean } {
+export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdge[]): { nodes: SnapshotNode[]; changed: boolean; written: number } {
   let changed = false
+  let written = 0
   const out = nodes.map((n) => {
     if (nodeKindOf(n) !== 'videoGen') return n
     const p = (n.data?.params ?? {}) as Record<string, unknown>
@@ -268,9 +292,10 @@ export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdg
     const prompt = str(p.prompt)
     if (startRole === endRole || hasTurnPreset(prompt)) return { ...n, data: { ...n.data, params: { ...p, autoTurn: false } } }
     const t = turnPreset(startRole, endRole)
+    written++
     return { ...n, data: { ...n.data, params: { ...p, prompt: withTurnMotion(prompt, t.motion), negativePrompt: withTurnNegative(str(p.negativePrompt), t.negativeJp), autoTurn: false } } }
   })
-  return { nodes: changed ? out : nodes, changed }
+  return { nodes: changed ? out : nodes, changed, written }
 }
 
 // ───────────────────────── 計画 ─────────────────────────
@@ -288,7 +313,13 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const kindOf = (id: string | undefined) => nodeKindOf(id ? byId.get(id) : undefined)
-  const labelOf = (id: string | undefined) => nodeLabelOf(id ? byId.get(id) : undefined)
+  // ノード名は種類名のままなので（2026-11-01）、Try-On は向きの予定を添えて区別する（注意文・結果の列名・{variant} に使う）
+  const labelOf = (id: string | undefined) => {
+    const n = id ? byId.get(id) : undefined
+    const l = nodeLabelOf(n)
+    if (nodeKindOf(n) === 'tryOn') { const r = normalizeTryOnParams(n?.data?.params).role; if (r) return `${l} ${CUT_ROLE_LABEL[r]}` }
+    return l
+  }
   const warnings: string[] = []
   const warn = (w: string) => { if (!warnings.includes(w)) warnings.push(w) }
   const excluded: Record<string, string> = {}   // ノード id → 対象外の理由（ノードの表示用。注意文は名前で探さない）
@@ -309,6 +340,13 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
         const role = cutSetRoleOfHandle(sourceHandle)
         const url = role ? byId.get(sourceId)?.data?.cuts?.[role]?.url : null
         return role && typeof url === 'string' && url ? { kind: 'fixed', ref: { kind: 'asset', url, role } } : { kind: 'other' }
+      }
+      if (k === 'referenceImage' || k === 'image') {
+        // 参照画像: 固定の画像（写しでは output・キャンバスの生データでは imageUrl）。モデルタブから入れた向きがあれば載せる（2026-11-01 メモ 23）
+        const d = byId.get(sourceId)?.data
+        const url = typeof d?.output === 'string' && d.output ? d.output : typeof d?.imageUrl === 'string' && d.imageUrl && !d.imageUrl.startsWith('blob:') ? d.imageUrl : null
+        const role = isCutRole(d?.role) ? d.role : null
+        return url ? { kind: 'fixed', ref: { kind: 'asset', url, ...(role ? { role } : {}) } } : { kind: 'other' }
       }
       if (k === 'removeBackground' || k === 'imageGen') return { kind: 'ai', nodeId: sourceId }
       if (k === 'tryOn') return { kind: 'ai', nodeId: sourceId, role: imageRoleOfSource(nodes, edges, sourceId, sourceHandle) }   // 試着の結果は向きを持つ（回転指示に使う）
@@ -447,7 +485,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   for (const node of nodes) {
     const k = nodeKindOf(node)
     if (!isPerItemKind(k)) continue
-    const label = nodeLabelOf(node)
+    const label = labelOf(node.id)   // Try-On は向きの予定つき（Try-On 正面）
     const a = analyze(node.id)
     if (!a) continue   // 写真由来の入力が無い（対話実行だけのノード）
     if (!a.ok) {
@@ -597,6 +635,13 @@ export function depsOf(inputs: TaskInputs | null | undefined): string[] {
 }
 
 /** Video Generation の fal 入力（URL 以外）とメタ。比率 'auto' は Kling（3.0 以外）だけ投入時にアイテムの寸法から決める */
+/** 終了フレームありのショットの指示への追従（cfg_scale・Kling 系）。欄で変えられ、無ければ既定の 0.7 */
+export function cfgScaleOf(data: Record<string, unknown> | null | undefined): number {
+  const p = (data?.params ?? {}) as Record<string, unknown>
+  const v = p.cfgScale
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0.1 && v <= 1 ? v : END_CUT_CFG_SCALE
+}
+
 function buildVideoTaskInput(modelDef: VideoModelDefinition, node: SnapshotNode, prompt: string, negative: string, turned: boolean): { input: Record<string, unknown>; meta: Omit<VideoTaskMeta, 'elements'> } {
   const d = (node.data ?? {}) as Record<string, unknown>
   const { safeDuration, requestedDuration, isAutoDuration } = resolveSafeDuration(modelDef, str(d.duration) || undefined)
@@ -607,7 +652,7 @@ function buildVideoTaskInput(modelDef: VideoModelDefinition, node: SnapshotNode,
     aspectRatio: (str(d.aspectRatio) || 'auto') as VideoGenerationRequest['aspectRatio'],
     fps: safeFps as VideoGenerationRequest['fps'],
     audioEnabled: d.audioEnabled === true, seed: typeof d.seed === 'number' ? d.seed : null, mode: 'image-to-video', imageUrl: '__START__',
-    ...(negative ? { negativePrompt: negative } : {}), ...(turned ? { cfgScale: END_CUT_CFG_SCALE } : {}),
+    ...(negative ? { negativePrompt: negative } : {}), ...(turned ? { cfgScale: cfgScaleOf(d) } : {}),
   }
   const resolved = resolveAspectRatio(modelDef, request)
   const input = buildVideoInput(modelDef, request, safeDuration, safeFps, resolved ?? undefined)

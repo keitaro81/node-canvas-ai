@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { CUT_ROLES, type CutRole, type VideoShotSpec } from '../../lib/video/productVideo'
 import type { CreateItemInput } from '../../lib/api/batch'
 import { CutSetCards } from './CutSetCards'
-import { CUT_SET_ACCENT, MAX_SKUS, cardsToItems, emptyCuts, newCard, type SkuCard } from '../../lib/video/cutSet'
+import { CUT_SET_ACCENT, MAX_SKUS, cardsFromItems, cardsToItems, emptyCuts, newCard, type SkuCard } from '../../lib/video/cutSet'
+import type { CutSetItem } from '../../types/nodes'
 
 interface Props {
   nodeId: string                  // Cut Set Input ノード id（アップロード先の階層に使う）
@@ -12,6 +13,7 @@ interface Props {
   canSubmit: boolean
   onSubmit: (items: CreateItemInput[]) => void
   storageKey?: string | null      // カードの記憶キー（ワークフロー + ノード）。無ければ記憶しない
+  initialItems?: CutSetItem[] | null   // 記憶が無いときの初期値: Cut Set Input ノードに入れた SKU と写真（2026-11-01 メモ 17）
 }
 
 // ── ブラウザへの記憶（入れた写真のパスと SKU だけ。アップロード中・失敗は保存しない） ──
@@ -40,8 +42,8 @@ const saveCards = (key: string | null | undefined, cards: SkuCard[]) => {
   } catch { /* 容量不足・プライベートモードなどは無視 */ }
 }
 
-export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageKey }: Props) {
-  const [cards, setCards] = useState<SkuCard[]>(() => loadCards(storageKey) ?? [newCard(1)])   // 記憶があれば復元、無ければ 1 件のカード
+export function AppVideoCutsInput({ nodeId, shots, canSubmit, onSubmit, storageKey, initialItems }: Props) {
+  const [cards, setCards] = useState<SkuCard[]>(() => loadCards(storageKey) ?? (initialItems?.length ? cardsFromItems(initialItems) : [newCard(1)]))   // 記憶があれば復元、無ければノードの写真、それも無ければ 1 件のカード
   useEffect(() => { saveCards(storageKey, cards) }, [cards, storageKey])
   const uploading = cards.some((c) => CUT_ROLES.some((r) => c.cuts[r.id].status === 'uploading'))
   const readyItems = cardsToItems(cards)

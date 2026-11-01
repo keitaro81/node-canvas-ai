@@ -6,7 +6,7 @@ import { inputNodesOf, materializeTurnPresets, planTasks, type SnapshotEdge, typ
 import { TRY_ON_MODEL_HANDLE } from '../tryon/prompt'
 
 export interface CompiledCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null }
-export interface CompileResult { canvas: CompiledCanvas | null; errors: string[]; notes: string[]; name: string }
+export interface CompileResult { canvas: CompiledCanvas | null; errors: string[]; notes: string[]; name: string; hints: Record<string, string> }   // hints = LLM が付けた短い説明（ノード id → 文。ノードの名前にはしない・2026-11-01）
 
 const COL_W = 420, X0 = 80, Y0 = 80, GAP = 40
 const safeId = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 40) || 'n'
@@ -14,6 +14,7 @@ const safeId = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0,
 export function compileWorkflow(wf: DslWorkflow): CompileResult {
   const errors: string[] = []
   const notes: string[] = []
+  const hints: Record<string, string> = {}
   const name = (wf.name ?? '').trim() || 'チャットで組んだワークフロー'
 
   // ノード
@@ -24,7 +25,10 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     if (!c) { errors.push(`ノード ${n.id}: 種別 "${n.type}" はありません`); continue }
     let id = safeId(n.id)
     while (byId.has(id)) id = `${id}-2`
-    const label = (n.label ?? '').trim() || c.label
+    // ノードの名前は種類名のまま（ユーザー指示 2026-11-01）。LLM の label は構成一覧の添え書きに
+    const label = c.label
+    const hint = (n.label ?? '').trim()
+    if (hint && hint !== c.label) hints[id] = hint
     byId.set(n.id, { id, type: n.type, label, data: c.build(label, n.params ?? {}), height: c.height, catalog: c })
     order.push(n.id)
   }
@@ -56,7 +60,7 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     used.add(id)
     edges.push({ id, source: src.id, sourceHandle: out.handle, target: dst.id, targetHandle })
   }
-  if (errors.length) return { canvas: null, errors, notes, name }
+  if (errors.length) return { canvas: null, errors, notes, name, hints }
 
   // 配置: 入力辺を持たないノードを 0 列目、以降は最長経路で列を決め、列の中は出現順に縦に積む
   const depth = new Map<string, number>()
@@ -89,11 +93,12 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     const { tasks, warnings } = planTasks(canvas)
     notes.push(...warnings)
     if (!tasks.length) notes.push('この構成では一括実行の対象になる AI 処理がありません（対話実行で使います）')
+    if (tasks.some((t) => t.stage >= 2)) notes.push('AI 処理が 2 段あります（写真 1 枚あたり 2 回分の費用と時間）。試着や動画の前の切り抜きが要らなければ Remove Background を外してください')
   }
   if (nodes.some((n) => n.data?.type === 'libraryModel')) notes.push('モデルは、作ったあとに Model ノードでライブラリのモデルを選んでください（向きごとの出力が Try-On に入ります）')
   for (const n of nodes) {
     if (n.data?.type !== 'tryOn' || edges.some((e) => e.target === n.id && e.targetHandle === TRY_ON_MODEL_HANDLE)) continue
     notes.push(`Try-On（${n.data.label}）のモデル入力に Model ノード（ライブラリのモデル）か参照画像をつないでください`)
   }
-  return { canvas, errors, notes, name }
+  return { canvas, errors, notes, name, hints }
 }

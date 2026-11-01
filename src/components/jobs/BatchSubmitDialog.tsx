@@ -10,6 +10,7 @@ import {
   type BatchLimits, type BatchPlanInfo, type CreateItemInput, type SubmitResult, type WorkflowSnapshot,
 } from '../../lib/api/batch'
 import { formatCost, formatDuration } from '../../lib/batch/cost'
+import { pruneToEntry } from '../../lib/batch/plan'
 import type { NodeData } from '../../types/nodes'
 
 type Phase = 'estimating' | 'confirm' | 'creating' | 'submitting' | 'done' | 'error'
@@ -51,7 +52,7 @@ export function BatchSubmitDialog() {
       const { nodes, edges } = useCanvasStore.getState()
       const node = nodes.find((n) => n.id === nodeId)
       its = node?.type === 'cutSetInputNode' ? cutSetItemsFromNode(node.data as Record<string, unknown>) : batchItemsFromNode(node?.data as NodeData | undefined)
-      snap = buildWorkflowSnapshot(nodes, edges)
+      snap = pruneToEntry(buildWorkflowSnapshot(nodes, edges), nodeId)   // 押した入口の枝だけ（メモ 24: Batch Input と Cut Set Input が両方あると混ざる）
     }
     setItems(its); setSnapshot(snap); setName(''); setJobId(null); setProgress(null); setErrorMsg(null); setPhase('estimating')
     let alive = true

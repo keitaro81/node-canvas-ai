@@ -12,6 +12,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { buildWorkflowSnapshot, type CreateItemInput } from '../../lib/api/batch'
+import { pruneToEntry } from '../../lib/batch/plan'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { normalizeBatchInputParams } from '../../lib/batch/items'
 import { jobLabel } from '../../lib/batch/jobLabel'
@@ -72,10 +73,10 @@ export function BatchAppView() {
   const submit = useCallback((items: CreateItemInput[]) => {
     const { nodes: ns, edges } = useCanvasStore.getState()
     openSubmitDialogWith({
-      items, snapshot: buildWorkflowSnapshot(ns, edges), workflowId,
+      items, snapshot: pruneToEntry(buildWorkflowSnapshot(ns, edges), batchInput?.id ?? null), workflowId,   // この入口の枝だけ（メモ 24）
       onDone: (jobId) => { setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
     })
-  }, [openSubmitDialogWith, workflowId, bump])
+  }, [openSubmitDialogWith, workflowId, bump, batchInput?.id])
 
   if (!batchInput) {
     return (

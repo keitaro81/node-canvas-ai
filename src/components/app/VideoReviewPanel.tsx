@@ -1,9 +1,9 @@
 // 動画の結果欄（2026-10-13）: 1 件 = 1 SKU。終端の動画（結合、無ければ生成）を再生・ダウンロードし、ショット別の動画も開ける。
 // App（mode 'app'）と、履歴ページ / 一括結果ノード（JobReviewPanel が動画のジョブなら委譲）で共用。
 // 終端 / ショットの判定: 新しいタスクは input.__terminal・__kind、旧ジョブ（Product Video ノード）は結合 = ノード id・ショット = <id>:shot:<i>
+// 2026-11-01 決定: 結果欄は見る・ダウンロードだけ（ショット単位のやり直しは外した。作り直しはキャンバスの対話実行で）
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowCounterClockwise, CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
-import { batchRerun, submitJobFully } from '../../lib/api/batch'
+import { CircleNotch, DownloadSimple, Warning } from '@phosphor-icons/react'
 import { exportParamsFromSnapshot, itemInfoOfRow } from '../../lib/review/model'
 import { planExportEntries } from '../../lib/export/naming'
 import { fetchJobDetail, fetchJobItems, fetchJobTasks, subscribeJobItems } from '../../lib/api/batchJobs'
@@ -36,8 +36,6 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [zipping, setZipping] = useState(false)
-  const [rerunFor, setRerunFor] = useState<string | null>(null)     // やり直しの確認中のショット（タスク id）
-  const [rerunBusy, setRerunBusy] = useState<string | null>(null)   // やり直しを投入中のショット
 
   const loadAll = useCallback(async () => {
     try {
@@ -79,20 +77,6 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
     const e = planExportEntries([{ variant, transparent: false, video: true }], { ...exportParams, zip: inZip }, itemInfoOfRow(it), new Date()).entries[0]
     return `${e.folder}${e.base}.mp4`
   }
-  // ショット単位のやり直し（設計 §5.6）: そのショットのタスクを未投入に戻し、終わると結合もやり直す。設定は写しのまま
-  const rerunShot = async (it: BatchItemRow, s: BatchTaskRow) => {
-    setRerunFor(null); setRerunBusy(s.id)
-    try {
-      const r = await batchRerun({ jobId, nodeId: s.node_id, itemIds: [it.id], params: null })
-      if (!r.rerunTasks) { showToast(`このショットはいまやり直せません（${r.skipped.map((x) => x.reason).join(', ') || '処理中'}）`, 'warning'); return }
-      showToast('ショットを作り直しています。終わると結合もやり直します', 'success')
-      bump()
-      await submitJobFully(jobId)
-      await loadAll()
-    } catch (e) { showToast(e instanceof Error ? e.message : 'やり直しに失敗しました', 'error') }
-    finally { setRerunBusy(null); bump() }
-  }
-
   const download = async (path: string, name: string) => {
     const url = signed[path] ?? (await signBatchPaths([path]))[path]
     if (!url) { showToast('ダウンロード用の URL を取得できません', 'error'); return }
@@ -109,11 +93,12 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
     try {
       const map = await signBatchPaths(targets.map((t) => t.m.result_path as string))
       const zip = new ZipWriter()
+      const root = `${safeFile(job?.name ?? 'videos')}/`   // 解凍後のフォルダ名 = ZIP 名（メモ 19）
       for (const t of targets) {
         const url = map[t.m.result_path as string]
         if (!url) continue
         const buf = await (await fetch(url)).arrayBuffer()
-        zip.add(fileNameFor(t.it, t.m, true), new Uint8Array(buf))
+        zip.add(`${root}${fileNameFor(t.it, t.m, true)}`, new Uint8Array(buf))
       }
       const blob = zip.finish()
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${safeFile(job?.name ?? 'videos')}.zip`; a.click()
@@ -171,7 +156,7 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                   {mergedUrl ? (
                     <>
                       <MediaImg video src={mergedUrl} className="absolute inset-0 w-full h-full object-contain" muted loop autoPlay playsInline />
-                      {merge && merge.status !== 'completed' && <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)' }}>{merge.status === 'submitted' ? '結合中…' : '結合待ち（ショットを作り直し中）'}</span>}
+                      {merge && merge.status !== 'completed' && <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)' }}>{merge.status === 'submitted' ? '結合中…' : '結合待ち'}</span>}
                     </>
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[11px]" style={{ color: it.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>
@@ -193,27 +178,14 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                       const n = shotIndex(s) + 1
                       const roleLabel = shotLabel(s)
                       const url = s.result_path ? signed[s.result_path] : null
-                      // 作り直し中（送信中 / 生成中 / 待機）はタイルに進行を出し、「やり直す」は完了・失敗のときだけ押せる（導線を見えるように・2026-11-01）
-                      const busyHere = rerunBusy === s.id || s.status === 'submitted' || (s.status === 'pending' && isActiveJob(job))
-                      const canRerun = (s.status === 'completed' || s.status === 'failed') && !busyHere && !rerunBusy
+                      const working = s.status === 'submitted' || (s.status === 'pending' && isActiveJob(job))
                       return (
                         <div key={s.id} className="flex flex-col rounded overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-placeholder)' }} title={`ショット ${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
                           <div className="relative" style={{ aspectRatio: '4 / 5' }}>
                             {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : ''}</div>}
-                            <span className="absolute top-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{n} {roleLabel}</span>
-                            {rerunFor === s.id && !busyHere && (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] px-1 text-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
-                                <span className="text-white">このショットを作り直す？</span>
-                                <span style={{ color: '#D1D5DB' }}>終わると結合もやり直します（費用は秒数分）</span>
-                                <div className="flex gap-1 mt-0.5">
-                                  <button className="px-2 h-6 rounded text-white font-medium" style={{ background: '#F59E0B' }} onClick={() => void rerunShot(it, s)}>やり直す</button>
-                                  <button className="px-2 h-6 rounded text-white" style={{ background: 'rgba(255,255,255,0.2)' }} onClick={() => setRerunFor(null)}>やめる</button>
-                                </div>
-                              </div>
-                            )}
-                            {busyHere && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}><CircleNotch size={16} className="animate-spin" />{rerunBusy === s.id ? '送信中…' : s.status === 'submitted' ? '作り直し中…' : '待機中'}</div>}
+                            {working && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}><CircleNotch size={16} className="animate-spin" />{s.status === 'submitted' ? '生成中…' : '待機中'}</div>}
                           </div>
-                          <button className="h-6 flex items-center justify-center gap-1 text-[10px] font-medium disabled:opacity-40" style={{ color: 'var(--text-primary)', borderTop: '1px solid var(--border)' }} onClick={() => setRerunFor(rerunFor === s.id ? null : s.id)} disabled={!canRerun} title="このショットだけ作り直す（設定はそのまま。終わると結合もやり直します。費用は秒数分）"><ArrowCounterClockwise size={11} weight="bold" />やり直す</button>
+                          <div className="h-6 flex items-center justify-center text-[10px] truncate px-1" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>{n}. {roleLabel}</div>
                         </div>
                       )
                     })}

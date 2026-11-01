@@ -187,8 +187,8 @@ export function CutSetCards({ nodeId, shots, cards, onChange, currentId, onMakeC
                 onChange={(e) => onChange((list) => list.map((c) => (c.id === card.id ? { ...c, sku: e.target.value } : c)))}
                 className="flex-1 min-w-0 h-7 rounded px-2 text-[12px] font-medium focus:outline-none nodrag"
                 style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                placeholder="SKU（商品コード）"
-                title="SKU。動画のファイル名になります"
+                placeholder="SKU（商品の管理番号）"
+                title="SKU = 商品の管理番号（1 つの商品 = 1 SKU）。書き出すファイル名・フォルダ名・結果の見出しに使います"
                 onKeyDown={(e) => e.stopPropagation()}
                 disabled={disabled}
               />

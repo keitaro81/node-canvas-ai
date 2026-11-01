@@ -8,8 +8,7 @@ describe('テンプレートから作成（商品動画）', () => {
     const c = buildProductVideoTemplate('turntable12')
     expect(c.nodes.map((n) => n.id)).toEqual(['cut-set', 'base-prompt', 'shot-1', 'shot-2', 'shot-3', 'shot-4', 'merge', 'export'])
     expect(c.nodes.map((n) => n.type)).toEqual(['cutSetInputNode', 'textPromptNode', 'videoGenerationNode', 'videoGenerationNode', 'videoGenerationNode', 'videoGenerationNode', 'videoMergeNode', 'exportNode'])
-    expect(c.nodes[2].data.label).toBe('ショット 1: 正面 → 右側面')
-    expect(c.nodes[6].data.label).toBe('Video Merge')
+    expect(c.nodes.map((n) => n.data.label)).toEqual(['Cut Set Input', 'Text Prompt', 'Video Generation', 'Video Generation', 'Video Generation', 'Video Generation', 'Video Merge', 'Export'])   // 名前は種類名のまま（2026-11-01）
     expect(c.edges.filter((e) => e.target === 'shot-1').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['cut-set:out-image-front→in-image', 'cut-set:out-image-right→in-image-end', 'cut-set:out-cuts-set→in-cuts-set', 'base-prompt:out-text-text-out→in-text'])
     expect(c.edges.filter((e) => e.target === 'export').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['merge:out-video→in-video-v0', 'cut-set:out-item-item→in-item-item'])
     expect(new Set(c.edges.map((e) => e.id)).size).toBe(c.edges.length)
@@ -47,8 +46,9 @@ describe('テンプレートから作成（試着・2b-4）', () => {
   it('試着 → ターンテーブル: 服のカット ＋ Model → Try-On × 4（向きの予定）→ ショット × 4（Try-On の結果を始点・終点・回転の定型文）→ Video Merge → Export', () => {
     const c = buildTryOnTurntableTemplate()
     expect(c.nodes.map((n) => n.id)).toEqual(['cut-set', 'base-prompt', 'model', 'tryon-front', 'tryon-right', 'tryon-back', 'tryon-left', 'shot-1', 'shot-2', 'shot-3', 'shot-4', 'merge', 'export'])
-    expect(c.nodes.filter((n) => n.data.type === 'tryOn').map((n) => `${n.data.label}:${n.data.params.role}:${n.data.model}`)).toEqual(['試着 正面:front:null', '試着 右側面:right:null', '試着 背面:back:null', '試着 左側面:left:null'])
-    expect(c.nodes[7].data.label).toBe('ショット 1: 正面 → 右側面')
+    expect(c.nodes.filter((n) => n.data.type === 'tryOn').map((n) => `${n.data.label}:${n.data.params.role}:${n.data.model}`)).toEqual(['Try-On:front:null', 'Try-On:right:null', 'Try-On:back:null', 'Try-On:left:null'])
+    expect(c.nodes[7].data.label).toBe('Video Generation')
+    expect(c.nodes[2].data.label).toBe('Model')
     expect(c.nodes[7].data.params).toMatchObject({ autoTurn: false, negativePrompt: expect.stringContaining('背中を見せる') })
     expect(String(c.nodes[7].data.params.prompt)).toContain('4 分の 1 回転')
     expect(c.edges.filter((e) => e.target === 'tryon-right').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['cut-set:out-image-right→in-image-garment', 'model:out-image-right→in-image-model'])
@@ -78,7 +78,7 @@ describe('テンプレートから作成（試着・2b-4）', () => {
     const c = buildTryOnImagesTemplate()
     expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['batch-input:batchInputNode', 'model:libraryModelNode', 'tryon:tryOnNode', 'export:exportNode'])
     expect(c.edges.map((e) => `${e.source}:${e.sourceHandle}→${e.target}:${e.targetHandle}`)).toEqual(['batch-input:out-image-image→tryon:in-image-garment', 'model:out-image-front→tryon:in-image-model', 'tryon:out-image-image-out→export:in-image-0', 'batch-input:out-item-item→export:in-item-item'])
-    expect(planTasks(c).warnings).toEqual(['Try-On（試着 正面）はモデルの画像が無いため一括実行の対象外です（Model ノードをつなぐか、参照画像のモデルタブから入れてください）'])
+    expect(planTasks(c).warnings).toEqual(['Try-On（Try-On 正面）はモデルの画像が無いため一括実行の対象外です（Model ノードをつなぐか、参照画像のモデルタブから入れてください）'])   // 注意文・列名では向きの予定を添える
     const { tasks, warnings } = planTasks(withModels(c))
     expect(warnings).toEqual([])
     expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}`)).toEqual(['tryon:imageEdit:1'])

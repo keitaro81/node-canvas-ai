@@ -166,6 +166,9 @@ function ExportNodeInner(props: NodeProps) {
     const startedAt = new Date()
     try {
       const planNow = planExportEntries(toPlanned(allInputs), params, itemInfo, startedAt)
+      // ZIP 名（アイテム情報が無いときはワークフロー名）。解凍後のフォルダ名も同じにするため、中身は ZIP 名のルートフォルダで包む（2026-11-01 メモ 19）
+      const zipBase = zipFileName(itemInfo, startedAt, itemSource === 'none' ? currentWorkflowName : null)
+      const zipRoot = `${zipBase.replace(/\.zip$/i, '')}/`
       const files: ExportFileResult[] = []
       const zipFiles: Array<{ path: string; data: Uint8Array }> = []
       const warnings = [...planNow.warnings]
@@ -217,8 +220,8 @@ function ExportNodeInner(props: NodeProps) {
       let zipName: string | null = null
       if (params.zip && zipFiles.length) {
         setProgress('ZIP を作成中…')
-        zipName = zipFileName(itemInfo, startedAt, itemSource === 'none' ? currentWorkflowName : null)   // アイテム情報が無いときはワークフロー名（既定の 'item' は分かりづらい・2026-11-01）
-        downloadBlob(buildZip(zipFiles), zipName)
+        zipName = zipBase
+        downloadBlob(buildZip(zipFiles.map((f) => ({ ...f, path: `${zipRoot}${f.path}` }))), zipName)
       }
       const result: ExportResult = { at: startedAt.toISOString(), zipName, files, warnings }
       updateNode(id, { lastExport: result, status: 'done', error: null })

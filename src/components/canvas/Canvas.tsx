@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect } from 'react'
+import { useCallback, useState, useRef, useEffect, useMemo } from 'react'
 import { uploadToLibraryForNode } from '../../lib/api/library'
 import { DEFAULT_LLM_MODEL } from '../../lib/ai/llmModels'
 import { MapTrifold } from '@phosphor-icons/react'
@@ -776,16 +776,14 @@ export function Canvas() {
             return hid.startsWith('in-') && el.style.display !== 'none'
           })
 
-          // 完全一致（同じポートタイプ）を優先し、なければ互換ポートにフォールバック
-          const exactHandle = handles.find((el) => {
-            const hid = el.getAttribute('data-handleid')
-            return parsePortType(hid) === srcPortType
-          })
-          const targetNodeType = useCanvasStore.getState().nodes.find((n) => n.id === targetNodeId)?.type
-          const fallbackHandle = exactHandle ? null : handles.find((el) => {
-            const hid = el.getAttribute('data-handleid')
-            return isCompatiblePorts(srcPortType, parsePortType(hid), targetNodeType)
-          })
+          // 完全一致（同じポートタイプ）を優先し、なければ互換ポートにフォールバック。
+          // 同じ種類のポートが複数あるときは「空いている次のポート」に入れる（2026-11-01 ユーザー指示: Try-On のモデルが入っていれば服へ、Video Generation の開始が入っていれば終了へ。全部埋まっていれば最初のポートを置き換える）
+          const { nodes: curNodes, edges: curEdges } = useCanvasStore.getState()
+          const connectedTo = new Set(curEdges.filter((e) => e.target === targetNodeId).map((e) => e.targetHandle ?? null))
+          const firstFree = (list: HTMLElement[]): HTMLElement | null => list.find((el) => !connectedTo.has(el.getAttribute('data-handleid'))) ?? list[0] ?? null
+          const targetNodeType = curNodes.find((n) => n.id === targetNodeId)?.type
+          const exactHandle = firstFree(handles.filter((el) => parsePortType(el.getAttribute('data-handleid')) === srcPortType))
+          const fallbackHandle = exactHandle ? null : firstFree(handles.filter((el) => isCompatiblePorts(srcPortType, parsePortType(el.getAttribute('data-handleid')), targetNodeType)))
           const matchedHandle = exactHandle ?? fallbackHandle
           if (matchedHandle) {
             let targetHandleId: string | null = matchedHandle.getAttribute('data-handleid')
@@ -1208,7 +1206,12 @@ export function Canvas() {
     [addNode, nodes, updateNode]
   )
 
-  const showStarter = isOwned && appMode === 'graph' && !isLoadingWorkflow && !!currentWorkflowId && nodes.length === 0
+  // 「何を作りますか？」のカード: 開いた時点で空だったキャンバスにだけ出す（ノードを全部消して空になったときは出さない）。外側クリックか ✗ で閉じ、そのキャンバスでは再表示しない（2026-11-01 メモ 29）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const emptyAtOpen = useMemo(() => !isLoadingWorkflow && !!currentWorkflowId && nodes.length === 0, [currentWorkflowId, isLoadingWorkflow])
+  const [starterDismissedFor, setStarterDismissedFor] = useState<string | null>(null)
+  const dismissStarter = useCallback(() => setStarterDismissedFor(currentWorkflowId), [currentWorkflowId])
+  const showStarter = isOwned && appMode === 'graph' && !isLoadingWorkflow && !!currentWorkflowId && nodes.length === 0 && emptyAtOpen && starterDismissedFor !== currentWorkflowId
   const insertCanvas = useCallback((canvas: { nodes: unknown[]; edges: unknown[] }) => {
     const store = useCanvasStore.getState()
     store.setNodes(JSON.parse(JSON.stringify(canvas.nodes)) as AppNode[])
@@ -1265,7 +1268,7 @@ export function Canvas() {
         disableKeyboardA11y={appMode !== 'graph'}
         onNodeContextMenu={isOwned ? handleNodeContextMenu : undefined}
         onPaneContextMenu={isOwned ? handlePaneContextMenu : undefined}
-        onPaneClick={() => setContextMenu(null)}
+        onPaneClick={() => { setContextMenu(null); dismissStarter() }}
         onSelectionChange={handleSelectionChange}
         fitView
         minZoom={0.1}
@@ -1316,7 +1319,8 @@ export function Canvas() {
       </ReactFlow>
       {showStarter && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 30 }}>
-          <div className="pointer-events-auto rounded-2xl p-6 flex flex-col gap-3 items-center text-center" style={{ width: 440, background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.35)' }}>
+          <div className="pointer-events-auto relative rounded-2xl p-6 flex flex-col gap-3 items-center text-center" style={{ width: 440, background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.35)' }}>
+            <button className="absolute top-2 right-2 w-7 h-7 rounded flex items-center justify-center text-[14px] hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} onClick={dismissStarter} title="閉じる（自分で組む）">✕</button>
             <div className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>何を作りますか？</div>
             <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>テンプレートから選ぶか、作りたいものをチャットで書くと、ノードが組まれた状態から始められます。</p>
             <div className="flex gap-2 w-full">

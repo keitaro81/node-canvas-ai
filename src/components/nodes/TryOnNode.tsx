@@ -23,7 +23,7 @@ import { signLibraryUrl, touchLibraryItems } from '../../lib/api/library'
 import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { ensureCutoutImage } from '../../lib/cutout/ensureCutout'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { imageRoleOfSource, inputNodesOf, planTasks, type SnapshotEdge, type SnapshotNode, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { imageRoleOfSource, inputNodesOf, planTasksForNode, type SnapshotEdge, type SnapshotNode, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
@@ -159,7 +159,7 @@ function TryOnNodeInner(props: NodeProps) {
     const snap = live as unknown as WorkflowSnapshot
     const ins = inputNodesOf(snap)
     if (!ins.batchInputId && !ins.cutSetInputId) return null
-    const { tasks, excluded } = planTasks(snap)
+    const { tasks, excluded } = planTasksForNode(snap, id)   // 自分の入口の枝だけで計画（メモ 24）
     const t = tasks.find((x) => x.nodeId === id)
     if (t) return { ok: true as const, stage: t.stage, reason: null }
     return { ok: false as const, stage: 0, reason: excluded[id] ?? null }
@@ -296,7 +296,9 @@ function TryOnNodeInner(props: NodeProps) {
       outputs={[{ id: 'image-out', portType: 'image', label: '着用画像' }]}
     >
       <Handle id={TRY_ON_MODEL_HANDLE} type="target" position={Position.Left} className="handle-image" title="モデル画像（Model ノードの向き / 参照画像 / Cut Set Input）" style={{ top: MODEL_PORT_TOP, width: 20, height: 20 }} />
+      <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: MODEL_PORT_TOP, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>モデル</span>
       <Handle id={TRY_ON_GARMENT_HANDLE} type="target" position={Position.Left} className="handle-image" title="服の画像（商品写真 / 切り抜き / 参照画像）" style={{ top: GARMENT_PORT_TOP, width: 20, height: 20 }} />
+      <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: GARMENT_PORT_TOP, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>服</span>
       <div className="flex flex-col gap-2 nodrag">
         <SourceRow
           label="モデル（左のポート・上）"

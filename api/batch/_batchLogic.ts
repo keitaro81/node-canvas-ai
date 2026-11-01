@@ -8,7 +8,7 @@ import type { CutoutEngine } from '../../src/types/nodes'
 import { estimatePlannedTaskCost, estimateTaskCost } from './_pricing'
 import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_falWebhook'
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
-import { CUT_ROLES, cutOf, elementCutsOf, type CutRole, type ItemCut } from '../../src/lib/video/productVideo'
+import { CUT_ROLES, cutOf, elementCutsOf, shotRoleLabel, type CutRole, type ItemCut, type VideoShotSpec } from '../../src/lib/video/productVideo'
 import { nearestAspectRatio } from '../../src/lib/ai/videoModels'
 import { availableVideos, inputNodesOf, planTasks, promptTextsToTranslateForPlan, refsOf, taskMapOf, taskSatisfied, type InputRef, type PlannedTask, type TaskInputs, type VideoTaskMeta, type WorkflowSnapshot } from '../../src/lib/batch/plan'
 import { translatePromptTexts } from './_translate'
@@ -264,7 +264,8 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const breakdown = plan.tasks.map((t) => {
     const unitUsd = estimatePlannedTaskCost(t.endpoint, t.input)
     const count = countOf(t)
-    return { nodeId: t.nodeId, label: t.label, kind: t.kind, scope: t.scope, stage: t.stage, count, unitUsd, totalUsd: Math.round(unitUsd * count * 10000) / 10000, endpoint: t.endpoint }
+    const shot = t.kind === 'videoShot' ? (t.input.__shot as VideoShotSpec | undefined) : undefined   // ノード名は種類名のままなので、内訳では向きを添える（2026-11-01）
+    return { nodeId: t.nodeId, label: shot?.role ? `${t.label}（${shotRoleLabel(shot)}）` : t.label, kind: t.kind, scope: t.scope, stage: t.stage, count, unitUsd, totalUsd: Math.round(unitUsd * count * 10000) / 10000, endpoint: t.endpoint }
   })
   const estimatedCostUsd = Math.round(breakdown.reduce((s, b) => s + b.totalUsd, 0) * 10000) / 10000
   const totalTasks = breakdown.reduce((s, b) => s + b.count, 0)
