@@ -172,16 +172,58 @@ describe('旧 Product Video ノードの展開（決定的な id・既存ジョ�
   })
 })
 
-describe('planTasks: Try-On（2b-2 は対話実行のみ）', () => {
-  const tryOn = (id: string) => ({ id, type: 'tryOnNode', data: { type: 'tryOn', label: id, params: { resolution: '2K', note: '' } } })
-  it('写真由来の入力につながる Try-On はタスクにならず、未対応の注意を出す', () => {
-    const { tasks, warnings } = planTasks({ nodes: [bi, tryOn('t1')], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })
-    expect(tasks).toEqual([])
-    expect(warnings).toEqual(['Try-On（t1）は一括実行にまだ対応していません（今は対話実行だけです）'])
-  })
-  it('つながっていない Try-On は何も言わない', () => {
-    const { tasks, warnings } = planTasks({ nodes: [bi, tryOn('t1')], edges: [] })
-    expect(tasks).toEqual([])
+describe('planTasks: Try-On（2b-3・写真ごとの試着）', () => {
+  const MODEL = 'https://x.supabase.co/storage/v1/object/public/generated-images/library/u/m.jpg'
+  const GARMENT = 'https://x.supabase.co/storage/v1/object/public/generated-images/ri/g.jpg'
+  const tryOn = (id: string, data: Record<string, unknown> = {}) => ({ id, type: 'tryOnNode', data: { type: 'tryOn', label: id, params: { resolution: '2K', note: '' }, model: { url: MODEL, role: 'front', itemId: 'm' }, ...data } })
+  const ri = { id: 'ri', type: 'referenceImageNode', data: { type: 'referenceImage', output: GARMENT } }
+  it('Batch Input の写真 × ノードで選んだモデル（固定の画像）= 画像編集の 1 段目。入力は服（写真）とモデル（asset）で、英訳した補足が既定文の末尾に付く', () => {
+    const { tasks, warnings } = planTasks({ nodes: [bi, tryOn('t1', { params: { resolution: '1K', note: 'ニットカーディガン' } })], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')], promptTranslations: { 'ニットカーディガン': 'A knit cardigan.' } })
     expect(warnings).toEqual([])
+    expect(tasks).toHaveLength(1)
+    const t = tasks[0]
+    expect(t).toMatchObject({ nodeId: 't1', kind: 'imageEdit', stage: 1, endpoint: 'fal-ai/nano-banana-2/edit', dependsOn: null, inputs: { image: { kind: 'photo' }, model: { kind: 'asset', url: MODEL } } })
+    expect(t.input).toMatchObject({ resolution: '1K', aspect_ratio: 'auto' })
+    expect(String(t.input.prompt)).toMatch(/^Virtual try-on\. Put ONLY/)
+    expect(String(t.input.prompt)).toMatch(/A knit cardigan\.$/)
+    expect('image_urls' in t.input).toBe(false)
+  })
+  it('英訳が要る文に服の説明・補足が含まれる（英語や空は含まない）', () => {
+    expect(promptTextsToTranslateForPlan({ nodes: [bi, tryOn('t1', { params: { note: '黒いジャケット' } })], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })).toEqual(['黒いジャケット'])
+    expect(promptTextsToTranslateForPlan({ nodes: [bi, tryOn('t1', { params: { note: 'Black jacket' } })], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })).toEqual([])
+  })
+  it('切り抜き → 試着 は 2 段目で透過画像を受け、切り抜きはマスクと透過画像の両方を保存する', () => {
+    const { tasks, warnings } = planTasks({ nodes: [bi, rb('rb'), tryOn('t1')], edges: [e('bi', 'out-image-image', 'rb', 'in-image-image'), e('rb', 'out-cutout-cutout', 't1', 'in-image-garment')] })
+    expect(warnings).toEqual([])
+    expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}`)).toEqual(['rb:cutout:1', 't1:imageEdit:2'])
+    expect(tasks[1]).toMatchObject({ dependsOn: 'rb', inputs: { image: { kind: 'dep', nodeId: 'rb', prefer: 'cutout' }, model: { kind: 'asset', url: MODEL } } })
+    expect(tasks[0].dualOutput).toBe(true)
+  })
+  it('試着 → Video Generation（結果ノード経由）は試着の結果を始点にする 2 段目。動画のジョブでも試着は動画につながるので残る', () => {
+    const snap: WorkflowSnapshot = {
+      nodes: [bi, tryOn('t1'), { id: 'disp', type: 'imageDisplayNode', data: { type: 'imageDisplay' } }, tp('tp', 'p'), vg('v1')],
+      edges: [e('bi', 'out-image-image', 't1', 'in-image-garment'), e('t1', 'out-image-image-out', 'disp', 'in-image-image-in'), e('disp', 'out-image-image-out', 'v1', 'in-image'), e('tp', 'out-text-text-out', 'v1', 'in-text')],
+    }
+    const { tasks, warnings } = planTasks(snap)
+    expect(warnings).toEqual([])
+    expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}`)).toEqual(['t1:imageEdit:1', 'v1:videoShot:2'])
+    expect(tasks[1]).toMatchObject({ dependsOn: 't1', inputs: { start: { kind: 'dep', nodeId: 't1', prefer: 'result' } }, terminal: true })
+    expect(snapshotHasVideo(snap)).toBe(true)
+  })
+  it('固定の服（参照画像）× Batch Input のモデル写真 でも作れる（逆の使い方）', () => {
+    const { tasks, warnings } = planTasks({ nodes: [bi, ri, tryOn('t1', { model: null })], edges: [e('ri', 'out-image', 't1', 'in-image-garment'), e('bi', 'out-image-image', 't1', 'in-image-model')] })
+    expect(warnings).toEqual([])
+    expect(tasks[0]).toMatchObject({ kind: 'imageEdit', inputs: { image: { kind: 'asset', url: GARMENT }, model: { kind: 'photo' } } })
+  })
+  it('モデルが無い / 服がつながっていない Try-On は注意を出して対象外。両方が固定の画像なら対話実行だけ（注意なし）', () => {
+    const noModel = planTasks({ nodes: [bi, tryOn('t1', { model: null })], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })
+    expect(noModel.tasks).toEqual([])
+    expect(noModel.warnings).toEqual(['Try-On（t1）はモデルの画像が無いため一括実行の対象外です（つなぐか「モデル」から選んでください）'])
+    const noGarment = planTasks({ nodes: [bi, tryOn('t1', { model: null })], edges: [e('bi', 'out-image-image', 't1', 'in-image-model')] })
+    expect(noGarment.tasks).toEqual([])
+    expect(noGarment.warnings).toEqual(['Try-On（t1）は服の画像がつながっていないため一括実行の対象外です'])
+    const fixed = planTasks({ nodes: [bi, ri, tryOn('t1')], edges: [e('ri', 'out-image', 't1', 'in-image-garment')] })
+    expect(fixed.tasks).toEqual([])
+    expect(fixed.warnings).toEqual([])
   })
 })

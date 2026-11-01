@@ -4,8 +4,8 @@
 // モデルは in-image-model につなぐか、ノード内の「モデル」でライブラリのモデルと向きを選ぶ（配線があれば配線が優先）。
 // 服は in-image-garment（Reference Image / Batch Input の写真 / Image Display / Remove Background の切り抜き）。
 // 結果は Image Generation と同じく右に Image Display を作って出し、このノードの output（最新）にも入れる（後段の Video Generation 等につなげる）。
-// 生成履歴（node_type 'try-on'）とライブラリの生成画像に入る。一括実行は 2b-3（計画は今は注意だけ出す）
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+// 生成履歴（node_type 'try-on'）とライブラリの生成画像に入る。一括実行（2b-3）: Batch Input の写真をつなぐと写真ごとに 1 枚（計画は src/lib/batch/plan.ts・モデルは固定の画像として投入時にサーバーが署名）
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Edge, NodeProps } from '@xyflow/react'
 import { Shirt, Play, Loader2, UserRound, X } from 'lucide-react'
 import { BaseNode } from './BaseNode'
@@ -13,6 +13,7 @@ import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
+import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { showToast } from '../../hooks/useToast'
 import { fal } from '../../lib/ai/fal-client'
 import { toCanonicalRef, uploadImageFromUrl } from '../../lib/api/storage'
@@ -22,17 +23,15 @@ import { libraryCanonicalUrl, signLibraryUrl, touchLibraryItems, type LibraryIte
 import type { LibraryModel } from '../../lib/api/libraryModels'
 import { resolveFetchableUrl, signBatchPath } from '../../lib/cutout/store'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { cutSetRoleOfHandle } from '../../lib/batch/plan'
+import { cutSetRoleOfHandle, inputNodesOf, planTasks, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
-import { TRY_ON_ENDPOINT, TRY_ON_RESOLUTIONS, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
+import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
 import { CUT_ROLE_LABEL, type CutRole } from '../../lib/video/productVideo'
 import { ModelCutPickerDialog } from '../library/ModelCutPickerDialog'
 import type { CutoutRef, NodeData, TryOnModelRef, TryOnNodeData } from '../../types/nodes'
 
-export const TRY_ON_MODEL_HANDLE = 'in-image-model'
-export const TRY_ON_GARMENT_HANDLE = 'in-image-garment'
-export const TRY_ON_OUTPUT_HANDLE = 'out-image-image-out'
+export { TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE }
 const ACCENT = '#8B5CF6'
 const NODE_WIDTH = 280, H_GAP = 40, V_GAP = 10, DISPLAY_HEIGHT = 360
 const completedDisplayIds = new Set<string>()   // 通常フローと復旧フローの二重登録を防ぐ（Image Generation と同じ）
@@ -147,6 +146,19 @@ function TryOnNodeInner(props: NodeProps) {
   const hasModel = !!modelNode || !!picked
   const hasGarment = !!garmentNode
   const isRunning = nodeData.status === 'generating'
+
+  // 一括実行の対象か（Batch Input / Cut Set Input があるキャンバスだけ・Video Generation と同じ表示）
+  const live = useLiveCanvas()
+  const batchInfo = useMemo(() => {
+    const snap = live as unknown as WorkflowSnapshot
+    const ins = inputNodesOf(snap)
+    if (!ins.batchInputId && !ins.cutSetInputId) return null
+    const { tasks, warnings } = planTasks(snap)
+    const t = tasks.find((x) => x.nodeId === id)
+    if (t) return { ok: true as const, stage: t.stage, reason: null }
+    const label = nodeData.label || 'Try-On'
+    return { ok: false as const, stage: 0, reason: warnings.find((w) => w.includes(`（${label}）`) || w.includes(`${label} は`)) ?? null }
+  }, [live, id, nodeData.label])
 
   const setParams = useCallback((patch: Partial<typeof params>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
@@ -326,6 +338,12 @@ function TryOnNodeInner(props: NodeProps) {
           />
         </div>
 
+        {batchInfo && (
+          <div className="text-[10px] leading-snug px-2 py-1 rounded" style={{ background: batchInfo.ok ? 'rgba(34,197,94,0.10)' : 'rgba(245,158,11,0.10)', color: batchInfo.ok ? '#22C55E' : '#F59E0B' }}>
+            {batchInfo.ok ? `一括実行: 対象（${batchInfo.stage} 段目・写真ごとに 1 枚）` : `一括実行: 対象外（${batchInfo.reason ?? '写真由来の入力（Batch Input / Cut Set Input / 前段の AI ノード）がありません'}）`}
+          </div>
+        )}
+
         <button
           className="w-full h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12px] font-medium text-white transition-all duration-150 disabled:opacity-50"
           style={{ background: ACCENT }}
@@ -337,7 +355,7 @@ function TryOnNodeInner(props: NodeProps) {
           {isRunning ? (nodeData.progress || '試着中…') : '試着（Nano Banana 2）'}
         </button>
         {nodeData.status === 'error' && nodeData.error && <div className="text-[11px] break-words" style={{ color: '#EF4444' }}>{nodeData.error}</div>}
-        <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>服の写真と同じ向きのモデルを選ぶと側面・背面も作れます。結果は右の Image Display に出て、生成履歴とライブラリの生成画像にも入ります。</div>
+        <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>服の写真と同じ向きのモデルを選ぶと側面・背面も作れます。結果は右の Image Display に出て、生成履歴とライブラリの生成画像にも入ります。Batch Input の写真をつなぐと一括実行で写真ごとに作れます。</div>
       </div>
       <ModelCutPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={onPickModel} />
     </BaseNode>

@@ -4,6 +4,10 @@
 // サーバー（一括実行・2b-3）でも同じ文を使えるよう、ブラウザに依存しない純関数にしておく。
 
 export const TRY_ON_MODEL = 'fal-ai/nano-banana-2'
+// ノードのハンドル名（BaseNode の規約 in-<port>-<id> / out-<port>-<id>。出力は Image Generation と同じ id にして Image Display の fallback も効くように）
+export const TRY_ON_MODEL_HANDLE = 'in-image-model'
+export const TRY_ON_GARMENT_HANDLE = 'in-image-garment'
+export const TRY_ON_OUTPUT_HANDLE = 'out-image-image-out'
 export const TRY_ON_ENDPOINT = `${TRY_ON_MODEL}/edit`
 export const TRY_ON_RESOLUTIONS = ['1K', '2K'] as const
 export type TryOnResolution = (typeof TRY_ON_RESOLUTIONS)[number]

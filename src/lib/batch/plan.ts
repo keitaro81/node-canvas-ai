@@ -11,6 +11,7 @@ import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFp
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
 import { CUT_ROLES, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, isStaticPresetMotion, normalizeProductVideoParams, shotRoleLabel, turnInstruction, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
 import { textsNeedingTranslation } from '../video/translate'
+import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../tryon/prompt'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface SnapshotNode { id: string; type?: string; data?: any; position?: { x: number; y: number } }
@@ -25,7 +26,9 @@ export type InputRef =
   | { kind: 'cut'; role: CutRole }                               // Cut Set Input の役割カット（item.cuts[role]）
   | { kind: 'set' }                                              // カット一式（正面 + 別角度 → elements）
   | { kind: 'dep'; nodeId: string; prefer: 'cutout' | 'result' } // 前段の結果（切り抜きは透過画像 cutout_path を優先）
-export interface TaskInputs { image?: InputRef; start?: InputRef; end?: InputRef; elements?: { kind: 'set' }; videos?: string[] }
+  | { kind: 'asset'; url: string }                               // 固定の画像（Try-On のモデル・参照画像・結果ノードの画像。全アイテム共通。作成時に権限を確かめ、投入時にサーバーが署名）
+/** model: 試着のモデル画像（image = 服）。image_urls は [モデル, 服] の順 */
+export interface TaskInputs { image?: InputRef; model?: InputRef; start?: InputRef; end?: InputRef; elements?: { kind: 'set' }; videos?: string[] }
 /** 動画タスクの投入時に URL を置く場所（モデルごとに違う） */
 export interface VideoTaskMeta { modelId: string; startParam: string; endParam: string | null; elements: boolean; aspectAuto: boolean; aspectRatios: string[] }
 export interface PlannedTask {
@@ -190,12 +193,15 @@ export function videoPromptOf(nodes: SnapshotNode[], edges: SnapshotEdge[], node
   return { prompt, negative, turned: !!turn }
 }
 
-/** ジョブ作成時に英訳が要る文（計画対象の Video Generation の動き・避けたいこと・つないだテキストのうち日本語で対訳の無いもの） */
+/** ジョブ作成時に英訳が要る文（計画対象の Video Generation の動き・避けたいこと・つないだテキスト、Try-On の服の説明・補足のうち日本語で対訳の無いもの） */
 export function promptTextsToTranslateForPlan(snapshot: WorkflowSnapshot | null | undefined): string[] {
   const snap = expandProductVideo(snapshot)
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const { tasks } = planTasks(snap)
-  return textsNeedingTranslation(tasks.filter((t) => t.kind === 'videoShot').flatMap((t) => videoPromptSources(nodes, edges, t.nodeId, t.inputs)))
+  const videoTexts = tasks.filter((t) => t.kind === 'videoShot').flatMap((t) => videoPromptSources(nodes, edges, t.nodeId, t.inputs))
+  // 試着の「服の説明・補足」（日本語なら英訳して既定文に差し込む）
+  const tryOnNotes = tasks.map((t) => nodes.find((n) => n.id === t.nodeId)).filter((n) => nodeKindOf(n) === 'tryOn').map((n) => normalizeTryOnParams(n?.data?.params).note)
+  return textsNeedingTranslation([...videoTexts, ...tryOnNotes])
 }
 
 /** Video Generation のプロンプトの素（翻訳の対象）: 動き（回転指示が付くときの静止用定型文は除く）・避けたいこと・つないだテキスト */
@@ -210,7 +216,7 @@ export function videoPromptSources(nodes: SnapshotNode[], edges: SnapshotEdge[],
 
 // ───────────────────────── 計画 ─────────────────────────
 type Producer = { kind: 'input'; ref: InputRef } | { kind: 'ai'; nodeId: string } | { kind: 'other' }
-type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number; stage: number; notes: string[] } | { ok: false; reason: 'not_connected' | 'upstream' | 'no_inputs'; upstream?: string }
+type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number; stage: number; notes: string[] } | { ok: false; reason: 'not_connected' | 'upstream' | 'no_inputs' | 'no_garment' | 'no_model'; upstream?: string }
 
 /**
  * 写しから AI 処理ノードを抽出する（仕様 4-2・フェーズ C・§5）。
@@ -237,9 +243,9 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
         const role = cutSetRoleOfHandle(sourceHandle)
         return role ? { kind: 'input', ref: { kind: 'cut', role } } : { kind: 'other' }
       }
-      if (k === 'removeBackground' || k === 'imageGen') return { kind: 'ai', nodeId: sourceId }
+      if (k === 'removeBackground' || k === 'imageGen' || k === 'tryOn') return { kind: 'ai', nodeId: sourceId }
       if (k === 'imageDisplay') {
-        const feed = edges.find((e) => e.target === sourceId && kindOf(e.source) === 'imageGen')
+        const feed = edges.find((e) => e.target === sourceId && (kindOf(e.source) === 'imageGen' || kindOf(e.source) === 'tryOn'))
         return feed ? { kind: 'ai', nodeId: feed.source } : { kind: 'other' }
       }
       return { kind: 'other' }
@@ -253,7 +259,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   }
   const preferOf = (depId: string): 'cutout' | 'result' => (kindOf(depId) === 'removeBackground' ? 'cutout' : 'result')
   const refOf = (p: Producer): InputRef | null => (p.kind === 'input' ? p.ref : p.kind === 'ai' ? { kind: 'dep', nodeId: p.nodeId, prefer: preferOf(p.nodeId) } : null)
-  const isPerItemKind = (k: string | undefined) => k === 'removeBackground' || k === 'imageGen' || k === 'videoGen' || k === 'videoMerge'
+  const isPerItemKind = (k: string | undefined) => k === 'removeBackground' || k === 'imageGen' || k === 'tryOn' || k === 'videoGen' || k === 'videoMerge'
 
   // 段の割り当てと入力の参照。メモ化して循環も止める
   const memo = new Map<string, Analysis | null>()
@@ -303,6 +309,28 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       const f = fold([ref], notes)
       if (!f.ok) return { ok: false, reason: 'upstream', upstream: f.upstream }
       return { ok: true, inputs: { image: ref }, deps: f.deps, aiDepth: f.aiDepth + 1, stage: f.stage + 1, notes }
+    }
+    if (k === 'tryOn') {
+      // 試着（2b-3）: 服と モデル の 2 入力。配線は写真 / カット / 前段の結果、配線が写真由来でなければ固定の画像（参照画像・結果ノードの画像）、
+      // モデルは配線が無ければノード内で選んだライブラリのカット（固定の画像）。どちらかが写真由来でなければ一括実行の対象ではない（対話実行だけ）
+      const refFor = (handle: string): InputRef | null => {
+        const e = edges.find((x) => x.target === nodeId && x.targetHandle === handle)
+        if (!e) return null
+        const r = refOf(producerOf(e.source, e.sourceHandle, 'image'))
+        if (r) return r
+        const url = byId.get(e.source)?.data?.output
+        return typeof url === 'string' && url ? { kind: 'asset', url } : null
+      }
+      const pickedUrl = node.data?.model?.url
+      const garment = refFor(TRY_ON_GARMENT_HANDLE)
+      const model = refFor(TRY_ON_MODEL_HANDLE) ?? (typeof pickedUrl === 'string' && pickedUrl ? { kind: 'asset' as const, url: pickedUrl } : null)
+      const perItem = (r: InputRef | null) => !!r && r.kind !== 'asset'
+      if (!perItem(garment) && !perItem(model)) return null
+      if (!garment) return { ok: false, reason: 'no_garment' }
+      if (!model) return { ok: false, reason: 'no_model' }
+      const f = fold([garment, model], notes)
+      if (!f.ok) return { ok: false, reason: 'upstream', upstream: f.upstream }
+      return { ok: true, inputs: { image: garment, model }, deps: f.deps, aiDepth: f.aiDepth + 1, stage: f.stage + 1, notes }
     }
     if (k === 'videoGen') {
       const startEdge = edges.find((e) => e.target === nodeId && e.targetHandle === VIDEO_GEN_START_HANDLE)
@@ -357,6 +385,8 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     if (!a.ok) {
       if (k === 'removeBackground' && a.reason === 'not_connected') warn(`Remove Background（${label}）は Batch Input に接続されていないため一括実行の対象外です`)
       else if (k === 'videoMerge' && a.reason === 'no_inputs') warn(`Video Merge（${label}）につながる Video Generation が無いため一括実行の対象外です`)
+      else if (k === 'tryOn' && a.reason === 'no_garment') warn(`Try-On（${label}）は服の画像がつながっていないため一括実行の対象外です`)
+      else if (k === 'tryOn' && a.reason === 'no_model') warn(`Try-On（${label}）はモデルの画像が無いため一括実行の対象外です（つなぐか「モデル」から選んでください）`)
       else excludedUpstream(node.id, a)
       continue
     }
@@ -375,6 +405,11 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       const model = editModelOf(p)
       const req = buildImageEditRequest(model, prompt, p)
       push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input: req.input, kind: 'imageEdit', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
+    } else if (k === 'tryOn') {
+      // 試着は画像編集と同じ結果の扱い（生成結果の列・書き出し・ライブラリのフォルダ）。プロンプトは試着用の既定文 + 英訳した服の説明・補足
+      const p = normalizeTryOnParams(node.data?.params)
+      const prompt = tryOnPromptFromNote(p.note, snap?.promptTranslations ?? {})
+      push({ nodeId: node.id, scope: 'item', endpoint: TRY_ON_ENDPOINT, input: buildTryOnInput(prompt, p), kind: 'imageEdit', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
     } else if (k === 'videoGen') {
       const modelDef = videoModelById(node.data?.model) ?? videoModelById(PRODUCT_VIDEO_DEFAULT_MODEL)!
       // 画像 → 動画: 専用エンドポイント（i2vEndpoint）があるか、エンドポイント自体が image-to-video のモデル。参照動画が要るモデルは対象外
@@ -390,13 +425,6 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     } else {
       push({ nodeId: node.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, input: {}, kind: 'videoMerge', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
     }
-  }
-
-  // Try-On（2026-11-01・2b-2 は対話実行のみ）: 写真由来の入力につながっていれば、まだ一括実行に対応していないことを伝える（2b-3 で対応）
-  for (const node of nodes) {
-    if (nodeKindOf(node) !== 'tryOn') continue
-    const fed = edges.some((e) => e.target === node.id && (e.targetHandle ?? '').startsWith('in-image') && producerOf(e.source, e.sourceHandle, 'image').kind !== 'other')
-    if (fed) warn(`Try-On（${nodeLabelOf(node)}）は一括実行にまだ対応していません（今は対話実行だけです）`)
   }
 
   // 前段が対象外になった（プロンプト無しなど分析後の除外）タスクは外す。結合は使える入力だけ残す
@@ -486,9 +514,9 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   return { tasks, warnings }
 }
 
-/** タスクの入力の参照（画像・開始・終了） */
+/** タスクの入力の参照（画像・モデル・開始・終了） */
 export function refsOf(inputs: TaskInputs | null | undefined): InputRef[] {
-  return [inputs?.image, inputs?.start, inputs?.end].filter((r): r is InputRef => !!r)
+  return [inputs?.image, inputs?.model, inputs?.start, inputs?.end].filter((r): r is InputRef => !!r)
 }
 /** 待つ前段のノード id（参照の dep と結合の入力） */
 export function depsOf(inputs: TaskInputs | null | undefined): string[] {
@@ -522,7 +550,7 @@ export interface ItemLike { cuts?: ItemCut[] | Array<{ role: string; path: strin
 /** 参照がその SKU で揃うか（写真は常に 1 枚ある前提。役割のカットが無ければ不可） */
 export function refSatisfied(ref: InputRef, item: ItemLike, taskByNode: Map<string, PlannedTask>): boolean {
   const cuts = (item.cuts ?? []) as ItemCut[]
-  if (ref.kind === 'photo') return true
+  if (ref.kind === 'photo' || ref.kind === 'asset') return true
   if (ref.kind === 'cut') return !!cutOf(cuts, ref.role)
   if (ref.kind === 'set') return !!cutOf(cuts, FRONTAL_ROLE)
   const dep = taskByNode.get(ref.nodeId)

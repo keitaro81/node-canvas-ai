@@ -84,6 +84,12 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
       if (d.type === 'batchInput') {
         data.items = (Array.isArray(d.items) ? (d.items as BatchItem[]) : []).map((it) => ({ id: it.id, index: it.index, originalName: it.originalName, sku: it.sku, path: it.path, width: it.width, height: it.height, status: it.status }))
       }
+      if (d.type === 'tryOn') {
+        // 試着: ノード内で選んだモデル（固定の画像・canonical）と最新の結果（後段が固定の画像として使う）
+        const m = d.model as { url?: unknown; role?: unknown; itemId?: unknown } | null | undefined
+        if (m && typeof m.url === 'string' && m.url) data.model = { url: toCanonicalRef(m.url) ?? m.url, role: typeof m.role === 'string' ? m.role : null, itemId: typeof m.itemId === 'string' ? m.itemId : null }
+        if (typeof d.output === 'string' && d.output) data.output = toCanonicalRef(d.output) ?? d.output
+      }
       if (d.type === 'cutSetInput') {
         data.items = (Array.isArray(d.items) ? (d.items as CutSetItem[]) : []).map((it) => ({ id: it.id, index: it.index, sku: it.sku, cuts: it.cuts }))
       }
