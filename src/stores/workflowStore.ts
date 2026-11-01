@@ -191,6 +191,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // 「回転の指示を自動で付ける」トグルの廃止（2026-11-01）: 旧ワークフローの Video Generation には同じ内容の定型文を欄に書き込む（1 回だけ。保存は展開と同じく autosave）
       const turned = materializeTurnPresets((expanded ? expanded.nodes : restoredNodes) as unknown as SnapshotNode[], edgesToLoad as unknown as SnapshotEdge[])
       const nodesToLoad = turned.nodes as AppNode[]
+      if (turned.written > 0) showToast(`${turned.written} 個の Video Generation に回転の指示文を入れました（「動き」「避けたいこと」の欄で確認・編集できます）`, 'info')
       // 非公開バケット化(L1)+テナント分離(L2): canonical URL を、サーバーが WF アクセス認可した上で署名URLへ変換
       const signedNodes = await signCanvasNodes(nodesToLoad, id)
       // nodes/edges/capsuleGroupId を原子的にセット。

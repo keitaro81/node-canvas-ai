@@ -336,7 +336,7 @@ describe('商品動画（ターンテーブル: 始点と終点）', () => {
   it('終了カット付きのショットは __shot.endRole を持ち、見出しに矢印が入る', () => {
     const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'turntable12' } } }], edges: [] })
     expect(tasks.filter((t) => t.kind === 'videoShot').map((t) => (t.input.__shot as { role: string; endRole: string | null }).endRole)).toEqual(['right', 'back', 'left', 'front'])
-    expect(tasks[0].label).toBe('ショット 1: 正面 → 右側面')   // 展開のラベルはテンプレートと同じ（旧ノードの名前は付けない・2026-11-01）
+    expect(tasks[0].label).toBe('Video Generation')   // 展開のノード名は種類名のまま（2026-11-01）
     // 終了カットあり: 回転の指示・見せてはいけない向きの negative・cfg_scale
     expect(tasks[1].input.prompt).toContain('keeps turning away from the camera')
     expect(tasks[1].input.negative_prompt).toContain('facing the camera, front view')

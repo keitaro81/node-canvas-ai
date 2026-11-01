@@ -64,10 +64,11 @@ export async function exportJobZip(opts: {
   let done = 0
   let files = 0
   const name = jobZipName(opts.jobName, now)
+  const root = `${name.replace(/\.zip$/i, '')}/`   // 解凍後のフォルダ名 = ZIP 名（2026-11-01 メモ 19）
   const maxBytes = params.maxFileKb ? params.maxFileKb * 1024 : null
   const put = (path: string, res: { blob: Blob; warnings: string[] }) => {
     for (const w of res.warnings) warnings.push(`${path}: ${w}`)
-    writes.push(res.blob.arrayBuffer().then((buf) => { zip.add(path, new Uint8Array(buf)); files++ }).catch((e) => { warnings.push(`${path}: ${e instanceof Error ? e.message : String(e)}`) }))
+    writes.push(res.blob.arrayBuffer().then((buf) => { zip.add(`${root}${path}`, new Uint8Array(buf)); files++ }).catch((e) => { warnings.push(`${path}: ${e instanceof Error ? e.message : String(e)}`) }))
     done++
     opts.onProgress({ done, total, message: path })
   }

@@ -116,7 +116,7 @@ export const NODE_CATALOG: CatalogNode[] = [
   },
   {
     type: 'removeBackground', rfType: 'removeBackgroundNode', label: 'Remove Background', height: 520,
-    description: '商品写真の背景を切り抜く（AI 段）。出力は「切り抜き」で、Product Layout の cutout、Image Generation / Try-On の画像入力につなげる',
+    description: '商品写真の背景を切り抜く（AI 段）。背景処理（切り抜き・白背景・透過）を求められたときだけ使う。出力は「切り抜き」で Product Layout の cutout につなぐ（Image Generation / Try-On の画像入力にもつなげるが、試着・動画の前段には不要）',
     inputs: [{ port: 'image', handle: REMOVE_BACKGROUND_INPUT, kind: 'image', label: '写真' }],
     outputs: [{ port: 'cutout', handle: REMOVE_BACKGROUND_OUTPUT_HANDLE, kind: 'cutout', label: '切り抜き' }],
     params: [

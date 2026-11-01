@@ -4,7 +4,8 @@
 //   Cut Set Input → Video Generation × ショット → Video Merge → Export に組む（旧ノードのプリセットの置き場がここになる）
 // - 試着（2b-4）: 服のカット（SKU ごと）→ Try-On × 向き → ターンテーブルの動画、商品写真 → Try-On → 着用画像の書き出し
 // - 2026-11-01: モデルは Model ノード（ライブラリのモデルを選ぶと向きごとの出力ポート）から Try-On につなぐ。回転の指示文は定型文として Video Generation の欄に入れる（トグル廃止）
-import { CUT_ROLE_LABEL, DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, VIDEO_TEMPLATES, templateById, totalSeconds, turnPreset, withTurnMotion, withTurnNegative, type CutRole } from '../video/productVideo'
+// - 2026-11-01 ユーザー指示: 組んだノードの名前は種類名のまま（「ショット 1」「試着 正面」のような名前は付けない。向きはノードの中の行で見える）
+import { DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, VIDEO_TEMPLATES, templateById, totalSeconds, turnPreset, withTurnMotion, withTurnNegative, type CutRole } from '../video/productVideo'
 import { CUT_SET_ITEM_HANDLE, PRODUCT_VIDEO_DEFAULT_MODEL, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, VIDEO_OUTPUT_HANDLE, cutSetRoleHandle, expandProductVideoNode, videoMergeSlotHandle, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
 import { DEFAULT_EXPORT_PARAMS } from '../export/naming'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../batch/items'
@@ -62,7 +63,7 @@ const exportNode = (position: { x: number; y: number }): SnapshotNode =>
   ({ id: 'export', type: 'exportNode', position, data: { type: 'export', label: 'Export', params: { ...DEFAULT_EXPORT_PARAMS }, status: 'idle' } })
 /** Model ノード（ライブラリのモデル・作った後に選ぶ）: 向きごとの出力ポートを Try-On の model につなぐ */
 const modelNode = (position: { x: number; y: number }): SnapshotNode =>
-  ({ id: 'model', type: 'libraryModelNode', position, data: { type: 'libraryModel', label: 'モデル', params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} } })
+  ({ id: 'model', type: 'libraryModelNode', position, data: { type: 'libraryModel', label: 'Model', params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} } })
 
 /** 試着 → ターンテーブル 12 秒: 服のカット（SKU ごと・正面/右側面/背面/左側面）＋ Model ノード → Try-On × 4（同じ向き）→ Video Generation × 4 → Video Merge → Export。
  *  作った後に Model ノードでモデルを選ぶ（向きごとの出力が 4 つの Try-On に入る）。ショットの「動き」「避けたいこと」には回転の定型文が入っている */
@@ -72,13 +73,13 @@ export function buildTryOnTurntableTemplate(): TemplateCanvas {
   const x = 80, y = 80
   const roles: CutRole[] = ['front', 'right', 'back', 'left']
   const nodes: SnapshotNode[] = [
-    { id: 'cut-set', type: 'cutSetInputNode', position: { x, y }, data: { type: 'cutSetInput', label: '服のカット（SKU ごと）', params: {}, status: 'idle', items: [], currentItemId: null } },
-    { id: 'base-prompt', type: 'textPromptNode', position: { x, y: y + 560 }, data: { type: 'textPrompt', label: '共通の説明', params: { prompt: DEFAULT_BASE_PROMPT }, status: 'idle' } },
+    { id: 'cut-set', type: 'cutSetInputNode', position: { x, y }, data: { type: 'cutSetInput', label: 'Cut Set Input', params: {}, status: 'idle', items: [], currentItemId: null } },
+    { id: 'base-prompt', type: 'textPromptNode', position: { x, y: y + 560 }, data: { type: 'textPrompt', label: 'Text Prompt', params: { prompt: DEFAULT_BASE_PROMPT }, status: 'idle' } },
     modelNode({ x, y: y + 800 }),
   ]
   const edges: SnapshotEdge[] = []
   roles.forEach((role, i) => {
-    nodes.push(tryOnNode(`tryon-${role}`, `試着 ${CUT_ROLE_LABEL[role]}`, role, { x: x + 420, y: y + i * 300 }))
+    nodes.push(tryOnNode(`tryon-${role}`, 'Try-On', role, { x: x + 420, y: y + i * 300 }))
     edges.push(edge('cut-set', cutSetRoleHandle(role), `tryon-${role}`, TRY_ON_GARMENT_HANDLE))
     edges.push(edge('model', cutSetRoleHandle(role), `tryon-${role}`, TRY_ON_MODEL_HANDLE))
   })
@@ -87,7 +88,7 @@ export function buildTryOnTurntableTemplate(): TemplateCanvas {
     nodes.push({
       id, type: 'videoGenerationNode', position: { x: x + 840, y: y + i * 320 },
       data: {
-        type: 'videoGen', label: `ショット ${i + 1}: ${CUT_ROLE_LABEL[shot.role]}${shot.endRole ? ` → ${CUT_ROLE_LABEL[shot.endRole]}` : ''}`,
+        type: 'videoGen', label: 'Video Generation',
         model: PRODUCT_VIDEO_DEFAULT_MODEL, duration: String(shot.duration), resolution: '1080p', aspectRatio: 'auto', fps: 25, audioEnabled: false, seed: null, count: 1,
         status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, activeDisplayNodeId: null,
         params: shot.endRole
@@ -131,7 +132,7 @@ export function buildTryOnImagesTemplate(): TemplateCanvas {
   const nodes: SnapshotNode[] = [
     { id: 'batch-input', type: 'batchInputNode', position: { x, y }, data: { type: 'batchInput', label: 'Batch Input', params: { ...DEFAULT_BATCH_INPUT_PARAMS }, status: 'idle', items: [], currentItemId: null } },
     modelNode({ x, y: y + 520 }),
-    tryOnNode('tryon', '試着 正面', 'front', { x: x + 420, y }),
+    tryOnNode('tryon', 'Try-On', 'front', { x: x + 420, y }),
     exportNode({ x: x + 840, y }),
   ]
   const edges: SnapshotEdge[] = [

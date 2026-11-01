@@ -11,7 +11,8 @@ import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { buildWorkflowSnapshot, type CreateItemInput } from '../../lib/api/batch'
 import { jobLabel } from '../../lib/batch/jobLabel'
 import { totalSeconds } from '../../lib/video/productVideo'
-import { inputNodesOf, shotsFromCanvas, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { inputNodesOf, pruneToEntry, shotsFromCanvas, type WorkflowSnapshot } from '../../lib/batch/plan'
+import type { CutSetItem } from '../../types/nodes'
 import type { BatchJobRow } from '../../types/batch'
 import { JobActions } from '../jobs/JobActions'
 import { AppVideoCutsInput } from './AppVideoCutsInput'
@@ -36,6 +37,8 @@ export function VideoAppView() {
   const edges = useCanvasStore((s) => s.edges)
   const canvas = useMemo<WorkflowSnapshot>(() => ({ nodes: nodes.map((n) => ({ id: n.id, type: n.type, data: n.data as Record<string, unknown> })), edges: edges.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })) }), [nodes, edges])
   const cutSetId = useMemo(() => inputNodesOf(canvas).cutSetInputId, [canvas])
+  // ノードに入れた SKU と写真を App の初期値に（記憶が無いときだけ。メモ 17）
+  const cutSetItems = useMemo(() => { const n = nodes.find((x) => x.id === cutSetId); const items = (n?.data as { items?: unknown } | undefined)?.items; return Array.isArray(items) ? (items as CutSetItem[]) : null }, [nodes, cutSetId])
   const shots = useMemo(() => shotsFromCanvas(canvas), [canvas])
   // カードの記憶キーは旧ノード時代と同じ（<旧 id>:cuts → <旧 id>）にして、入れた写真の記憶を引き継ぐ
   const storageNodeId = cutSetId ? cutSetId.replace(/:cuts$/, '') : null
@@ -67,10 +70,10 @@ export function VideoAppView() {
   const submit = useCallback((items: CreateItemInput[]) => {
     const { nodes: ns, edges } = useCanvasStore.getState()
     openSubmitDialogWith({
-      items, snapshot: buildWorkflowSnapshot(ns, edges), workflowId,
+      items, snapshot: pruneToEntry(buildWorkflowSnapshot(ns, edges), cutSetId), workflowId,   // この入口の枝だけ（メモ 24）
       onDone: (jobId) => { setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },   // 入れた写真は残す（ユーザー要望 2026-10-17: 続けて別の構成で作れるように）
     })
-  }, [openSubmitDialogWith, workflowId, bump])
+  }, [openSubmitDialogWith, workflowId, bump, cutSetId])
 
   if (!cutSetId) {
     return (
@@ -91,7 +94,7 @@ export function VideoAppView() {
         <p className="text-[11px] mb-3" style={{ color: 'var(--text-tertiary)' }}>
           SKU ごとに着用カットを役割の枠に入れると、App「{workflowName}」の構成（{shots.length} ショット・約 {totalSeconds(shots)} 秒・無音）で 1 本の動画を作ります。
         </p>
-        <AppVideoCutsInput nodeId={cutSetId} shots={shots} canSubmit={!!workflowId && shots.length > 0} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${storageNodeId}`} />
+        <AppVideoCutsInput nodeId={cutSetId} shots={shots} canSubmit={!!workflowId && shots.length > 0} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${storageNodeId}`} initialItems={cutSetItems} />
       </aside>
       <section className={`flex-1 min-w-0 min-h-0 flex flex-col ${isMobile ? 'border-t' : ''}`} style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-2 px-5 shrink-0 border-b" style={{ height: 44, borderColor: 'var(--border)', background: 'var(--bg-surface)' }}>

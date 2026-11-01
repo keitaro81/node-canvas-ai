@@ -1,5 +1,8 @@
-import { memo, type ReactNode } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+
+/** ポート名の既定（label が無いノード用） */
+const PORT_TYPE_LABEL: Record<PortType, string> = { text: 'テキスト', image: '画像', video: '動画', style: 'スタイル', list: 'リスト', cutout: '切り抜き', item: 'アイテム情報', cuts: 'カット一式' }
 import { X } from 'lucide-react'
 import type { NodeData, PortType } from '../../types/nodes'
 import { NODE_ACCENT_COLORS } from '../../types/nodes'
@@ -85,37 +88,25 @@ function BaseNodeInner({
         </div>
       )}
 
-      {/* Input handles */}
-      {inputs.map((port, i) => (
-        <Handle
-          key={port.id}
-          id={`in-${port.portType}-${port.id}`}
-          type="target"
-          position={Position.Left}
-          className={`handle-${port.portType}`}
-          style={{
-            top: `${((i + 1) / (inputs.length + 1)) * 100}%`,
-            width: 20,
-            height: 20,
-          }}
-        />
-      ))}
-
-      {/* Output handles */}
-      {outputs.map((port, i) => (
-        <Handle
-          key={port.id}
-          id={`out-${port.portType}-${port.id}`}
-          type="source"
-          position={Position.Right}
-          className={`handle-${port.portType}`}
-          style={{
-            top: `${((i + 1) / (outputs.length + 1)) * 100}%`,
-            width: 20,
-            height: 20,
-          }}
-        />
-      ))}
+      {/* Input / Output handles。ノードにマウスを載せるとポート名が横に出る（2026-11-01 メモ 7/16: どの入力につなげるか分かるように） */}
+      {inputs.map((port, i) => {
+        const top = `${((i + 1) / (inputs.length + 1)) * 100}%`
+        return (
+          <Fragment key={port.id}>
+            <Handle id={`in-${port.portType}-${port.id}`} type="target" position={Position.Left} className={`handle-${port.portType}`} style={{ top, width: 20, height: 20 }} />
+            <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: top, right: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>{port.label ?? PORT_TYPE_LABEL[port.portType]}</span>
+          </Fragment>
+        )
+      })}
+      {outputs.map((port, i) => {
+        const top = `${((i + 1) / (outputs.length + 1)) * 100}%`
+        return (
+          <Fragment key={port.id}>
+            <Handle id={`out-${port.portType}-${port.id}`} type="source" position={Position.Right} className={`handle-${port.portType}`} style={{ top, width: 20, height: 20 }} />
+            <span className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded" style={{ top: top, left: 'calc(100% + 8px)', transform: 'translateY(-50%)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', zIndex: 5 }}>{port.label ?? PORT_TYPE_LABEL[port.portType]}</span>
+          </Fragment>
+        )
+      })}
     </div>
   )
 }
