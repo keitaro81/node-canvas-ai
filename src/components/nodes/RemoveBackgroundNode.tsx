@@ -69,8 +69,8 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
   const { freshUrl } = useSignedMedia(rawUpstreamUrl, currentWorkflowId)
   const upstreamCanonical = rawUpstreamUrl ? (toCanonicalRef(rawUpstreamUrl) ?? rawUpstreamUrl) : null
 
-  // 後段に Image Generation（合成）があるか: あれば実行時に透過の切り抜き画像も保存する（一括実行と同じ dual 出力）
-  const hasDownstreamGen = edges.some((e) => e.source === id && nodes.find((n) => n.id === e.target)?.type === 'imageGenerationNode')
+  // 後段に Image Generation（合成）か Try-On（試着）があるか: あれば実行時に透過の切り抜き画像も保存する（一括実行と同じ dual 出力）
+  const hasDownstreamGen = edges.some((e) => { const t = nodes.find((n) => n.id === e.target)?.type; return e.source === id && (t === 'imageGenerationNode' || t === 'tryOnNode') })
   const cutoutMissing = !!output && hasDownstreamGen && !output.cutoutPath
 
   const isStale = !!output && !!upstreamCanonical && output.sourceRef !== upstreamCanonical
@@ -228,7 +228,7 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
         )}
         {isStale && <Notice tone="warning">入力画像が変わりました。再実行してください</Notice>}
         {!isStale && engineDirty && <Notice tone="info">エンジン設定が変わりました。「実行」で反映されます</Notice>}
-        {!isStale && !engineDirty && cutoutMissing && <Notice tone="warning">後段の Image Generation 用の切り抜き画像がありません。「実行」でやり直すと切り抜き画像も保存されます</Notice>}
+        {!isStale && !engineDirty && cutoutMissing && <Notice tone="warning">後段の Image Generation / Try-On 用の切り抜き画像がありません。「実行」でやり直すと切り抜き画像も保存されます</Notice>}
 
         <button
           className="w-full h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12px] font-medium text-white transition-all duration-150 disabled:opacity-50 nodrag"

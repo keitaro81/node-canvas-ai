@@ -50,6 +50,8 @@ import { BatchInputNode } from '../nodes/BatchInputNode'
 import { BatchResultsNode } from '../nodes/BatchResultsNode'
 import { ProductVideoNode } from '../nodes/ProductVideoNode'
 import { VideoMergeNode } from '../nodes/VideoMergeNode'
+import { TryOnNode, TRY_ON_GARMENT_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../nodes/TryOnNode'
+import { DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
 import { CutSetInputNode } from '../nodes/CutSetInputNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
@@ -84,6 +86,7 @@ const nodeTypes: NodeTypes = {
   batchResultsNode: BatchResultsNode,
   productVideoNode: ProductVideoNode,
   videoMergeNode: VideoMergeNode,
+  tryOnNode: TryOnNode,
   cutSetInputNode: CutSetInputNode,
 }
 
@@ -111,6 +114,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   batchResults:    'batchResultsNode',
   productVideo:    'productVideoNode',
   videoMerge:      'videoMergeNode',
+  tryOn:           'tryOnNode',
   cutSetInput:     'cutSetInputNode',
 }
 
@@ -302,6 +306,7 @@ function expandGroupIfNeeded(
 // ノードタイプ別のデフォルト入力ハンドルID（ポートタイプ → ハンドルID）
 const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>>> = {
   videoMerge:     { video: 'in-video-1' },
+  tryOn:          { image: TRY_ON_GARMENT_HANDLE, cutout: TRY_ON_GARMENT_HANDLE },
   cutSetInput:    {},
   promptEnhancer: {},
   imageGen:       { text: 'in-text', image: 'in-image', list: 'in-list' },
@@ -331,6 +336,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   batchInput:     'out-image-image',
   videoMerge:     'out-video',
   cutSetInput:    'out-image-front',
+  tryOn:          TRY_ON_OUTPUT_HANDLE,
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -351,7 +357,7 @@ function parsePortType(handleId: string | null): string {
 
 function isCompatiblePorts(sourceType: string, targetType: string, targetNodeType?: string): boolean {
   // 切り抜き → 画像 は Image Generation の画像入力だけ（canvasStore.isCompatibleFor と同じ規則）
-  if (sourceType === 'cutout' && targetType === 'image') return targetNodeType === 'imageGenerationNode'
+  if (sourceType === 'cutout' && targetType === 'image') return targetNodeType === 'imageGenerationNode' || targetNodeType === 'tryOnNode'
   return PORT_COMPATIBLE[sourceType]?.includes(targetType) ?? false
 }
 
@@ -650,6 +656,8 @@ export function Canvas() {
         data = { type: 'videoMerge', label, params: {}, status: 'idle', videoUrl: null }
       } else if (type === 'cutSetInput') {
         data = { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }
+      } else if (type === 'tryOn') {
+        data = { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1145,6 +1153,8 @@ export function Canvas() {
         data = { ...BATCH_INPUT_DEFAULT_DATA, params: { ...DEFAULT_BATCH_INPUT_PARAMS }, items: [], label }
       } else if (type === 'export') {
         data = { ...EXPORT_DEFAULT_DATA, params: { ...DEFAULT_EXPORT_PARAMS }, label }
+      } else if (type === 'tryOn') {
+        data = { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }

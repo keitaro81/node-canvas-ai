@@ -171,3 +171,17 @@ describe('旧 Product Video ノードの展開（決定的な id・既存ジョ�
     expect(shotsFromCanvas({ nodes: [pv], edges: [] }).map((s) => `${s.role}>${s.endRole}`)).toEqual(['front>right', 'right>back', 'back>left', 'left>front'])
   })
 })
+
+describe('planTasks: Try-On（2b-2 は対話実行のみ）', () => {
+  const tryOn = (id: string) => ({ id, type: 'tryOnNode', data: { type: 'tryOn', label: id, params: { resolution: '2K', note: '' } } })
+  it('写真由来の入力につながる Try-On はタスクにならず、未対応の注意を出す', () => {
+    const { tasks, warnings } = planTasks({ nodes: [bi, tryOn('t1')], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })
+    expect(tasks).toEqual([])
+    expect(warnings).toEqual(['Try-On（t1）は一括実行にまだ対応していません（今は対話実行だけです）'])
+  })
+  it('つながっていない Try-On は何も言わない', () => {
+    const { tasks, warnings } = planTasks({ nodes: [bi, tryOn('t1')], edges: [] })
+    expect(tasks).toEqual([])
+    expect(warnings).toEqual([])
+  })
+})

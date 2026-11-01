@@ -8,6 +8,7 @@ import { CheckButton } from '../ui/CheckButton'
 import { MediaImg } from '../ui/MediaImg'
 import { MediaPickerDialog, type PickedMedia } from './MediaPickerDialog'
 import { CUT_ROLES, FRONTAL_ROLE, type CutRole } from '../../lib/video/productVideo'
+import { modelRolesToShow } from '../../lib/library/modelRoles'
 import { pickedToFiles, signLibraryItems, uploadToLibrary, type LibraryItem, type LibraryVisibility } from '../../lib/api/library'
 import { createLibraryModel, fetchLibraryItemsByIds, pinLibraryItems, shareLibraryItemsWithTeam, updateLibraryModel, type LibraryModel } from '../../lib/api/libraryModels'
 import { supabase } from '../../lib/supabase'
@@ -90,7 +91,8 @@ export function ModelEditorDialog({ open, onClose, model, onSaved }: Props) {
   }
 
   if (!open) return null
-  const filled = CUT_ROLES.filter((r) => !!cuts[r.id]).length
+  const rolesToShow = modelRolesToShow(cuts)   // 4 方向 + 既存データの旧役割（ディテール・全身）
+  const filled = rolesToShow.filter((r) => !!cuts[r.id]).length
   return createPortal(
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 20000 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }} onDrop={(e) => { e.preventDefault(); e.stopPropagation() }}>
       <div className="flex flex-col rounded-xl overflow-hidden" style={{ width: 'min(720px, 94vw)', maxHeight: '90vh', background: 'var(--bg-surface)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }}>
@@ -111,14 +113,14 @@ export function ModelEditorDialog({ open, onClose, model, onSaved }: Props) {
           </div>
           <div>
             <div className="flex items-baseline justify-between mb-2">
-              <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>カット（同じ人物・同じ服装で。正面は必須）</span>
-              <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{filled} / {CUT_ROLES.length}</span>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>向き（同じ人物・同じ服装で。正面は必須。試着と商品動画に使う）</span>
+              <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{filled} / {rolesToShow.length}</span>
             </div>
             {loading ? (
               <div className="flex items-center justify-center py-10" style={{ color: 'var(--text-tertiary)' }}><CircleNotch size={18} className="animate-spin" /></div>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
-                {CUT_ROLES.map((r) => {
+              <div className="grid grid-cols-4 gap-2">
+                {rolesToShow.map((r) => {
                   const it = cuts[r.id]; const required = r.id === FRONTAL_ROLE; const busy = busyRole === r.id
                   return (
                     <div key={r.id} className="relative rounded-lg overflow-hidden cursor-pointer select-none flex flex-col items-center justify-center text-center" style={{ height: 120, background: 'var(--bg-placeholder)', border: `1px ${it ? 'solid' : 'dashed'} ${required && !it ? ACCENT : 'var(--border-active)'}` }} title={`${r.label}: ${r.hint}。クリックで追加（アップロード / ライブラリ）`} onClick={() => setPickerRole(r.id)}>
@@ -145,7 +147,7 @@ export function ModelEditorDialog({ open, onClose, model, onSaved }: Props) {
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <CheckButton checked={visibility === 'team'} onChange={(v) => setVisibility(v ? 'team' : 'private')} label="チームに共有" size={20} />
             <span className="text-[12px]" style={{ color: 'var(--text-primary)' }}>チームに共有する</span>
-            <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>メンバーも商品動画 App でこのモデルを使えます。モデルの写真もチームに共有されます</span>
+            <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>メンバーも Try-On と商品動画 App でこのモデルを使えます。モデルの写真もチームに共有されます</span>
           </label>
         </div>
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t" style={{ borderColor: 'var(--border)' }}>

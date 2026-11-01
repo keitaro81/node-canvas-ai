@@ -119,9 +119,9 @@ const COMPATIBLE: Record<PortType, PortType[]> = {
   cuts:   ['cuts'],
 }
 
-/** 切り抜き → 画像 は Image Generation の画像入力だけ許す（切り抜き画像を合成の入力にする。フェーズ C(a)）。他の画像入力は従来どおり不可 */
+/** 切り抜き → 画像 は Image Generation の画像入力と Try-On の服入力だけ許す（切り抜き画像を合成・試着の入力にする）。他の画像入力は従来どおり不可 */
 export function isCompatibleFor(sourceType: PortType, targetType: PortType, targetNodeType: string | undefined): boolean {
-  if (sourceType === 'cutout' && targetType === 'image') return targetNodeType === 'imageGenerationNode'
+  if (sourceType === 'cutout' && targetType === 'image') return targetNodeType === 'imageGenerationNode' || targetNodeType === 'tryOnNode'
   return COMPATIBLE[sourceType]?.includes(targetType) ?? false
 }
 

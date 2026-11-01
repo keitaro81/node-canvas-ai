@@ -27,6 +27,7 @@ export type NodeType =
   | 'productVideo'
   | 'videoMerge'
   | 'cutSetInput'
+  | 'tryOn'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -97,6 +98,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   productVideo:    '#EC4899',
   videoMerge:      '#EC4899',
   cutSetInput:     '#EC4899',
+  tryOn:           '#8B5CF6',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -307,6 +309,26 @@ export interface VideoMergeNodeData {
   fileName?: string | null
   error?: string | null
   progress?: string
+}
+
+/** Try-On ノード（2026-11-01・設計 docs/specs/library-tryon.md §4.1 / §7）: モデル画像 + 服の画像 → 着用画像（Nano Banana 2 edit・試着用の既定プロンプト）。
+ *  モデルはつなぐか、ノード内の「モデル」でライブラリのモデルと向きを選ぶ（配線があれば配線が優先）。結果は右に作る Image Display と、このノードの output（最新）に出す */
+export interface TryOnModelRef {
+  itemId: string            // library_items.id
+  url: string               // 保存形式の URL（canonical。表示・生成時に署名する）
+  modelId: string | null    // library_models.id
+  modelName: string | null
+  role: CutRole | null      // 向き（正面など）
+}
+export interface TryOnNodeData {
+  type: 'tryOn'
+  label: string
+  params: { resolution?: string; note?: string }
+  status: NodeStatus
+  model?: TryOnModelRef | null
+  output?: string | null
+  progress?: string
+  error?: string | null
 }
 
 export interface BatchItem {

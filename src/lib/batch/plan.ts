@@ -71,14 +71,14 @@ export const REMOVE_BACKGROUND_INPUT = 'in-image-image'
 const RF_TYPE_TO_KIND: Record<string, string> = {
   videoGenerationNode: 'videoGen', videoDisplayNode: 'videoDisplay', videoMergeNode: 'videoMerge', referenceVideoNode: 'referenceVideo',
   imageDisplayNode: 'imageDisplay', textPromptNode: 'textPrompt', referenceImageNode: 'referenceImage', cutSetInputNode: 'cutSetInput', batchInputNode: 'batchInput',
-  removeBackgroundNode: 'removeBackground', productLayoutNode: 'productLayout', imageGenerationNode: 'imageGen', exportNode: 'export', productVideoNode: 'productVideo',
+  removeBackgroundNode: 'removeBackground', productLayoutNode: 'productLayout', imageGenerationNode: 'imageGen', exportNode: 'export', productVideoNode: 'productVideo', tryOnNode: 'tryOn',
 }
 export function nodeKindOf(n: SnapshotNode | null | undefined): string | undefined {
   const t = n?.data?.type
   if (typeof t === 'string' && t) return t
   return n?.type ? RF_TYPE_TO_KIND[n.type] : undefined
 }
-const DEFAULT_LABELS: Record<string, string> = { removeBackground: 'Remove Background', imageGen: 'Image Generation', videoGen: 'Video Generation', videoMerge: 'Video Merge' }
+const DEFAULT_LABELS: Record<string, string> = { removeBackground: 'Remove Background', imageGen: 'Image Generation', videoGen: 'Video Generation', videoMerge: 'Video Merge', tryOn: 'Try-On' }
 export function nodeLabelOf(n: SnapshotNode | null | undefined): string {
   const l = n?.data?.label
   return typeof l === 'string' && l.trim() ? l.trim() : (DEFAULT_LABELS[nodeKindOf(n) ?? ''] ?? n?.id ?? '')
@@ -390,6 +390,13 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     } else {
       push({ nodeId: node.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, input: {}, kind: 'videoMerge', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
     }
+  }
+
+  // Try-On（2026-11-01・2b-2 は対話実行のみ）: 写真由来の入力につながっていれば、まだ一括実行に対応していないことを伝える（2b-3 で対応）
+  for (const node of nodes) {
+    if (nodeKindOf(node) !== 'tryOn') continue
+    const fed = edges.some((e) => e.target === node.id && (e.targetHandle ?? '').startsWith('in-image') && producerOf(e.source, e.sourceHandle, 'image').kind !== 'other')
+    if (fed) warn(`Try-On（${nodeLabelOf(node)}）は一括実行にまだ対応していません（今は対話実行だけです）`)
   }
 
   // 前段が対象外になった（プロンプト無しなど分析後の除外）タスクは外す。結合は使える入力だけ残す
