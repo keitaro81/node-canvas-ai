@@ -28,6 +28,7 @@ export type NodeType =
   | 'videoMerge'
   | 'cutSetInput'
   | 'tryOn'
+  | 'libraryModel'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -99,6 +100,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   videoMerge:      '#EC4899',
   cutSetInput:     '#EC4899',
   tryOn:           '#8B5CF6',
+  libraryModel:    '#8B5CF6',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -126,7 +128,7 @@ export interface VideoGenerationNodeData {
   cutsFrontalNodeId?: string | null
   /** マルチショット（Kling 3.0 multi_prompt）。空なら通常の 1 プロンプト生成 */
   shots?: Array<{ prompt: string; duration: number }>
-  /** 商品動画向けの設定（2026-10-31・設計 §4.2）: 動き（日本語可・生成時に英訳）/ 避けたいこと（Kling 系）/ 始点と終点が役割カットのとき回転指示を自動で付ける（既定 on） */
+  /** 商品動画向けの設定（2026-10-31・設計 §4.2）: 動き（日本語可・生成時に英訳）/ 避けたいこと（Kling 系）。autoTurn は旧互換（トグル時代の自動付与。新しいノードは false で、回転の定型文は動きの欄に入れる・2026-11-01） */
   params?: { prompt?: string; negativePrompt?: string; autoTurn?: boolean }
 }
 
@@ -149,6 +151,8 @@ export interface ReferenceImageNodeData {
   uploadedImagePreview: string | null
   maskUrl?: string | null
   maskPreviewDataUrl?: string | null
+  /** 「画像を追加」のモデルタブから入れたときの向き（Video Generation の回転指示・Try-On の向きに使う） */
+  role?: CutRole | null
 }
 
 export interface ReferenceVideoNodeData {
@@ -329,6 +333,19 @@ export interface TryOnNodeData {
   output?: string | null
   progress?: string
   error?: string | null
+}
+
+/** Model ノード（2026-11-01）: ライブラリのモデルを選ぶと向きごとの出力ポート（out-image-<role>）が出る。Try-On の model 入力や Video Generation の始点・終点に。
+ *  cuts は保存形式の URL（canonical）、outputs は表示・生成用の署名 URL（読み込み時に作り直す。保存しない） */
+export interface LibraryModelNodeData {
+  type: 'libraryModel'
+  label: string
+  params: Record<string, unknown>
+  status: NodeStatus
+  modelId: string | null
+  modelName: string | null
+  cuts: Partial<Record<CutRole, { itemId: string; url: string }>>
+  outputs?: Record<string, string>
 }
 
 export interface BatchItem {

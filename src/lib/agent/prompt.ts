@@ -38,16 +38,18 @@ const EXAMPLES = [
   {
     user: '商品写真をモデルに着せた画像をまとめて作りたい',
     reply: {
-      message: '写真ごとにライブラリのモデルを着せて書き出す構成です。モデルは Try-On ノードの「モデル」で選んでください。',
+      message: '写真ごとにライブラリのモデルを着せて書き出す構成です。モデルは Model ノードで選んでください。',
       workflow: {
         name: '商品写真から着用画像',
         nodes: [
           { id: 'input', type: 'batchInput', label: '商品写真（服）' },
+          { id: 'model', type: 'libraryModel', label: 'モデル' },
           { id: 'tryon', type: 'tryOn', label: '試着 正面', params: { role: 'front' } },
           { id: 'export', type: 'export', label: '書き出し' },
         ],
         edges: [
           { from: 'input.image', to: 'tryon.garment' },
+          { from: 'model.front', to: 'tryon.model' },
           { from: 'tryon.image', to: 'export.image' },
           { from: 'input.item', to: 'export.item' },
         ],
@@ -57,21 +59,24 @@ const EXAMPLES = [
   {
     user: '服の正面と右側面の写真から、正面から右に回る 3 秒の商品動画を SKU ごとに作りたい',
     reply: {
-      message: 'SKU ごとの服のカットに同じ向きのモデルを着せ、その 2 枚を始点・終点にして回る動画を作ります。',
+      message: 'SKU ごとの服のカットに同じ向きのモデルを着せ、その 2 枚を始点・終点にして回る動画を作ります。モデルは Model ノードで選んでください。',
       workflow: {
         name: '試着から回転の商品動画',
         nodes: [
           { id: 'cuts', type: 'cutSetInput', label: '服のカット（SKU ごと）' },
+          { id: 'model', type: 'libraryModel', label: 'モデル' },
           { id: 'base', type: 'textPrompt', label: '共通の説明', params: { prompt: '無地の白いスタジオ背景、やわらかく均一な自然光、三脚に固定したカメラ。服は写真のとおりに保つ。' } },
           { id: 'tryonFront', type: 'tryOn', label: '試着 正面', params: { role: 'front' } },
           { id: 'tryonRight', type: 'tryOn', label: '試着 右側面', params: { role: 'right' } },
-          { id: 'shot1', type: 'videoGen', label: 'ショット 1: 正面 → 右側面', params: { model: 'kling-v3-pro', duration: '3', autoTurn: true } },
+          { id: 'shot1', type: 'videoGen', label: 'ショット 1: 正面 → 右側面', params: { model: 'kling-v3-pro', duration: '3' } },
           { id: 'merge', type: 'videoMerge', label: '結合' },
           { id: 'export', type: 'export', label: '書き出し' },
         ],
         edges: [
           { from: 'cuts.front', to: 'tryonFront.garment' },
+          { from: 'model.front', to: 'tryonFront.model' },
           { from: 'cuts.right', to: 'tryonRight.garment' },
+          { from: 'model.right', to: 'tryonRight.model' },
           { from: 'tryonFront.image', to: 'shot1.start' },
           { from: 'tryonRight.image', to: 'shot1.end' },
           { from: 'base.text', to: 'shot1.text' },
@@ -98,8 +103,8 @@ export function buildSystemPrompt(): string {
     '- multi の入力（export.image / export.video / videoMerge.video / imageGen.image）には複数つなげる（つないだ順）。それ以外の入力は 1 本だけ。',
     '- Image Generation と Video Generation には Text Prompt を text につなぐ（プロンプトは Text Prompt に書く）。',
     '- 書き出しには export を置き、画像は export.image、動画は export.video、入口の item を export.item につなぐ。',
-    '- 試着で側面・背面を作るときは、同じ向きの服のカット（cutSetInput の right / back など）を garment につなぎ、tryOn の role にその向きを入れる。Try-On のモデルはユーザーが後で選ぶので model はつながなくてよい。',
-    '- 回る商品動画は、向きのある 2 枚（tryOn の結果か cutSetInput の向き）を videoGen の start と end につなぐ（回転の指示は自動）。複数のショットは videoMerge で 1 本にする。',
+    '- 試着（tryOn）には libraryModel（モデル）を 1 つ置き、服のカットと同じ向きの出力（front / right / left / back）を tryOn の model につなぐ（モデルの中身はユーザーが後で選ぶ）。側面・背面を作るときは、同じ向きの服のカット（cutSetInput の right / back など）を garment につなぎ、tryOn の role にその向きを入れる。',
+    '- 回る商品動画は、向きのある 2 枚（tryOn の結果か cutSetInput の向き）を videoGen の start と end につなぐ（回転の指示文は自動で動きの欄に入る）。複数のショットは videoMerge で 1 本にする。',
     '- ラベルとワークフロー名は日本語で分かりやすく。設定は必要なものだけ書く（既定値は省略）。',
     '',
     '## 出力の形（JSON だけを返す。前置きや説明文は message に入れる）',

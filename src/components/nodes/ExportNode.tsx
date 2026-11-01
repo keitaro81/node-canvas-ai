@@ -6,7 +6,7 @@ import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { signMediaRequest, toCanonicalRef } from '../../lib/api/storage'
 import type { NodeData, BatchItemInfo, CutoutRef, ExportFileResult, ExportFormat, ExportParams, ExportResult, ExportZipFolders } from '../../types/nodes'
-import { EXT_OF, normalizeExportParams, planExportEntries, zipFileName } from '../../lib/export/naming'
+import { EXT_OF, normalizeExportParams, planExportEntries, unknownTokens, zipFileName } from '../../lib/export/naming'
 import { bitmapHasTransparency, encodeWithCap, loadBitmap } from '../../lib/export/encode'
 import { buildZip, downloadBlob } from '../../lib/export/zip'
 import { renderCutoutPngForExport } from '../../lib/export/cutoutFile'
@@ -89,6 +89,7 @@ function ExportNodeInner(props: NodeProps) {
   const edges = useCanvasStore((s) => s.edges)
   const nodes = useCanvasStore((s) => s.nodes)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
+  const currentWorkflowName = useWorkflowStore((s) => s.currentWorkflowName)
 
   const params = useMemo(() => normalizeExportParams(nodeData.params), [nodeData.params])
   const lastExport = (nodeData.lastExport ?? undefined) as ExportResult | undefined
@@ -124,6 +125,7 @@ function ExportNodeInner(props: NodeProps) {
   const upstreamInfo = useMemo(() => (connectedInfo ? null : findUpstreamItemInfo([...slotEdges, ...videoEdges].map((e) => e.source), nodes, edges)), [connectedInfo, slotEdges, videoEdges, nodes, edges])
   const itemInfo: BatchItemInfo = connectedInfo ?? upstreamInfo ?? DEFAULT_ITEM
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
+  const itemConnected = !!itemEdge   // つないであるが SKU がまだ無い（Cut Set Input に SKU 0 件など）: 「未接続」とは出さない（2026-11-01）
 
   // 切り抜きの透過 PNG: 接続中の Product Layout が受けている Remove Background ごとに 1 件（先頭に並べる）
   const cutoutInputs: SlotInput[] = useMemo(() => {
@@ -149,6 +151,8 @@ function ExportNodeInner(props: NodeProps) {
   }, [params.includeCutout, slotEdges, nodes, edges])
   const allInputs = useMemo(() => [...cutoutInputs, ...inputs, ...videoInputs], [cutoutInputs, inputs, videoInputs])
 
+  const videoOnly = inputs.length === 0 && videoInputs.length > 0   // 動画だけ: 形式・品質・最大サイズ・切り抜きは使わない（mp4 のまま）ので隠す（2026-11-01）
+  const badTokens = useMemo(() => unknownTokens(params.namePattern), [params.namePattern])
   const now = useMemo(() => new Date(), [])
   const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng, video: i.kind === 'video' }))
   const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now), [allInputs, params, itemInfo, now])
@@ -213,7 +217,7 @@ function ExportNodeInner(props: NodeProps) {
       let zipName: string | null = null
       if (params.zip && zipFiles.length) {
         setProgress('ZIP を作成中…')
-        zipName = zipFileName(itemInfo, startedAt)
+        zipName = zipFileName(itemInfo, startedAt, itemSource === 'none' ? currentWorkflowName : null)   // アイテム情報が無いときはワークフロー名（既定の 'item' は分かりづらい・2026-11-01）
         downloadBlob(buildZip(zipFiles), zipName)
       }
       const result: ExportResult = { at: startedAt.toISOString(), zipName, files, warnings }
@@ -224,7 +228,7 @@ function ExportNodeInner(props: NodeProps) {
       setBusy(false)
       setProgress('')
     }
-  }, [id, inputs, videoInputs, allInputs, busy, params, itemInfo, currentWorkflowId, updateNode])
+  }, [id, inputs, videoInputs, allInputs, busy, params, itemInfo, itemSource, currentWorkflowId, currentWorkflowName, updateNode])
 
   const error = typeof nodeData.error === 'string' ? nodeData.error : null
   const showQuality = params.format !== 'png'
@@ -244,19 +248,28 @@ function ExportNodeInner(props: NodeProps) {
       <div className="flex flex-col gap-2.5 nodrag">
         <Field label="ファイル名の規則">
           <TextField value={params.namePattern} onChange={(v) => setParams({ namePattern: v })} mono placeholder="{sku}_{variant}_{index:02}" />
-          <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">{'{sku} {original} {variant} {index} {index:02} {date}'}</div>
+          <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">{'{sku} {original} {variant} {index} {index:02} {date}'}・固定の文字はそのまま書く（例: 商品動画_{'{sku}'}_{'{index:02}'}）{videoInputs.length > 0 ? '。動画の {variant} はつないだ動画ノードの名前（フォルダ名を変えるときはノード名を変える）' : ''}</div>
+          {badTokens.length > 0 && (
+            <div className="rounded-md px-2 py-1 mt-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>{badTokens.join(' ')} は置き換えに使えないので、そのままファイル名に残ります。固定の文字は {'{ }'} なしで書いてください（例: 商品動画_{'{sku}'}_{'{index:02}'}）</div>
+          )}
         </Field>
 
         <div className="grid grid-cols-2 gap-2">
-          <Field label="形式">
-            <Sel<ExportFormat> value={params.format} options={[['jpeg', 'JPEG'], ['png', 'PNG'], ['webp', 'WebP']]} onChange={(v) => setParams({ format: v })} />
-          </Field>
-          <Field label={showQuality ? '品質（70〜100）' : '品質'}>
-            <Num value={params.jpegQuality} min={70} max={100} onChange={(v) => setParams({ jpegQuality: v ?? 90 })} />
-          </Field>
-          <Field label="最大ファイルサイズ KB">
-            <Num value={params.maxFileKb} min={10} max={100000} placeholder="指定なし" onChange={(v) => setParams({ maxFileKb: v })} />
-          </Field>
+          {videoOnly ? (
+            <div className="col-span-2 text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>動画は mp4 のまま書き出します（形式・品質・最大ファイルサイズは画像をつないだときだけ使います）</div>
+          ) : (
+            <>
+              <Field label="形式">
+                <Sel<ExportFormat> value={params.format} options={[['jpeg', 'JPEG'], ['png', 'PNG'], ['webp', 'WebP']]} onChange={(v) => setParams({ format: v })} />
+              </Field>
+              <Field label={showQuality ? '品質（70〜100）' : '品質'}>
+                <Num value={params.jpegQuality} min={70} max={100} onChange={(v) => setParams({ jpegQuality: v ?? 90 })} />
+              </Field>
+              <Field label="最大ファイルサイズ KB">
+                <Num value={params.maxFileKb} min={10} max={100000} placeholder="指定なし" onChange={(v) => setParams({ maxFileKb: v })} />
+              </Field>
+            </>
+          )}
           <Field label="ZIP">
             <div className="flex items-center gap-2 h-8">
               <input type="checkbox" className="nodrag" checked={params.zip} onChange={(e) => setParams({ zip: e.target.checked })} />
@@ -268,12 +281,14 @@ function ExportNodeInner(props: NodeProps) {
               <Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', 'SKU 別'], ['none', 'なし']]} onChange={(v) => setParams({ zipFolders: v })} />
             </Field>
           )}
-          <Field label="切り抜き" className="col-span-2">
-            <div className="flex items-center gap-2 h-8">
-              <input type="checkbox" className="nodrag" checked={params.includeCutout} onChange={(e) => setParams({ includeCutout: e.target.checked })} />
-              <span className="text-[12px] text-[var(--text-primary)]">切り抜きの透過 PNG も書き出す（cutout/・元のサイズ）</span>
-            </div>
-          </Field>
+          {!videoOnly && (
+            <Field label="切り抜き" className="col-span-2">
+              <div className="flex items-center gap-2 h-8">
+                <input type="checkbox" className="nodrag" checked={params.includeCutout} onChange={(e) => setParams({ includeCutout: e.target.checked })} />
+                <span className="text-[12px] text-[var(--text-primary)]">切り抜きの透過 PNG も書き出す（cutout/・元のサイズ）</span>
+              </div>
+            </Field>
+          )}
         </div>
 
         {/* ファイル名のプレビュー */}
@@ -285,7 +300,7 @@ function ExportNodeInner(props: NodeProps) {
             ))}
           </div>
           <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">
-            アイテム: {itemInfo.sku}（#{itemInfo.index}）{itemSource === 'connected' ? '' : itemSource === 'upstream' ? '・上流の Batch Input から取得' : '・アイテム情報が未接続のため既定値'}
+            アイテム: {itemInfo.sku}（#{itemInfo.index}）{itemSource === 'connected' ? '' : itemSource === 'upstream' ? '・上流の Batch Input から取得' : itemConnected ? '・SKU がまだありません（アイテム情報は接続済み。入れるまでは既定値で表示・ZIP 名はワークフロー名）' : '・アイテム情報が未接続のため既定値（ZIP 名はワークフロー名）'}
           </div>
         </Field>
         {plan.warnings.map((w) => (

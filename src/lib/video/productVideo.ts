@@ -167,16 +167,79 @@ const VIEW_OF: Record<CutRole, 'front' | 'side' | 'back' | 'other'> = { front: '
 const NEG_NO_FRONT = 'facing the camera, front view, face toward the camera, turning toward the camera'
 const NEG_NO_BACK = 'back view, back to the camera, turning away from the camera'
 export const END_CUT_CFG_SCALE = 0.7   // 終了カットありは指示への追従を強める（既定 0.5）
-export function turnInstruction(role: CutRole, endRole: CutRole): { motion: string; negative: string | null } {
+type TurnKey = 'frontToSide' | 'sideToBack' | 'backToSide' | 'sideToFront' | 'frontToBack' | 'backToFront' | 'sideToSide' | 'other'
+const TURN_EN: Record<TurnKey, { motion: string; negative: string | null }> = {
+  frontToSide: { motion: 'Facing the camera, the model makes a short quarter turn and stops in profile exactly as in the final frame. Midway the camera sees a three-quarter front view; the back is never shown.', negative: NEG_NO_BACK },
+  sideToBack: { motion: 'Seen in profile, the model keeps turning away from the camera, a short quarter turn, until the back faces the camera exactly as in the final frame. Midway through the turn the camera sees the back of the shoulder and the back of the head; the face is turned away and never visible. The front of the body is never shown.', negative: NEG_NO_FRONT },
+  backToSide: { motion: 'Seen from behind, the model pivots a short quarter turn in place and ends up in profile exactly as in the final frame. Midway the camera sees a three-quarter back view, the back of the shoulder and the back of the head; the face stays hidden and the model never turns to face the camera.', negative: NEG_NO_FRONT },
+  sideToFront: { motion: 'Seen in profile, the model makes a short quarter turn toward the camera and stops facing it exactly as in the final frame. Midway the camera sees a three-quarter front view; the back is never shown.', negative: NEG_NO_BACK },
+  frontToBack: { motion: 'Facing the camera, the model turns around in one smooth half turn until the back faces the camera exactly as in the final frame.', negative: null },
+  backToFront: { motion: 'Seen from behind, the model turns around in one smooth half turn to face the camera exactly as in the final frame.', negative: null },
+  sideToSide: { motion: 'Seen in profile, the model turns in one smooth half turn through the front view and stops in the opposite profile exactly as in the final frame.', negative: NEG_NO_BACK },
+  other: { motion: 'The model moves smoothly from the first pose into the pose of the final frame by the shortest movement.', negative: null },
+}
+function turnKeyOf(role: CutRole, endRole: CutRole): TurnKey {
   const a = VIEW_OF[role], b = VIEW_OF[endRole]
-  if (a === 'front' && b === 'side') return { motion: 'Facing the camera, the model makes a short quarter turn and stops in profile exactly as in the final frame. Midway the camera sees a three-quarter front view; the back is never shown.', negative: NEG_NO_BACK }
-  if (a === 'side' && b === 'back') return { motion: 'Seen in profile, the model keeps turning away from the camera, a short quarter turn, until the back faces the camera exactly as in the final frame. Midway through the turn the camera sees the back of the shoulder and the back of the head; the face is turned away and never visible. The front of the body is never shown.', negative: NEG_NO_FRONT }
-  if (a === 'back' && b === 'side') return { motion: 'Seen from behind, the model pivots a short quarter turn in place and ends up in profile exactly as in the final frame. Midway the camera sees a three-quarter back view, the back of the shoulder and the back of the head; the face stays hidden and the model never turns to face the camera.', negative: NEG_NO_FRONT }
-  if (a === 'side' && b === 'front') return { motion: 'Seen in profile, the model makes a short quarter turn toward the camera and stops facing it exactly as in the final frame. Midway the camera sees a three-quarter front view; the back is never shown.', negative: NEG_NO_BACK }
-  if (a === 'front' && b === 'back') return { motion: 'Facing the camera, the model turns around in one smooth half turn until the back faces the camera exactly as in the final frame.', negative: null }
-  if (a === 'back' && b === 'front') return { motion: 'Seen from behind, the model turns around in one smooth half turn to face the camera exactly as in the final frame.', negative: null }
-  if (a === 'side' && b === 'side') return { motion: 'Seen in profile, the model turns in one smooth half turn through the front view and stops in the opposite profile exactly as in the final frame.', negative: NEG_NO_BACK }
-  return { motion: 'The model moves smoothly from the first pose into the pose of the final frame by the shortest movement.', negative: null }
+  if (a === 'front' && b === 'side') return 'frontToSide'
+  if (a === 'side' && b === 'back') return 'sideToBack'
+  if (a === 'back' && b === 'side') return 'backToSide'
+  if (a === 'side' && b === 'front') return 'sideToFront'
+  if (a === 'front' && b === 'back') return 'frontToBack'
+  if (a === 'back' && b === 'front') return 'backToFront'
+  if (a === 'side' && b === 'side') return 'sideToSide'
+  return 'other'
+}
+/** 英語の回転指示（旧ワークフローの互換: params.autoTurn のトグル時代に生成時に自動で付けていたもの） */
+export function turnInstruction(role: CutRole, endRole: CutRole): { motion: string; negative: string | null } {
+  return TURN_EN[turnKeyOf(role, endRole)]
+}
+
+// ── 回転の指示文を「動き」「避けたいこと」の欄に見える形で持つ（2026-11-01 ユーザー指摘: トグルで裏で付けるのではなく、テンプレートの時点で文として入っているのが自然）──
+// 日本語の定型文は対訳（BUILTIN_EN）を持つので、テンプレートのまま使えば LLM の翻訳は要らない。文を編集すれば通常どおり英訳される
+const TURN_EXTRA_EN = 'Feet stay planted, arms relaxed.'
+export const TO_END_EN = 'One continuous take with no cuts: the pose changes directly into the final frame by the shortest movement.'
+const TURN_TAIL_JP = '足は動かさず、腕はリラックス。カットなしの 1 テイクで、最短の動きで最後のコマの姿勢になる。'
+const TURN_JP: Record<TurnKey, string> = {
+  frontToSide: `正面を向いたまま、短く 4 分の 1 回転して最後のコマと同じ横向きで止まる。途中は斜め前からの見え方で、背中は見せない。${TURN_TAIL_JP}`,
+  sideToBack: `横向きのまま、カメラから離れる向きに短く 4 分の 1 回転して最後のコマと同じ後ろ向きで止まる。途中は肩の後ろと後頭部が見え、顔はそむけたまま見えない。体の前は見せない。${TURN_TAIL_JP}`,
+  backToSide: `後ろ向きのまま、その場で短く 4 分の 1 回転して最後のコマと同じ横向きで止まる。途中は斜め後ろからの見え方で、肩の後ろと後頭部が見え、顔は隠れたまま。カメラの方は向かない。${TURN_TAIL_JP}`,
+  sideToFront: `横向きからカメラの方へ短く 4 分の 1 回転して最後のコマと同じ正面向きで止まる。途中は斜め前からの見え方で、背中は見せない。${TURN_TAIL_JP}`,
+  frontToBack: `正面からなめらかに半回転して最後のコマと同じ後ろ向きで止まる。${TURN_TAIL_JP}`,
+  backToFront: `後ろ向きからなめらかに半回転して最後のコマと同じ正面向きで止まる。${TURN_TAIL_JP}`,
+  sideToSide: `横向きから正面を経由してなめらかに半回転し、最後のコマと同じ反対の横向きで止まる。${TURN_TAIL_JP}`,
+  other: `最初の姿勢から最後のコマの姿勢へ、最短の動きでなめらかに移る。${TURN_TAIL_JP}`,
+}
+export const NEG_JP_NO_FRONT = '正面を向く、正面からの姿、顔をカメラに向ける、カメラの方へ回る'
+export const NEG_JP_NO_BACK = '背中を見せる、後ろ向き、カメラに背を向けて回る'
+for (const k of Object.keys(TURN_JP) as TurnKey[]) BUILTIN_EN[TURN_JP[k]] = `${TURN_EN[k].motion} ${TURN_EXTRA_EN} ${TO_END_EN}`
+BUILTIN_EN[NEG_JP_NO_FRONT] = NEG_NO_FRONT
+BUILTIN_EN[NEG_JP_NO_BACK] = NEG_NO_BACK
+BUILTIN_EN[`${DEFAULT_NEGATIVE_PROMPT}、${NEG_JP_NO_FRONT}`] = `${BUILTIN_EN[DEFAULT_NEGATIVE_PROMPT]}, ${NEG_NO_FRONT}`
+BUILTIN_EN[`${DEFAULT_NEGATIVE_PROMPT}、${NEG_JP_NO_BACK}`] = `${BUILTIN_EN[DEFAULT_NEGATIVE_PROMPT]}, ${NEG_NO_BACK}`
+
+/** 始点 → 終点の回転の定型文（日本語）。negativeJp は「避けたいこと」に足す制約（無いときは null） */
+export function turnPreset(role: CutRole, endRole: CutRole): { motion: string; negativeJp: string | null } {
+  const key = turnKeyOf(role, endRole)
+  const neg = TURN_EN[key].negative
+  return { motion: TURN_JP[key], negativeJp: neg === NEG_NO_FRONT ? NEG_JP_NO_FRONT : neg === NEG_NO_BACK ? NEG_JP_NO_BACK : null }
+}
+/** 回転の定型文（日本語か英語）を含むか */
+export function hasTurnPreset(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  return (Object.values(TURN_JP) as string[]).some((x) => t.includes(x)) || (Object.values(TURN_EN)).some((x) => t.includes(x.motion))
+}
+/** 「動き」に回転の定型文を入れる。静止用の定型文や「足は動かさず…」だけなら置き換え、それ以外の文は定型文の後ろに残す */
+export function withTurnMotion(current: string, preset: string): string {
+  const cur = current.trim()
+  if (!cur || isStaticPresetMotion(cur) || hasTurnPreset(cur) || cur === '足は動かさず、腕はリラックス。') return preset
+  return `${preset}\n${cur}`
+}
+/** 「避けたいこと」に回転の制約を足す（空なら既定文から・重複は足さない） */
+export function withTurnNegative(current: string, negativeJp: string | null): string {
+  const cur = current.trim() || DEFAULT_NEGATIVE_PROMPT
+  if (!negativeJp || cur.includes(negativeJp)) return cur
+  return `${cur}、${negativeJp}`
 }
 /** 静止ショット用の定型文（テンプレートの motion と同じ文）。終了カットありのショットに残っていても指示には使わない */
 const STATIC_PRESETS = new Set(VIDEO_TEMPLATES.flatMap((t) => t.shots.filter((s) => !s.endRole).flatMap((s) => [s.motion.trim(), BUILTIN_EN[s.motion.trim()] ?? ''])).filter(Boolean))

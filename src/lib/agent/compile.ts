@@ -2,7 +2,8 @@
 // 一括処理の入口（Batch Input / Cut Set Input）があれば planTasks の注意も添える（LLM の修正ループと、ユーザーへの表示に使う）
 import { catalogNode, multiHandle, portsCompatible, type CatalogPort } from './catalog'
 import type { DslWorkflow } from './dsl'
-import { inputNodesOf, planTasks, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
+import { inputNodesOf, materializeTurnPresets, planTasks, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
+import { TRY_ON_MODEL_HANDLE } from '../tryon/prompt'
 
 export interface CompiledCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null }
 export interface CompileResult { canvas: CompiledCanvas | null; errors: string[]; notes: string[]; name: string }
@@ -71,13 +72,15 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     if (!changed) break
   }
   const colY = new Map<number, number>()
-  const nodes: SnapshotNode[] = order.map((k) => {
+  const placed: SnapshotNode[] = order.map((k) => {
     const v = byId.get(k)!
     const col = depth.get(k) ?? 0
     const y = colY.get(col) ?? Y0
     colY.set(col, y + v.height + GAP)
     return { id: v.id, type: v.catalog.rfType, position: { x: X0 + col * COL_W, y }, data: v.data }
   })
+  // 始点と終点の向きが違う Video Generation には回転の定型文を「動き」「避けたいこと」に入れる（テンプレートと同じ・トグル廃止）
+  const nodes = materializeTurnPresets(placed, edges).nodes.map((n) => (n.data?.type === 'videoGen' ? { ...n, data: { ...n.data, params: { ...n.data.params, autoTurn: false } } } : n))
   const canvas: CompiledCanvas = { nodes, edges, viewport: null }
 
   // 注意: 一括処理の入口があれば計画の注意を添える。Try-On があればモデルの選択を促す
@@ -87,6 +90,10 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     notes.push(...warnings)
     if (!tasks.length) notes.push('この構成では一括実行の対象になる AI 処理がありません（対話実行で使います）')
   }
-  if (nodes.some((n) => n.data?.type === 'tryOn')) notes.push('Try-On のモデルは、作ったあとにノードの「モデル」でライブラリのモデルと向きを選んでください')
+  if (nodes.some((n) => n.data?.type === 'libraryModel')) notes.push('モデルは、作ったあとに Model ノードでライブラリのモデルを選んでください（向きごとの出力が Try-On に入ります）')
+  for (const n of nodes) {
+    if (n.data?.type !== 'tryOn' || edges.some((e) => e.target === n.id && e.targetHandle === TRY_ON_MODEL_HANDLE)) continue
+    notes.push(`Try-On（${n.data.label}）のモデル入力に Model ノード（ライブラリのモデル）か参照画像をつないでください`)
+  }
   return { canvas, errors, notes, name }
 }

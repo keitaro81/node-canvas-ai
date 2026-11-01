@@ -46,7 +46,7 @@ export class FalVideoProvider implements VideoProvider {
       const resolved = resolveAspectRatio(modelDef, request)
       const aspectRatio = resolved === null && request.imageUrl ? await detectAspectRatio(request.imageUrl) : (resolved ?? undefined)
       const input = buildVideoInput(modelDef, request, safeDuration, safeFps, aspectRatio);
-      console.log('[fal-video] request input:', input);
+      if (import.meta.env.DEV) console.log('[fal-video] request input:', input);
 
       const result = await fal.subscribe(endpoint, {
         input,
@@ -70,7 +70,7 @@ export class FalVideoProvider implements VideoProvider {
         },
       });
 
-      console.log('[fal-video] raw result:', result);
+      if (import.meta.env.DEV) console.log('[fal-video] raw result:', result);
 
       // レスポンス形式の違いに対応: video / videos[0] どちらも受け取る
       type VideoFile = { url?: string; file_name?: string; content_type?: string };
@@ -136,7 +136,7 @@ export class FalVideoProvider implements VideoProvider {
       });
 
       const result = await fal.queue.result(endpoint, { requestId });
-      console.log('[fal-video] recovery result:', result);
+      if (import.meta.env.DEV) console.log('[fal-video] recovery result:', result);
 
       type VideoFile = { url?: string; file_name?: string; content_type?: string };
       type FalResult = { data?: { video?: VideoFile; videos?: VideoFile[] } };

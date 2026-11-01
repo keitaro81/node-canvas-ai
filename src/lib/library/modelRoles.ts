@@ -10,6 +10,8 @@ export const MODEL_ROLES: CutRoleDef[] = [
   { id: 'back', label: '背面', hint: '後ろ姿（全身でよい）' },
 ]
 export const isModelRole = (r: unknown): r is CutRole => typeof r === 'string' && (MODEL_ROLE_IDS as string[]).includes(r)
+/** 「画像を追加」のモデルタブで選んだ向きのキー（モデル id + 向き） */
+export const modelCutKey = (modelId: string, role: CutRole) => `modelcut:${modelId}:${role}`
 /** 枠に出す役割: 4 役割 + 既存データに入っている旧役割（ディテール・全身） */
 export function modelRolesToShow(cuts: Partial<Record<CutRole, unknown>>): CutRoleDef[] {
   const extra = CUT_ROLES.filter((r) => !isModelRole(r.id) && !!cuts[r.id])

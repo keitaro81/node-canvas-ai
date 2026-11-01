@@ -10,6 +10,7 @@ import { DEFAULT_CUTOUT_PARAMS, normalizeCutoutParams } from '../cutout/engines'
 import { DEFAULT_EXPORT_PARAMS, normalizeExportParams } from '../export/naming'
 import { DEFAULT_BATCH_INPUT_PARAMS, normalizeBatchInputParams } from '../batch/items'
 import { DEFAULT_TRY_ON_PARAMS, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, normalizeTryOnParams } from '../tryon/prompt'
+import { MODEL_ROLES } from '../library/modelRoles'
 import { VIDEO_MODELS } from '../ai/videoModels'
 import { NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS } from '../ai/imageGenModels'
 
@@ -72,6 +73,14 @@ export const NODE_CATALOG: CatalogNode[] = [
     outputs: [{ port: 'image', handle: REFERENCE_IMAGE_OUTPUT, kind: 'image', label: '画像' }],
     params: [],
     build: (label) => ({ type: 'referenceImage', label, imageUrl: null, uploadedImagePreview: null, status: 'idle' }),
+  },
+  {
+    type: 'libraryModel', rfType: 'libraryModelNode', label: 'Model', height: 300,
+    description: 'ライブラリに登録したモデル（人物）。ユーザーが作ったあとにノードでモデルを選ぶと、向きごとの出力（正面 / 右側面 / 左側面 / 背面）にそのモデルの写真が入る。Try-On の model には、服のカットと同じ向きの出力をつなぐ。1 つの Model ノードから複数の Try-On につなげる',
+    inputs: [],
+    outputs: MODEL_ROLES.map((r) => ({ port: r.id, handle: cutSetRoleHandle(r.id), kind: 'image' as PortType, label: `${r.label}のモデル写真` })),
+    params: [],
+    build: (label) => ({ type: 'libraryModel', label, params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} }),
   },
   {
     type: 'referenceVideo', rfType: 'referenceVideoNode', label: 'Reference Video', height: 400,
@@ -150,7 +159,7 @@ export const NODE_CATALOG: CatalogNode[] = [
   },
   {
     type: 'videoGen', rfType: 'videoGenerationNode', label: 'Video Generation', height: 620,
-    description: '画像から動画（AI 段）。start に開始フレーム、end に終了フレーム（任意）、text に Text Prompt（共通の説明）。向きのある画像（Cut Set Input の向き・Try-On の結果）を start/end につなぐと「正面 → 右側面」の回転指示が自動で付く。商品動画は kling-v3-pro・3〜15 秒',
+    description: '画像から動画（AI 段）。start に開始フレーム、end に終了フレーム（任意）、text に Text Prompt（共通の説明）。向きのある画像（Cut Set Input の向き・Try-On の結果・Model の出力）を start/end につなぐと「正面 → 右側面」の回転の指示文が動きの欄に自動で入る（prompt は書かなくてよい）。商品動画は kling-v3-pro・3〜15 秒',
     inputs: [
       { port: 'text', handle: 'in-text', kind: 'text', label: 'プロンプト' },
       { port: 'start', handle: VIDEO_GEN_START_HANDLE, kind: 'image', label: '開始フレーム' },
@@ -163,14 +172,13 @@ export const NODE_CATALOG: CatalogNode[] = [
       { key: 'model', type: 'enum', enum: VIDEO_MODEL_IDS, default: PRODUCT_VIDEO_DEFAULT_MODEL, description: '動画モデル' },
       { key: 'duration', type: 'enum', enum: ['3', '4', '5', '6', '8', '10'], default: '3', description: '秒数' },
       { key: 'aspectRatio', type: 'enum', enum: ['auto', '16:9', '9:16', '1:1'], default: 'auto', description: '比率。商品動画は auto（写真の比率のまま）にする。横長・縦長を指定されたときだけ 16:9 / 9:16' },
-      { key: 'prompt', type: 'string', default: '', description: '動き（日本語可）。回転指示が自動で付くときは補足だけ' },
+      { key: 'prompt', type: 'string', default: '', description: '動き（日本語可）。回転の指示文が自動で入るときは補足だけ' },
       { key: 'negativePrompt', type: 'string', default: DEFAULT_NEGATIVE_PROMPT, description: '避けたいこと（日本語可）' },
-      { key: 'autoTurn', type: 'boolean', default: true, description: '始点・終点の向きから回転指示を自動で付ける' },
     ],
     build: (label, p) => ({
       type: 'videoGen', label, model: pick(p.model, VIDEO_MODEL_IDS, PRODUCT_VIDEO_DEFAULT_MODEL), duration: pick(p.duration, ['3', '4', '5', '6', '8', '10'] as const, '3'), resolution: '1080p', aspectRatio: pick(p.aspectRatio, ['auto', '16:9', '9:16', '1:1'] as const, 'auto'),
       fps: 25, audioEnabled: false, seed: null, count: 1, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, activeDisplayNodeId: null,
-      params: { prompt: str(p.prompt), negativePrompt: str(p.negativePrompt, DEFAULT_NEGATIVE_PROMPT), autoTurn: p.autoTurn !== false },
+      params: { prompt: str(p.prompt), negativePrompt: str(p.negativePrompt, DEFAULT_NEGATIVE_PROMPT) },   // 回転の指示文は compile が欄に入れてから autoTurn: false にする（トグル廃止・2026-11-01）
     }),
   },
   {
@@ -183,8 +191,8 @@ export const NODE_CATALOG: CatalogNode[] = [
   },
   {
     type: 'tryOn', rfType: 'tryOnNode', label: 'Try-On', height: 520,
-    description: '試着（AI 段）。garment に服の画像（写真・切り抜き・Cut Set Input の向きのカット）、model にモデル画像（つながなければユーザーがノードの「モデル」でライブラリのモデルと向きを選ぶ。role に向きの予定を入れる）。出力は着用画像で、Video Generation の start/end にもつなげる（向きが引き継がれる）',
-    inputs: [{ port: 'model', handle: TRY_ON_MODEL_HANDLE, kind: 'image', label: 'モデル画像（任意）' }, { port: 'garment', handle: TRY_ON_GARMENT_HANDLE, kind: 'image', label: '服の画像', acceptsCutout: true }],
+    description: '試着（AI 段）。garment に服の画像（写真・切り抜き・Cut Set Input の向きのカット）、model にモデル画像（Model ノードの同じ向きの出力を必ずつなぐ。モデルの中身はユーザーが後で選ぶ）。role に向きの予定を入れる。出力は着用画像で、Video Generation の start/end にもつなげる（向きが引き継がれる）',
+    inputs: [{ port: 'model', handle: TRY_ON_MODEL_HANDLE, kind: 'image', label: 'モデル画像（Model ノードの向きの出力）' }, { port: 'garment', handle: TRY_ON_GARMENT_HANDLE, kind: 'image', label: '服の画像', acceptsCutout: true }],
     outputs: [{ port: 'image', handle: TRY_ON_OUTPUT_HANDLE, kind: 'image', label: '着用画像' }],
     params: [
       { key: 'role', type: 'enum', enum: ['front', 'right', 'left', 'back'], default: 'front', description: '向きの予定（服の写真と同じ向き）' },

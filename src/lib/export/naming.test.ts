@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyNamePattern, dateToken, folderFor, normalizeExportParams, planExportEntries, qualitySteps, sanitizeFileName, zipFileName, DEFAULT_EXPORT_PARAMS } from './naming'
+import { applyNamePattern, dateToken, folderFor, normalizeExportParams, planExportEntries, qualitySteps, sanitizeFileName, unknownTokens, zipFileName, DEFAULT_EXPORT_PARAMS } from './naming'
 
 const now = new Date('2026-09-23T15:30:00Z') // JST 2026-09-24 00:30
 const item = { sku: 'AB-123', original: 'AB-123_front', index: 7 }
@@ -58,6 +58,13 @@ describe('その他', () => {
     expect(p.format).toBe('jpeg'); expect(p.jpegQuality).toBe(70); expect(p.maxFileKb).toBeNull(); expect(p.zipFolders).toBe('variant'); expect(p.namePattern).toBe(DEFAULT_EXPORT_PARAMS.namePattern)
     expect(dateToken(now)).toBe('20260924')
     expect(zipFileName(item, now)).toBe('AB-123_20260924.zip')
+    expect(zipFileName(item, now, 'wf-name')).toBe('wf-name_20260924.zip')   // アイテム情報が無いときはワークフロー名
+    expect(zipFileName(item, now, '  ')).toBe('AB-123_20260924.zip')
+  })
+  it('unknownTokens: 置き換えできない {…} を列挙（固定の文字を {} で囲んだ指摘・2026-11-01）', () => {
+    expect(unknownTokens('{商品動画}_{右反転}_{index:02}')).toEqual(['{商品動画}', '{右反転}'])
+    expect(unknownTokens('{sku}_{original}_{variant}_{index}_{index:02}_{date}')).toEqual([])
+    expect(unknownTokens('商品動画_{sku}_{index:3}')).toEqual(['{index:3}'])
   })
 })
 

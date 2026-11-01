@@ -130,6 +130,14 @@ export function qualitySteps(start: number): number[] {
 }
 
 /** ZIP のファイル名 */
-export function zipFileName(item: BatchItemInfo, now: Date): string {
-  return sanitizeFileName(`${item.sku}_${dateToken(now)}.zip`)
+export function zipFileName(item: BatchItemInfo, now: Date, baseOverride?: string | null): string {
+  const base = (baseOverride ?? '').trim() || item.sku
+  return sanitizeFileName(`${base}_${dateToken(now)}.zip`)
+}
+
+/** 規則の中の置き換えできない {…}（固定の文字を {} で囲んだときなど。2026-11-01 の指摘）。固定の文字は {} なしで書く */
+export function unknownTokens(pattern: string): string[] {
+  const out: string[] = []
+  for (const m of pattern.matchAll(/\{([^{}]*)\}/g)) { const t = m[1]; if (!/^(sku|original|variant|index(?::0\d+)?|date)$/.test(t)) out.push(`{${t}}`) }
+  return [...new Set(out)]
 }

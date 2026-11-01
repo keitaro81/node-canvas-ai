@@ -27,7 +27,7 @@ describe('planTasks（写しから AI 処理を抽出）', () => {
   it('Batch Input 直結の Remove Background はアイテムごと、背景入力に行き着くジョブごとの Image Generation は 1 件（結果ノード経由でも）', () => {
     const { tasks, warnings } = planTasks(snapshot)
     expect(tasks.map((t) => `${t.nodeId}:${t.scope}:${t.endpoint}`)).toEqual(['rb:item:fal-ai/birefnet/v2', 'ig:job:fal-ai/nano-banana-2'])
-    expect(tasks[0].input).toMatchObject({ model: 'General Use (Light)', operating_resolution: '2048x2048', refine_foreground: false, mask_only: true })
+    expect(tasks[0].input).toMatchObject({ model: 'General Use (Light)', operating_resolution: '2048x2048', refine_foreground: false, mask_only: false })   // 常に透過画像も保存（2026-11-01）
     expect('image_url' in tasks[0].input).toBe(false)
     expect(tasks[1].input).toEqual({ prompt: 'studio background', aspect_ratio: '9:16', resolution: '1K' })   // プロンプトは Text Prompt から
     expect(warnings.length).toBe(2)   // rb2 未接続, ig2 背景につながっていない
@@ -173,8 +173,8 @@ describe('planTasks（フェーズ C: AI 処理 2 段までの連鎖）', () => 
     expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}:${t.dependsOn ?? '-'}:${t.endpoint}`)).toEqual(['gen:imageEdit:1:-:fal-ai/nano-banana-2/edit', 'rb:cutout:2:gen:fal-ai/birefnet/v2'])
     expect(tasks[0].input).toEqual({ prompt: 'soft retouch', aspect_ratio: 'auto', resolution: '1K' })
     expect(tasks[0].label).toBe('レタッチ')
-    expect(tasks[1].dualOutput).toBe(false)
-    expect(tasks[1].input.mask_only).toBe(true)
+    expect(tasks[1].dualOutput).toBe(true)   // 後段の有無に関わらず透過画像も保存（2026-11-01・常に dual）
+    expect(tasks[1].input.mask_only).toBe(false)
   })
   it('④ 写真 → 切り抜き → 合成: 切り抜きは両出力（mask_only=false）、合成は 2 段目で切り抜き待ち', () => {
     const snap = {
@@ -310,7 +310,7 @@ describe('商品動画（Product Video ノードの写し）', () => {
     expect(tasks[0].endpoint).toBe('fal-ai/kling-video/v3/pro/image-to-video')
     expect(tasks[0].input).toMatchObject({ duration: '3', generate_audio: false, negative_prompt: 'blur', __shot: { index: 0, role: 'right', endRole: null, duration: 3 } })
     expect(String(tasks[0].input.prompt)).toMatch(/^Studio\.\n@Element1 wearing the garment\. The model stands in profile/)
-    expect(tasks[3]).toMatchObject({ endpoint: 'fal-ai/ffmpeg-api/merge-videos', dependsOn: ['pv:shot:0', 'pv:shot:1', 'pv:shot:2'], label: '商品動画（結合）' })
+    expect(tasks[3]).toMatchObject({ endpoint: 'fal-ai/ffmpeg-api/merge-videos', dependsOn: ['pv:shot:0', 'pv:shot:1', 'pv:shot:2'], label: 'Video Merge' })
     expect(warnings.some((w) => w.includes('対象外'))).toBe(true)
   })
   it('前段が複数のときは全部の完了を待ち、1 つでも失敗なら投入できない', () => {
@@ -336,7 +336,7 @@ describe('商品動画（ターンテーブル: 始点と終点）', () => {
   it('終了カット付きのショットは __shot.endRole を持ち、見出しに矢印が入る', () => {
     const { tasks } = planTasks({ nodes: [{ id: 'pv', data: { type: 'productVideo', params: { templateId: 'turntable12' } } }], edges: [] })
     expect(tasks.filter((t) => t.kind === 'videoShot').map((t) => (t.input.__shot as { role: string; endRole: string | null }).endRole)).toEqual(['right', 'back', 'left', 'front'])
-    expect(tasks[0].label).toBe('Product Video 1: 正面 → 右側面')
+    expect(tasks[0].label).toBe('ショット 1: 正面 → 右側面')   // 展開のラベルはテンプレートと同じ（旧ノードの名前は付けない・2026-11-01）
     // 終了カットあり: 回転の指示・見せてはいけない向きの negative・cfg_scale
     expect(tasks[1].input.prompt).toContain('keeps turning away from the camera')
     expect(tasks[1].input.negative_prompt).toContain('facing the camera, front view')

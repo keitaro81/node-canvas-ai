@@ -161,6 +161,7 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
           {items.map((it) => {
             const merge = mergeOf(it.id)
             const shots = shotsOf(it.id)
+            const shotsDone = shots.filter((s) => s.status === 'completed').length
             const mergedUrl = merge?.result_path ? signed[merge.result_path] : null
             const st = ITEM_STATUS_META[it.status]
             const isOpen = !!open[it.id]
@@ -168,11 +169,14 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
               <div key={it.id} className="flex flex-col gap-1.5">
                 <div className="relative w-full" style={{ background: 'var(--bg-placeholder)', aspectRatio: it.width && it.height ? `${it.width} / ${it.height}` : '4 / 5', maxHeight: 520, border: '1px solid var(--border)' }}>
                   {mergedUrl ? (
-                    <MediaImg video src={mergedUrl} className="absolute inset-0 w-full h-full object-contain" muted loop autoPlay playsInline />
+                    <>
+                      <MediaImg video src={mergedUrl} className="absolute inset-0 w-full h-full object-contain" muted loop autoPlay playsInline />
+                      {merge && merge.status !== 'completed' && <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)' }}>{merge.status === 'submitted' ? '結合中…' : '結合待ち（ショットを作り直し中）'}</span>}
+                    </>
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[11px]" style={{ color: it.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>
                       {it.status === 'processing' || it.status === 'pending' ? <CircleNotch size={16} className="animate-spin" /> : null}
-                      <span>{it.status === 'failed' ? '失敗' : merge && merge.status === 'submitted' ? (merge.input?.__kind === 'videoShot' ? '生成中…' : '結合中…') : shots.some((s) => s.status === 'completed') ? `ショット ${shots.filter((s) => s.status === 'completed').length} / ${shots.length} 完了` : st.label}</span>
+                      <span>{it.status === 'failed' ? '失敗' : merge && merge.status === 'submitted' ? (merge.input?.__kind === 'videoShot' ? '生成中…' : '結合中…') : shots.length > 0 && shotsDone === shots.length && merge && merge.status !== 'completed' ? '結合待ち' : shotsDone > 0 ? `ショット ${shotsDone} / ${shots.length} 完了・終わると結合します` : st.label}</span>
                       {it.status === 'failed' && (merge?.error || shots.find((s) => s.error)?.error) ? <span className="px-3 text-center text-[10px]">{merge?.error ?? shots.find((s) => s.error)?.error}</span> : null}
                     </div>
                   )}
@@ -180,33 +184,36 @@ export function VideoReviewPanel({ jobId, compact, onDeleted }: Props) {
                 <div className="flex items-center gap-2 min-w-0 px-0.5">
                   <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }} title={it.sku}>{it.sort_order}. {it.sku}</span>
                   <div className="flex-1" />
-                  {shots.length > 0 && <button className="text-[11px] hover:underline" style={{ color: 'var(--text-secondary)' }} onClick={() => setOpen((o) => ({ ...o, [it.id]: !isOpen }))}>{isOpen ? 'カットを閉じる' : `カット ${shots.length}`}</button>}
+                  {shots.length > 0 && <button className="text-[11px] hover:underline" style={{ color: 'var(--text-secondary)' }} onClick={() => setOpen((o) => ({ ...o, [it.id]: !isOpen }))}>{isOpen ? 'ショットを閉じる' : `ショット ${shots.length} 本を見る`}</button>}
                   {mergedUrl && merge?.result_path && <button className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-secondary)' }} title="この動画をダウンロード（MP4）" onClick={() => void download(merge.result_path as string, fileNameFor(it, merge, false))}><DownloadSimple size={14} /></button>}
                 </div>
                 {isOpen && (
-                  <div className="grid grid-cols-3 gap-1">
+                  <div className="grid grid-cols-3 gap-1.5">
                     {shots.map((s) => {
                       const n = shotIndex(s) + 1
                       const roleLabel = shotLabel(s)
                       const url = s.result_path ? signed[s.result_path] : null
+                      // 作り直し中（送信中 / 生成中 / 待機）はタイルに進行を出し、「やり直す」は完了・失敗のときだけ押せる（導線を見えるように・2026-11-01）
+                      const busyHere = rerunBusy === s.id || s.status === 'submitted' || (s.status === 'pending' && isActiveJob(job))
+                      const canRerun = (s.status === 'completed' || s.status === 'failed') && !busyHere && !rerunBusy
                       return (
-                        <div key={s.id} className="relative rounded overflow-hidden group/shot" style={{ aspectRatio: '4 / 5', background: 'var(--bg-placeholder)', border: '1px solid var(--border)' }} title={`${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
-                          {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : s.status === 'submitted' ? '生成中' : '待機'}</div>}
-                          <span className="absolute bottom-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{n} {roleLabel}</span>
-                          {/* このショットだけ作り直す（完了 / 失敗のときだけ。確認 → 投入） */}
-                          {(s.status === 'completed' || s.status === 'failed') && rerunBusy !== s.id && (rerunFor === s.id ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] px-1 text-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
-                              <span className="text-white">このショットを作り直す？</span>
-                              <span style={{ color: '#D1D5DB' }}>終わると結合もやり直します（費用は秒数分）</span>
-                              <div className="flex gap-1 mt-0.5">
-                                <button className="px-2 h-6 rounded text-white font-medium" style={{ background: '#F59E0B' }} onClick={() => void rerunShot(it, s)}>やり直す</button>
-                                <button className="px-2 h-6 rounded text-white" style={{ background: 'rgba(255,255,255,0.2)' }} onClick={() => setRerunFor(null)}>やめる</button>
+                        <div key={s.id} className="flex flex-col rounded overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-placeholder)' }} title={`ショット ${n}: ${roleLabel}${s.error ? ` / ${s.error}` : ''}`}>
+                          <div className="relative" style={{ aspectRatio: '4 / 5' }}>
+                            {url ? <MediaImg video src={url} className="absolute inset-0 w-full h-full object-cover" muted loop autoPlay playsInline /> : <div className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: s.status === 'failed' ? '#EF4444' : 'var(--text-tertiary)' }}>{s.status === 'failed' ? '失敗' : s.status === 'completed' ? '…' : ''}</div>}
+                            <span className="absolute top-0.5 left-0.5 px-1 rounded text-[9px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>{n} {roleLabel}</span>
+                            {rerunFor === s.id && !busyHere && (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] px-1 text-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
+                                <span className="text-white">このショットを作り直す？</span>
+                                <span style={{ color: '#D1D5DB' }}>終わると結合もやり直します（費用は秒数分）</span>
+                                <div className="flex gap-1 mt-0.5">
+                                  <button className="px-2 h-6 rounded text-white font-medium" style={{ background: '#F59E0B' }} onClick={() => void rerunShot(it, s)}>やり直す</button>
+                                  <button className="px-2 h-6 rounded text-white" style={{ background: 'rgba(255,255,255,0.2)' }} onClick={() => setRerunFor(null)}>やめる</button>
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <button className="absolute top-0.5 right-0.5 w-6 h-6 rounded-full flex items-center justify-center text-white opacity-0 group-hover/shot:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)' }} title="このショットだけ作り直す（終わると結合もやり直します。費用は秒数分）" onClick={() => setRerunFor(s.id)} disabled={!!rerunBusy}><ArrowCounterClockwise size={12} weight="bold" /></button>
-                          ))}
-                          {rerunBusy === s.id && <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}><CircleNotch size={16} className="animate-spin" color="#fff" /></div>}
+                            )}
+                            {busyHere && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.55)' }}><CircleNotch size={16} className="animate-spin" />{rerunBusy === s.id ? '送信中…' : s.status === 'submitted' ? '作り直し中…' : '待機中'}</div>}
+                          </div>
+                          <button className="h-6 flex items-center justify-center gap-1 text-[10px] font-medium disabled:opacity-40" style={{ color: 'var(--text-primary)', borderTop: '1px solid var(--border)' }} onClick={() => setRerunFor(rerunFor === s.id ? null : s.id)} disabled={!canRerun} title="このショットだけ作り直す（設定はそのまま。終わると結合もやり直します。費用は秒数分）"><ArrowCounterClockwise size={11} weight="bold" />やり直す</button>
                         </div>
                       )
                     })}

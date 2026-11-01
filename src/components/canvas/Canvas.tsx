@@ -54,6 +54,7 @@ import { BatchResultsNode } from '../nodes/BatchResultsNode'
 import { ProductVideoNode } from '../nodes/ProductVideoNode'
 import { VideoMergeNode } from '../nodes/VideoMergeNode'
 import { TryOnNode, TRY_ON_GARMENT_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../nodes/TryOnNode'
+import { LibraryModelNode } from '../nodes/LibraryModelNode'
 import { DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
 import { CutSetInputNode } from '../nodes/CutSetInputNode'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
@@ -90,6 +91,7 @@ const nodeTypes: NodeTypes = {
   productVideoNode: ProductVideoNode,
   videoMergeNode: VideoMergeNode,
   tryOnNode: TryOnNode,
+  libraryModelNode: LibraryModelNode,
   cutSetInputNode: CutSetInputNode,
 }
 
@@ -118,6 +120,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   productVideo:    'productVideoNode',
   videoMerge:      'videoMergeNode',
   tryOn:           'tryOnNode',
+  libraryModel:    'libraryModelNode',
   cutSetInput:     'cutSetInputNode',
 }
 
@@ -139,6 +142,7 @@ const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
   requestId: null,
   requestEndpoint: null,
   activeDisplayNodeId: null,
+  params: { prompt: '', negativePrompt: '', autoTurn: false },
   capsuleFields: {
     model:        { id: 'model',        capsuleVisibility: 'visible' },
     duration:     { id: 'duration',     capsuleVisibility: 'visible' },
@@ -340,6 +344,7 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   videoMerge:     'out-video',
   cutSetInput:    'out-image-front',
   tryOn:          TRY_ON_OUTPUT_HANDLE,
+  libraryModel:   'out-image-front',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
@@ -663,6 +668,8 @@ export function Canvas() {
         data = { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }
       } else if (type === 'tryOn') {
         data = { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
+      } else if (type === 'libraryModel') {
+        data = { type: 'libraryModel', label, params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
@@ -1160,6 +1167,8 @@ export function Canvas() {
         data = { ...EXPORT_DEFAULT_DATA, params: { ...DEFAULT_EXPORT_PARAMS }, label }
       } else if (type === 'tryOn') {
         data = { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
+      } else if (type === 'libraryModel') {
+        data = { type: 'libraryModel', label, params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} }
       } else {
         data = { type, label, params: {}, status: 'idle' }
       }
