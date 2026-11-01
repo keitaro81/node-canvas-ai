@@ -9,6 +9,7 @@ import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
 import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceImageNodeData } from '../../types/nodes'
+import { CUT_ROLES, type CutRole } from '../../lib/video/productVideo'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 
 function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
@@ -240,6 +241,14 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
               )}
             </button>
           )}
+          {/* 向き（2026-11-01）: 多角度の動画（開始・終了フレームの向き → 回転の指示文・Kling の参照一式）や試着の向きに使う */}
+          <label className="flex items-center justify-between gap-2 mt-2 text-[11px] nodrag" style={{ color: 'var(--text-secondary)' }}>
+            <span title="多角度の動画（Video Generation の開始・終了フレーム）や試着で、この画像の向きとして使います">向き</span>
+            <select className="h-7 px-2 rounded-md text-[11px] nodrag" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} value={nodeData.role ?? ''} onChange={(e) => updateNode(id, { role: (e.target.value || null) as CutRole | null } as Parameters<typeof updateNode>[1])}>
+              <option value="">なし</option>
+              {CUT_ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </label>
         </div>
         <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="canvas" onPick={(items) => { void handlePick(items) }} />
 

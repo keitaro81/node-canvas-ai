@@ -97,12 +97,6 @@ const PALETTE = [
       { type: 'batchResults' as NodeType, label: 'Batch Results', description: '一括実行のジョブと結果（切り抜き・バリアント・生成結果）をこのキャンバスで確認', icon: <SquaresFour size={15} />, color: '#14B8A6' },
     ],
   },
-  {
-    category: '商品動画',
-    items: [
-      { type: 'cutSetInput' as NodeType, label: 'Cut Set Input', description: 'SKU ごとの役割別カット（正面・側面…）を受け取り 1 SKU ずつ流す。役割ごとの出力を Video Generation につなぐ', icon: <FilmSlate size={15} />, color: '#EC4899' },
-    ],
-  },
 ]
 
 // ─────────────────────────────────────────
@@ -119,9 +113,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   batchInput: 'batchInputNode',
   export: 'exportNode',
   batchResults: 'batchResultsNode',
-  productVideo: 'productVideoNode',
   videoMerge: 'videoMergeNode',
-  cutSetInput: 'cutSetInputNode',
   tryOn: 'tryOnNode',
   libraryModel: 'libraryModelNode',
 }
@@ -170,9 +162,6 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'libraryModel') {
     return { type: 'libraryModel', label, params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} }
-  }
-  if (type === 'cutSetInput') {
-    return { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }
   }
   return { type, label, params: {}, status: 'idle' }
 }

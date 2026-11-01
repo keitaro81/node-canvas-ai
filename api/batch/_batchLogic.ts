@@ -10,12 +10,12 @@ import { verifyFalWebhook, type FalWebhookBody, type WebCryptoKey } from './_fal
 import { jstDayRangeUtc, jstDateTimeLabel } from '../../src/lib/batch/dates'
 import { CUT_ROLES, cutOf, elementCutsOf, shotRoleLabel, type CutRole, type ItemCut, type VideoShotSpec } from '../../src/lib/video/productVideo'
 import { nearestAspectRatio } from '../../src/lib/ai/videoModels'
-import { availableVideos, inputNodesOf, planTasks, promptTextsToTranslateForPlan, refsOf, taskMapOf, taskSatisfied, type InputRef, type PlannedTask, type TaskInputs, type VideoTaskMeta, type WorkflowSnapshot } from '../../src/lib/batch/plan'
+import { availableVideos, planTasks, promptTextsToTranslateForPlan, refsOf, taskMapOf, taskSatisfied, type InputRef, type PlannedTask, type TaskInputs, type VideoTaskMeta, type WorkflowSnapshot } from '../../src/lib/batch/plan'
 import { translatePromptTexts } from './_translate'
 import { parseStorageUrl, signMediaServer } from '../storage/_signMediaLogic'
 
 // 計画は純関数（src/lib/batch/plan.ts）。テストと dev ミドルウェアはここから引けるように再公開する
-export { planTasks, MAX_ITEM_STAGES, expandProductVideo, type PlannedTask, type PlannedKind, type WorkflowSnapshot, type SnapshotNode, type SnapshotEdge } from '../../src/lib/batch/plan'
+export { planTasks, MAX_ITEM_STAGES, type PlannedTask, type PlannedKind, type WorkflowSnapshot, type SnapshotNode, type SnapshotEdge } from '../../src/lib/batch/plan'
 
 export const BATCH_BUCKET = 'batch'
 export const MAX_ITEMS_PER_JOB = 50
@@ -222,7 +222,6 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
   const items = Array.isArray(body?.items) ? body.items : []
   const plan = planTasks(body?.workflowSnapshot)
   const hasVideo = plan.tasks.some((t) => t.kind === 'videoShot')          // 動画を作るジョブ（本で数える・結果欄は動画）
-  const needsCuts = !!inputNodesOf(body?.workflowSnapshot).cutSetInputId    // Cut Set Input がある写し: 1 件 = 1 SKU（役割ごとのカット・正面は必須）
   for (const it of items) {
     if (!it || typeof it.originalName !== 'string' || typeof it.sku !== 'string' || typeof it.interactivePath !== 'string') return fail(400, 'invalid_item')
     if (!it.interactivePath.startsWith(`${m.teamId}/`)) return fail(400, 'invalid_item_path', { message: '他チームのファイルは使えません' })
@@ -230,8 +229,7 @@ export async function batchCreate(admin: Admin, userId: string, body: CreateBody
     if (it.cuts !== undefined) {
       if (!Array.isArray(it.cuts) || it.cuts.some((c) => !c || typeof c.path !== 'string' || !CUT_ROLES.some((r) => r.id === c.role))) return fail(400, 'invalid_item_cuts', { message: 'カットの指定が不正です' })
       if (it.cuts.some((c) => !c.path.startsWith(`${m.teamId}/`))) return fail(400, 'invalid_item_path', { message: '他チームのファイルは使えません' })
-      if (needsCuts && !it.cuts.some((c) => c.role === 'front')) return fail(400, 'front_cut_required', { message: `${it.sku}: 正面のカットが必要です` })
-    } else if (needsCuts) return fail(400, 'cuts_required', { message: '商品動画には役割ごとのカットが必要です' })
+    }
   }
 
   // 固定の画像（Try-On のモデル・参照画像など。全アイテム共通）: 呼び出し者がアクセスできるものだけ受け付ける（sign-media と同じ判定）。投入時は service role で署名する

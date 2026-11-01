@@ -33,14 +33,14 @@ describe('DSL → キャンバス', () => {
   })
   it('Model ノード → Try-On、Try-On の結果 → Video Generation の始点・終点: 回転の定型文が欄に入り、autoTurn は false', () => {
     const r = compileWorkflow({
-      nodes: [{ id: 'cuts', type: 'cutSetInput' }, { id: 'm', type: 'libraryModel' }, { id: 'tf', type: 'tryOn', params: { role: 'front' } }, { id: 'tr', type: 'tryOn', params: { role: 'right' } }, { id: 'v', type: 'videoGen', params: { prompt: 'ゆっくり' } }],
-      edges: [{ from: 'cuts.front', to: 'tf.garment' }, { from: 'm.front', to: 'tf.model' }, { from: 'cuts.right', to: 'tr.garment' }, { from: 'm.right', to: 'tr.model' }, { from: 'tf.image', to: 'v.start' }, { from: 'tr.image', to: 'v.end' }],
+      nodes: [{ id: 'gf', type: 'referenceImage', params: { role: 'front' } }, { id: 'gr', type: 'referenceImage', params: { role: 'right' } }, { id: 'm', type: 'libraryModel' }, { id: 'tf', type: 'tryOn', params: { role: 'front' } }, { id: 'tr', type: 'tryOn', params: { role: 'right' } }, { id: 'v', type: 'videoGen', params: { prompt: 'ゆっくり' } }],
+      edges: [{ from: 'gf.image', to: 'tf.garment' }, { from: 'm.front', to: 'tf.model' }, { from: 'gr.image', to: 'tr.garment' }, { from: 'm.right', to: 'tr.model' }, { from: 'tf.image', to: 'v.start' }, { from: 'tr.image', to: 'v.end' }],
     })
     expect(r.errors).toEqual([])
     const v = r.canvas!.nodes.find((n) => n.id === 'v')!
     expect(v.data.params).toMatchObject({ autoTurn: false, negativePrompt: expect.stringContaining('背中を見せる') })
     expect(String(v.data.params.prompt)).toMatch(/^正面を向いたまま[\s\S]*\nゆっくり$/)
-    expect(r.canvas!.edges.filter((e) => e.target === 'tf').map((e) => `${e.source}.${e.sourceHandle}→${e.targetHandle}`)).toEqual(['cuts.out-image-front→in-image-garment', 'm.out-image-front→in-image-model'])
+    expect(r.canvas!.edges.filter((e) => e.target === 'tf').map((e) => `${e.source}.${e.sourceHandle}→${e.targetHandle}`)).toEqual(['gf.out-image→in-image-garment', 'm.out-image-front→in-image-model'])
     expect(r.notes.some((n) => n.includes('Model ノードでライブラリのモデルを選んで'))).toBe(true)
   })
   it('種別・ポート・相性・本数の誤りは errors（キャンバスは作らない）', () => {
@@ -59,8 +59,8 @@ describe('DSL → キャンバス', () => {
   })
   it('結合の順と動画の段', () => {
     const r = compileWorkflow({
-      nodes: [{ id: 'cuts', type: 'cutSetInput' }, { id: 'tp', type: 'textPrompt', params: { prompt: 'p' } }, { id: 's1', type: 'videoGen' }, { id: 's2', type: 'videoGen' }, { id: 'm', type: 'videoMerge' }],
-      edges: [{ from: 'cuts.front', to: 's1.start' }, { from: 'cuts.right', to: 's1.end' }, { from: 'cuts.right', to: 's2.start' }, { from: 'tp.text', to: 's1.text' }, { from: 'tp.text', to: 's2.text' }, { from: 's1.video', to: 'm.video' }, { from: 's2.video', to: 'm.video' }],
+      nodes: [{ id: 'in', type: 'batchInput' }, { id: 'rr', type: 'referenceImage', params: { role: 'right' } }, { id: 'tp', type: 'textPrompt', params: { prompt: 'p' } }, { id: 's1', type: 'videoGen' }, { id: 's2', type: 'videoGen' }, { id: 'm', type: 'videoMerge' }],
+      edges: [{ from: 'in.image', to: 's1.start' }, { from: 'rr.image', to: 's1.end' }, { from: 'in.image', to: 's2.start' }, { from: 'tp.text', to: 's1.text' }, { from: 'tp.text', to: 's2.text' }, { from: 's1.video', to: 'm.video' }, { from: 's2.video', to: 'm.video' }],
     })
     expect(r.errors).toEqual([])
     expect(r.canvas!.edges.filter((e) => e.target === 'm').map((e) => e.targetHandle)).toEqual(['in-video-1', 'in-video-2'])

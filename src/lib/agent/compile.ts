@@ -1,5 +1,5 @@
 // チャットでワークフローを組む: DSL → キャンバス（テンプレートと同じ形）。種別・ポート・相性を検証し、段ごとに自動配置する。
-// 一括処理の入口（Batch Input / Cut Set Input）があれば planTasks の注意も添える（LLM の修正ループと、ユーザーへの表示に使う）
+// 一括処理の入口（Batch Input）があれば planTasks の注意も添える（LLM の修正ループと、ユーザーへの表示に使う）
 import { catalogNode, multiHandle, portsCompatible, type CatalogPort } from './catalog'
 import type { DslWorkflow } from './dsl'
 import { inputNodesOf, materializeTurnPresets, planTasks, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
@@ -89,7 +89,7 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
 
   // 注意: 一括処理の入口があれば計画の注意を添える。Try-On があればモデルの選択を促す
   const ins = inputNodesOf(canvas)
-  if (ins.batchInputId || ins.cutSetInputId) {
+  if (ins.batchInputId) {
     const { tasks, warnings } = planTasks(canvas)
     notes.push(...warnings)
     if (!tasks.length) notes.push('この構成では一括実行の対象になる AI 処理がありません（対話実行で使います）')

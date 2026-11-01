@@ -161,7 +161,7 @@ function TryOnNodeInner(props: NodeProps) {
   const batchInfo = useMemo(() => {
     const snap = live as unknown as WorkflowSnapshot
     const ins = inputNodesOf(snap)
-    if (!ins.batchInputId && !ins.cutSetInputId) return null
+    if (!ins.batchInputId) return null
     const { tasks, excluded } = planTasksForNode(snap, id)   // 自分の入口の枝だけで計画（メモ 24）
     const t = tasks.find((x) => x.nodeId === id)
     if (t) return { ok: true as const, stage: t.stage, reason: null }

@@ -9,6 +9,7 @@ export const DEFAULT_EXPORT_PARAMS: ExportParams = {
   zip: true,
   zipFolders: 'variant',
   includeCutout: true,
+  productName: '',
 }
 
 export const EXPORT_MIN_QUALITY = 70
@@ -28,6 +29,7 @@ export function normalizeExportParams(p: unknown): ExportParams {
     zip: typeof s.zip === 'boolean' ? s.zip : d.zip,
     zipFolders,
     includeCutout: typeof s.includeCutout === 'boolean' ? s.includeCutout : d.includeCutout,
+    productName: typeof s.productName === 'string' ? s.productName.slice(0, 120) : d.productName,
   }
 }
 

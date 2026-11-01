@@ -2,7 +2,7 @@
 // ハンドル id はノードの実装と同じ定数から取る（ずれたら catalog.test.ts が落ちる）。画面用の表示ノード（Image Display / Video Result）は実行時に自動で作られるので載せない
 import type { PortType } from '../../types/nodes'
 import { CUT_ROLES, DEFAULT_NEGATIVE_PROMPT, type CutRole } from '../video/productVideo'
-import { CUT_SET_ITEM_HANDLE, CUT_SET_SET_HANDLE, PRODUCT_VIDEO_DEFAULT_MODEL, REMOVE_BACKGROUND_INPUT, VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, VIDEO_MERGE_MAX_INPUTS, VIDEO_OUTPUT_HANDLE, cutSetRoleHandle } from '../batch/plan'
+import { PRODUCT_VIDEO_DEFAULT_MODEL, REMOVE_BACKGROUND_INPUT, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, VIDEO_MERGE_MAX_INPUTS, VIDEO_OUTPUT_HANDLE, cutSetRoleHandle } from '../batch/plan'
 import { REMOVE_BACKGROUND_OUTPUT_HANDLE } from '../cutout/upstream'
 import { PRODUCT_LAYOUT_INPUT_BACKGROUND, PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../layout/nodeIo'
 import { DEFAULT_LAYOUT_PARAMS, normalizeLayoutParams } from '../layout/computeLayout'
@@ -55,24 +55,12 @@ export const NODE_CATALOG: CatalogNode[] = [
     build: (label, p) => ({ type: 'batchInput', label, params: normalizeBatchInputParams({ ...DEFAULT_BATCH_INPUT_PARAMS, ...p }), status: 'idle', items: [], currentItemId: null }),
   },
   {
-    type: 'cutSetInput', rfType: 'cutSetInputNode', label: 'Cut Set Input', height: 620,
-    description: '一括処理の入口（商品動画・試着向け）。1 SKU = 向きごとのカット（正面必須・右側面・左側面・背面・ディテール・全身）。向きごとの出力と「カット一式」「アイテム情報」がある',
-    inputs: [],
-    outputs: [
-      ...CUT_ROLES.map((r) => ({ port: r.id, handle: cutSetRoleHandle(r.id), kind: 'image' as PortType, label: `${r.label}のカット` })),
-      { port: 'set', handle: CUT_SET_SET_HANDLE, kind: 'cuts', label: 'カット一式（Kling の参照カット）' },
-      { port: 'item', handle: CUT_SET_ITEM_HANDLE, kind: 'item', label: 'アイテム情報（SKU）' },
-    ],
-    params: [],
-    build: (label) => ({ type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }),
-  },
-  {
     type: 'referenceImage', rfType: 'referenceImageNode', label: 'Reference Image', height: 400,
-    description: '固定の画像 1 枚（ユーザーがアップロード / ライブラリから選ぶ）。参照画像・固定の服やモデルに',
+    description: '固定の画像 1 枚（ユーザーがアップロード / ライブラリから選ぶ）。商品写真・服・モデルなど。role に向きを付けると、多角度の動画（start / end）で回転の指示文や Kling の参照一式に使われる',
     inputs: [],
     outputs: [{ port: 'image', handle: REFERENCE_IMAGE_OUTPUT, kind: 'image', label: '画像' }],
-    params: [],
-    build: (label) => ({ type: 'referenceImage', label, imageUrl: null, uploadedImagePreview: null, status: 'idle' }),
+    params: [{ key: 'role', type: 'enum', enum: ['none', ...CUT_ROLES.map((r) => r.id)], default: 'none', description: '向き（正面 front / 右側面 right / 左側面 left / 背面 back / ディテール detail / 全身 full）。多角度の動画で Video Generation の start / end につなぐ画像や、試着の向きに合わせる服・モデルに付ける' }],
+    build: (label, p) => ({ type: 'referenceImage', label, imageUrl: null, uploadedImagePreview: null, status: 'idle', role: isCutRoleId(p.role) ? p.role : null }),
   },
   {
     type: 'libraryModel', rfType: 'libraryModelNode', label: 'Model', height: 300,
@@ -159,12 +147,11 @@ export const NODE_CATALOG: CatalogNode[] = [
   },
   {
     type: 'videoGen', rfType: 'videoGenerationNode', label: 'Video Generation', height: 620,
-    description: '画像から動画（AI 段）。start に開始フレーム、end に終了フレーム（任意）、text に Text Prompt（共通の説明）。向きのある画像（Cut Set Input の向き・Try-On の結果・Model の出力）を start/end につなぐと「正面 → 右側面」の回転の指示文が動きの欄に自動で入る（prompt は書かなくてよい）。商品動画は kling-v3-pro・3〜15 秒',
+    description: '画像から動画（AI 段）。start に開始フレーム、end に終了フレーム（任意）、text に Text Prompt（共通の説明）。向きのある画像（role 付きの参照画像・Model の出力・Try-On の結果）を start/end につなぐと「正面 → 右側面」の回転の指示文が動きの欄に自動で入る（prompt は書かなくてよい）。多角度の動画はショットごとに Video Generation を置き、videoMerge で 1 本にする（Kling v3 Pro は同じ結合につながるショットの向きつき画像を参照一式として自動で使う）。商品動画は kling-v3-pro・3〜15 秒',
     inputs: [
       { port: 'text', handle: 'in-text', kind: 'text', label: 'プロンプト' },
       { port: 'start', handle: VIDEO_GEN_START_HANDLE, kind: 'image', label: '開始フレーム' },
       { port: 'end', handle: VIDEO_GEN_END_HANDLE, kind: 'image', label: '終了フレーム（任意）' },
-      { port: 'set', handle: VIDEO_GEN_SET_HANDLE, kind: 'cuts', label: 'カット一式（Cut Set Input の set・任意）' },
       { port: 'video', handle: 'in-video', kind: 'video', label: '参照動画（動画から動画のモデルだけ）' },
     ],
     outputs: [{ port: 'video', handle: VIDEO_OUTPUT_HANDLE, kind: 'video', label: '動画' }],
@@ -191,7 +178,7 @@ export const NODE_CATALOG: CatalogNode[] = [
   },
   {
     type: 'tryOn', rfType: 'tryOnNode', label: 'Try-On', height: 520,
-    description: '試着（AI 段）。garment に服の画像（写真・切り抜き・Cut Set Input の向きのカット）、model にモデル画像（Model ノードの同じ向きの出力を必ずつなぐ。モデルの中身はユーザーが後で選ぶ）。role に向きの予定を入れる。出力は着用画像で、Video Generation の start/end にもつなげる（向きが引き継がれる）',
+    description: '試着（AI 段）。garment に服の画像（写真・切り抜き・向きつきの参照画像）、model にモデル画像（Model ノードの同じ向きの出力を必ずつなぐ。モデルの中身はユーザーが後で選ぶ）。role に向きの予定を入れる。出力は着用画像で、Video Generation の start/end にもつなげる（向きが引き継がれる）',
     inputs: [{ port: 'model', handle: TRY_ON_MODEL_HANDLE, kind: 'image', label: 'モデル画像（Model ノードの向きの出力）' }, { port: 'garment', handle: TRY_ON_GARMENT_HANDLE, kind: 'image', label: '服の画像', acceptsCutout: true }],
     outputs: [{ port: 'image', handle: TRY_ON_OUTPUT_HANDLE, kind: 'image', label: '着用画像' }],
     params: [

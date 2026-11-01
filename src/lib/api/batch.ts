@@ -1,6 +1,6 @@
 // バッチ（一括実行）API クライアント。Edge: /api/batch/*、dev: /dev-proxy/batch/*（同一コア）。
 import { supabase } from '../supabase'
-import type { BatchItem, CutSetItem, NodeData } from '../../types/nodes'
+import type { BatchItem, NodeData } from '../../types/nodes'
 import type { Edge, Node } from '@xyflow/react'
 import { toCanonicalRef } from './storage'
 
@@ -98,13 +98,10 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
         if (m && typeof m.url === 'string' && m.url) data.model = { url: toCanonicalRef(m.url) ?? m.url, role: typeof m.role === 'string' ? m.role : null, itemId: typeof m.itemId === 'string' ? m.itemId : null }
         if (typeof d.output === 'string' && d.output) data.output = toCanonicalRef(d.output) ?? d.output
       }
-      if (d.type === 'cutSetInput') {
-        data.items = (Array.isArray(d.items) ? (d.items as CutSetItem[]) : []).map((it) => ({ id: it.id, index: it.index, sku: it.sku, cuts: it.cuts }))
-      }
       // Video Generation は data.type を持たない（設定はトップレベル）。一括実行の計画に要る設定を写しに含める
       if (n.type === 'videoGenerationNode') {
         data.type = 'videoGen'
-        for (const k of ['model', 'duration', 'resolution', 'aspectRatio', 'fps', 'audioEnabled', 'seed', 'shots', 'cutsFrontalNodeId'] as const) if (d[k] !== undefined) data[k] = d[k]
+        for (const k of ['model', 'duration', 'resolution', 'aspectRatio', 'fps', 'audioEnabled', 'seed', 'shots'] as const) if (d[k] !== undefined) data[k] = d[k]
       }
       if (n.type === 'videoDisplayNode' || n.type === 'referenceVideoNode' || n.type === 'videoMergeNode') {
         data.type = d.type ?? (n.type === 'videoDisplayNode' ? 'videoDisplay' : n.type === 'referenceVideoNode' ? 'referenceVideo' : 'videoMerge')
@@ -117,17 +114,6 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
   }
 }
 
-/** Cut Set Input ノードの SKU（正面があるもの）を create の入力に変換する（1 件 = 1 SKU・正面を元画像に・cuts に役割ごと）。 */
-export function cutSetItemsFromNode(data: Record<string, unknown> | undefined): CreateItemInput[] {
-  const items = Array.isArray(data?.items) ? (data!.items as CutSetItem[]) : []
-  return items
-    .filter((it) => !!it.cuts?.front?.path && (it.sku ?? '').trim() !== '')
-    .map((it, i) => {
-      const front = it.cuts.front!
-      const cuts = (Object.entries(it.cuts) as Array<[string, CutSetItem['cuts'][keyof CutSetItem['cuts']]]>).filter(([, c]) => !!c?.path).map(([role, c]) => ({ role, path: c!.path, width: c!.width, height: c!.height, name: c!.name }))
-      return { index: i + 1, originalName: front.name ?? `${it.sku}.jpg`, sku: it.sku.trim(), interactivePath: front.path, width: front.width, height: front.height, cuts }
-    })
-}
 
 /** Batch Input ノードの準備完了アイテムを create の入力に変換する。 */
 export function batchItemsFromNode(data: Record<string, unknown> | undefined): CreateItemInput[] {

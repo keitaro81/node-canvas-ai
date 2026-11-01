@@ -2,14 +2,15 @@
 // 設計: docs/specs/product-video-nodes.md §5
 // - 写真（SKU）ごとに動くノード: Remove Background / Image Generation（画像入力あり）/ Video Generation / Video Merge（結合は AI 段に数えない）
 // - 入力の出どころ: Batch Input（写真）、Cut Set Input（役割のカット・カット一式）、前段の AI ノード（結果ノード経由は透過）
-// - 旧 Product Video ノードは計画の前に新しいノード群へ展開する（expandProductVideo。id は決定的で既存ジョブのタスク id と一致）
+// - 入口は Batch Input だけ（2026-11-01: Cut Set Input・旧 Product Video・動画の一括処理は廃止。旧 cut / set の参照は保存済みタスクの読み取り用に型だけ残す）
 // - 動画タスクが 1 つでもあれば、動画につながらない画像のタスクは対象外（2026-10-31 決定）
 import { buildEngineRequest, normalizeCutoutParams } from '../cutout/engines'
 import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../ai/imageGenModels'
 import { backgroundSourcesOf, promptForGenerator } from './background'
 import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoModelById } from '../ai/videoModels'
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
-import { CUT_ROLES, CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasTurnPreset, normalizeProductVideoParams, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
+import { CUT_ROLES, CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut, REFERENCE_PRIORITY } from '../video/productVideo'
+import { MAX_ELEMENT_REFS } from '../ai/videoShots'
 import { textsNeedingTranslation } from '../video/translate'
 import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, buildTryOnInput, isCutRole, normalizeTryOnParams, tryOnPromptFromNote } from '../tryon/prompt'
 
@@ -23,8 +24,8 @@ export type PlannedKind = 'cutout' | 'imageGen' | 'imageEdit' | 'videoShot' | 'v
 /** タスクの入力の出どころ（投入時に buildTaskInput が解決する。§5.2） */
 export type InputRef =
   | { kind: 'photo' }                                            // Batch Input の写真（item.source_path）
-  | { kind: 'cut'; role: CutRole }                               // Cut Set Input の役割カット（item.cuts[role]）
-  | { kind: 'set' }                                              // カット一式（正面 + 別角度 → elements）
+  | { kind: 'cut'; role: CutRole }                               // 旧 Cut Set Input の役割カット（保存済みタスクの読み取り用・新規には作らない）
+  | { kind: 'set' }                                              // 旧 カット一式（同上）
   | { kind: 'dep'; nodeId: string; prefer: 'cutout' | 'result'; role?: CutRole } // 前段の結果（切り抜きは透過画像 cutout_path を優先）。role = その画像の向き（Try-On のモデルの向き。回転指示に使う）
   | { kind: 'asset'; url: string; role?: CutRole }               // 固定の画像（Try-On のモデル・Model ノードのカット・参照画像・結果ノードの画像。全アイテム共通。作成時に権限を確かめ、投入時にサーバーが署名）。role = その画像の向き
 /** model: 試着のモデル画像（image = 服）。image_urls は [モデル, 服] の順 */
@@ -48,8 +49,6 @@ export interface PlannedTask {
 export const MAX_ITEM_STAGES = 2
 
 // ───────────────────────── ハンドル名 ─────────────────────────
-export const CUT_SET_SET_HANDLE = 'out-cuts-set'
-export const CUT_SET_ITEM_HANDLE = 'out-item-item'
 export const cutSetRoleHandle = (role: CutRole): string => `out-image-${role}`
 export const cutSetRoleOfHandle = (handle: string | null | undefined): CutRole | null => {
   const m = /^out-image-([a-z]+)$/.exec(handle ?? '')
@@ -58,7 +57,6 @@ export const cutSetRoleOfHandle = (handle: string | null | undefined): CutRole |
 }
 export const VIDEO_GEN_START_HANDLE = 'in-image'
 export const VIDEO_GEN_END_HANDLE = 'in-image-end'
-export const VIDEO_GEN_SET_HANDLE = 'in-cuts-set'
 export const VIDEO_GEN_TEXT_HANDLES = ['in-text', 'in-text-prompt']
 export const VIDEO_OUTPUT_HANDLE = 'out-video'
 /** 参照の向き（役割カットはその役割、前段の結果は載っている向き）。回転指示・ショットの見出しに使う */
@@ -75,8 +73,8 @@ export const REMOVE_BACKGROUND_INPUT = 'in-image-image'
 // data.type が無いノード（Video Generation など）は React Flow のノード型から引く
 const RF_TYPE_TO_KIND: Record<string, string> = {
   videoGenerationNode: 'videoGen', videoDisplayNode: 'videoDisplay', videoMergeNode: 'videoMerge', referenceVideoNode: 'referenceVideo',
-  imageDisplayNode: 'imageDisplay', textPromptNode: 'textPrompt', referenceImageNode: 'referenceImage', cutSetInputNode: 'cutSetInput', batchInputNode: 'batchInput',
-  removeBackgroundNode: 'removeBackground', productLayoutNode: 'productLayout', imageGenerationNode: 'imageGen', exportNode: 'export', productVideoNode: 'productVideo', tryOnNode: 'tryOn', libraryModelNode: 'libraryModel',
+  imageDisplayNode: 'imageDisplay', textPromptNode: 'textPrompt', referenceImageNode: 'referenceImage', batchInputNode: 'batchInput',
+  removeBackgroundNode: 'removeBackground', productLayoutNode: 'productLayout', imageGenerationNode: 'imageGen', exportNode: 'export', tryOnNode: 'tryOn', libraryModelNode: 'libraryModel',
 }
 export function nodeKindOf(n: SnapshotNode | null | undefined): string | undefined {
   const t = n?.data?.type
@@ -100,7 +98,7 @@ function tryOnRoleOf(nodes: SnapshotNode[], edges: SnapshotEdge[], nodeId: strin
 export function imageRoleOfSource(nodes: SnapshotNode[], edges: SnapshotEdge[], sourceId: string, sourceHandle: string | null | undefined, seen: Set<string> = new Set()): CutRole | null {
   const src = nodes.find((n) => n.id === sourceId)
   const k = nodeKindOf(src)
-  if (k === 'cutSetInput' || k === 'libraryModel') return cutSetRoleOfHandle(sourceHandle)
+  if (k === 'libraryModel') return cutSetRoleOfHandle(sourceHandle)   // Model ノードの向きのポート
   if (k === 'referenceImage') { const r = src?.data?.role; return isCutRole(r) ? r : null }   // 「画像を追加」のモデルタブから入れた向き
   if (k === 'tryOn') return tryOnRoleOf(nodes, edges, sourceId, seen)
   if (k === 'imageDisplay') {
@@ -118,71 +116,14 @@ const nodesOf = (s: WorkflowSnapshot | null | undefined): SnapshotNode[] => (Arr
 const edgesOf = (s: WorkflowSnapshot | null | undefined): SnapshotEdge[] => (Array.isArray(s?.edges) ? s!.edges!.filter((e) => !!e && typeof e.source === 'string' && typeof e.target === 'string') : [])
 
 // ───────────────────────── 旧 Product Video ノードの展開（§7） ─────────────────────────
-export const LEGACY_CUTS_SUFFIX = ':cuts'
-export const LEGACY_BASE_SUFFIX = ':base'
-export const legacyShotNodeId = (pvId: string, index: number): string => `${pvId}:shot:${index}`
 export const PRODUCT_VIDEO_DEFAULT_MODEL = 'kling-v3-pro'
 export const ELEMENT_TAG = '@Element1 wearing the garment.'
 
-export function hasLegacyProductVideo(snapshot: WorkflowSnapshot | null | undefined): boolean {
-  return nodesOf(snapshot).some((n) => nodeKindOf(n) === 'productVideo')
-}
-
-/** 旧 Product Video ノード 1 つを Cut Set Input + Text Prompt（共通の説明）+ Video Generation ×N + Video Merge に展開する（id は決定的）。 */
-export function expandProductVideoNode(pv: SnapshotNode): { nodes: SnapshotNode[]; edges: SnapshotEdge[] } {
-  const params = normalizeProductVideoParams(pv.data?.params)
-  // 展開後のノード名は種類名のまま（Cut Set Input / Text Prompt / Video Generation / Video Merge）。2026-11-01 ユーザー指示: 組んだノードの名前は変えない（向きはノードの中の行で見える）
-  const x = pv.position?.x ?? 0, y = pv.position?.y ?? 0
-  const cutsId = `${pv.id}${LEGACY_CUTS_SUFFIX}`, baseId = `${pv.id}${LEGACY_BASE_SUFFIX}`
-  const nodes: SnapshotNode[] = [
-    { id: cutsId, type: 'cutSetInputNode', position: { x, y }, data: { type: 'cutSetInput', label: 'Cut Set Input', params: {}, status: 'idle', items: [], currentItemId: null } },
-    { id: baseId, type: 'textPromptNode', position: { x, y: y + 560 }, data: { type: 'textPrompt', label: 'Text Prompt', params: { prompt: params.basePrompt }, status: 'idle' } },
-  ]
-  const edges: SnapshotEdge[] = []
-  params.shots.forEach((shot, i) => {
-    const id = legacyShotNodeId(pv.id, i)
-    nodes.push({
-      id, type: 'videoGenerationNode', position: { x: x + 420, y: y + i * 320 },
-      data: {
-        type: 'videoGen', label: 'Video Generation',
-        model: PRODUCT_VIDEO_DEFAULT_MODEL, duration: String(shot.duration), resolution: '1080p', aspectRatio: 'auto', fps: 25, audioEnabled: false, seed: null, count: 1,
-        status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, activeDisplayNodeId: null,
-        // 終了カットあり: 回転の定型文を「動き」に、制約を「避けたいこと」に書き込む（トグルで裏で付けない・2026-11-01）
-        params: shot.endRole
-          ? (() => { const t = turnPreset(shot.role, shot.endRole); return { prompt: withTurnMotion(shot.motion, t.motion), negativePrompt: withTurnNegative(params.negativePrompt, t.negativeJp), autoTurn: false } })()
-          : { prompt: shot.motion, negativePrompt: params.negativePrompt, autoTurn: false },
-      },
-    })
-    const edge = (source: string, sourceHandle: string, target: string, targetHandle: string): SnapshotEdge => ({ id: `e-${source}-${sourceHandle}-${target}-${targetHandle}`, source, sourceHandle, target, targetHandle })
-    edges.push(edge(cutsId, cutSetRoleHandle(shot.role), id, VIDEO_GEN_START_HANDLE))
-    if (shot.endRole) edges.push(edge(cutsId, cutSetRoleHandle(shot.endRole), id, VIDEO_GEN_END_HANDLE))
-    edges.push(edge(cutsId, CUT_SET_SET_HANDLE, id, VIDEO_GEN_SET_HANDLE))
-    edges.push(edge(baseId, 'out-text-text-out', id, 'in-text'))
-    edges.push(edge(id, VIDEO_OUTPUT_HANDLE, pv.id, videoMergeSlotHandle(i + 1)))
-  })
-  nodes.push({ id: pv.id, type: 'videoMergeNode', position: { x: x + 860, y }, data: { type: 'videoMerge', label: 'Video Merge', params: {}, status: 'idle', videoUrl: null } })
-  return { nodes, edges }
-}
-
-/** 写しに旧 Product Video ノードがあれば展開した写しを返す（無ければそのまま） */
-export function expandProductVideo<T extends WorkflowSnapshot | null | undefined>(snapshot: T): T {
-  if (!snapshot || !hasLegacyProductVideo(snapshot)) return snapshot
-  const nodes: SnapshotNode[] = []
-  const edges: SnapshotEdge[] = [...edgesOf(snapshot)]
-  for (const n of nodesOf(snapshot)) {
-    if (nodeKindOf(n) !== 'productVideo') { nodes.push(n); continue }
-    const ex = expandProductVideoNode(n)
-    nodes.push(...ex.nodes); edges.push(...ex.edges)
-  }
-  return { ...snapshot, nodes, edges } as T
-}
-
-// ───────────────────────── 入力ノード ─────────────────────────
-export function inputNodesOf(snapshot: WorkflowSnapshot | null | undefined): { batchInputId: string | null; cutSetInputId: string | null } {
-  const nodes = nodesOf(expandProductVideo(snapshot))
+/** 写しの入口（Batch Input）。一括実行の対象を決める */
+export function inputNodesOf(snapshot: WorkflowSnapshot | null | undefined): { batchInputId: string | null } {
+  const nodes = nodesOf(snapshot)
   return {
     batchInputId: nodes.find((n) => nodeKindOf(n) === 'batchInput')?.id ?? null,
-    cutSetInputId: nodes.find((n) => nodeKindOf(n) === 'cutSetInput')?.id ?? null,
   }
 }
 
@@ -190,15 +131,15 @@ export function inputNodesOf(snapshot: WorkflowSnapshot | null | undefined): { b
  *  一括実行はどの入口から押したかで対象が決まる（2026-11-01 メモ 24: 両方あると Cut Set Input の判定と動画ジョブ判定が混ざって 400 になった）。入口が 1 つ以下ならそのまま */
 export function pruneToEntry<T extends WorkflowSnapshot | null | undefined>(snapshot: T, entryNodeId: string | null | undefined): T {
   if (!snapshot || !entryNodeId) return snapshot
-  const snap = expandProductVideo(snapshot) as WorkflowSnapshot
+  const snap = snapshot as WorkflowSnapshot
   const nodes = nodesOf(snap)
-  const drop = new Set(nodes.filter((n) => n.id !== entryNodeId && (nodeKindOf(n) === 'batchInput' || nodeKindOf(n) === 'cutSetInput')).map((n) => n.id))
+  const drop = new Set(nodes.filter((n) => n.id !== entryNodeId && nodeKindOf(n) === 'batchInput').map((n) => n.id))
   if (!drop.size) return snapshot
   return { ...snap, nodes: nodes.filter((n) => !drop.has(n.id)), edges: edgesOf(snap).filter((e) => !drop.has(e.source) && !drop.has(e.target)) } as T
 }
 /** ノードが行き着く入口（上流をたどって最初に見つかる Batch Input / Cut Set Input）。無ければ null */
 export function entryNodeOf(snapshot: WorkflowSnapshot | null | undefined, nodeId: string): string | null {
-  const snap = expandProductVideo(snapshot)
+  const snap = snapshot
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const seen = new Set<string>()
@@ -209,7 +150,7 @@ export function entryNodeOf(snapshot: WorkflowSnapshot | null | undefined, nodeI
       if (seen.has(id)) continue
       seen.add(id)
       const k = nodeKindOf(byId.get(id))
-      if (id !== nodeId && (k === 'batchInput' || k === 'cutSetInput')) return id
+      if (id !== nodeId && k === 'batchInput') return id
       for (const e of edges) if (e.target === id) next.push(e.source)
     }
     frontier = next
@@ -257,7 +198,7 @@ export function videoPromptOf(nodes: SnapshotNode[], edges: SnapshotEdge[], node
 
 /** ジョブ作成時に英訳が要る文（計画対象の Video Generation の動き・避けたいこと・つないだテキスト、Try-On の服の説明・補足のうち日本語で対訳の無いもの） */
 export function promptTextsToTranslateForPlan(snapshot: WorkflowSnapshot | null | undefined): string[] {
-  const snap = expandProductVideo(snapshot)
+  const snap = snapshot
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const { tasks } = planTasks(snap)
   const videoTexts = tasks.filter((t) => t.kind === 'videoShot').flatMap((t) => videoPromptSources(nodes, edges, t.nodeId, t.inputs))
@@ -309,7 +250,7 @@ type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number;
  * - ジョブごと: Product Layout の背景入力につながる Image Generation（executionScope='job'）1 件（Step 8）。動画があるジョブでは作らない
  */
 export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string> } {
-  const snap = expandProductVideo(snapshot)
+  const snap = snapshot
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const kindOf = (id: string | undefined) => nodeKindOf(id ? byId.get(id) : undefined)
@@ -330,11 +271,6 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     const k = kindOf(sourceId)
     if (want === 'image') {
       if (k === 'batchInput') return { kind: 'input', ref: { kind: 'photo' } }
-      if (k === 'cutSetInput') {
-        if (sourceHandle === CUT_SET_SET_HANDLE) return { kind: 'input', ref: { kind: 'set' } }
-        const role = cutSetRoleOfHandle(sourceHandle)
-        return role ? { kind: 'input', ref: { kind: 'cut', role } } : { kind: 'other' }
-      }
       if (k === 'libraryModel') {
         // Model ノード: 役割ポートのカット = 固定の画像（向きつき）
         const role = cutSetRoleOfHandle(sourceHandle)
@@ -400,7 +336,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     if (k === 'removeBackground') {
       const ins = edges.filter((e) => e.target === nodeId && e.targetHandle === REMOVE_BACKGROUND_INPUT)
       const ref = ins.length ? refOf(producerOf(ins[0].source, ins[0].sourceHandle, 'image')) : null
-      if (!ref) return { ok: false, reason: 'not_connected' }
+      if (!ref || ref.kind === 'asset') return { ok: false, reason: 'not_connected' }   // 固定の画像だけなら写真ごとの処理ではない
       const f = fold([ref], notes)
       if (!f.ok) return { ok: false, reason: 'upstream', upstream: f.upstream }
       return { ok: true, inputs: { image: ref }, deps: f.deps, aiDepth: f.aiDepth + 1, stage: f.stage + 1, notes }
@@ -410,7 +346,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       const ins = edges.filter((e) => e.target === nodeId && (e.targetHandle ?? '').startsWith('in-image'))
       if (!ins.length) return null
       const ref = refOf(producerOf(ins[0].source, ins[0].sourceHandle, 'image'))
-      if (!ref) return null
+      if (!ref || ref.kind === 'asset') return null   // 固定の画像だけなら対話実行のノード
       if (ins.length > 1) notes.push(`${labelOf(nodeId)} の画像入力は最初の 1 つだけを使います（複数の画像入力は未対応）`)
       const f = fold([ref], notes)
       if (!f.ok) return { ok: false, reason: 'upstream', upstream: f.upstream }
@@ -441,14 +377,12 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     if (k === 'videoGen') {
       const startEdge = edges.find((e) => e.target === nodeId && e.targetHandle === VIDEO_GEN_START_HANDLE)
       const endEdge = edges.find((e) => e.target === nodeId && e.targetHandle === VIDEO_GEN_END_HANDLE)
-      const setEdge = edges.find((e) => e.target === nodeId && e.targetHandle === VIDEO_GEN_SET_HANDLE && kindOf(e.source) === 'cutSetInput')
-      let start = startEdge ? refOf(producerOf(startEdge.source, startEdge.sourceHandle, 'image')) : null
+      const start = startEdge ? refOf(producerOf(startEdge.source, startEdge.sourceHandle, 'image')) : null
       const end = endEdge ? refOf(producerOf(endEdge.source, endEdge.sourceHandle, 'image')) : null
-      if (endEdge && !end) notes.push(`Video Generation（${labelOf(nodeId)}）の終了フレームは Batch Input / Cut Set Input / AI ノードからの画像だけ使えます（無視します）`)
+      if (endEdge && !end) notes.push(`Video Generation（${labelOf(nodeId)}）の終了フレームは Batch Input / 参照画像 / AI ノードからの画像だけ使えます（無視します）`)
       const inputs: TaskInputs = {}
-      if (setEdge) inputs.elements = { kind: 'set' }
-      if (!start && setEdge) start = { kind: 'cut', role: FRONTAL_ROLE }   // 開始フレーム未接続なら正面を開始に（今までどおり）
       if (!start) return null
+      if (start.kind === 'asset' && (!end || end.kind === 'asset')) return null   // 固定の画像だけなら対話実行のノード（写真ごとに同じ動画を作らない）
       inputs.start = start
       if (end) inputs.end = end
       const f = fold([start, ...(end ? [end] : [])], notes)
@@ -689,27 +623,23 @@ export const taskMapOf = (tasks: PlannedTask[]): Map<string, PlannedTask> => new
 export function snapshotHasVideo(snapshot: WorkflowSnapshot | null | undefined): boolean {
   return planTasks(snapshot).tasks.some((t) => t.kind === 'videoShot')
 }
-/** App の「カットを入れる」欄の構成: Cut Set Input のカット（Try-On を 1 段はさんでも可: 試着の服のカット）を始点にする Video Generation ごとに 1 ショット（結合のスロット順） */
-export function shotsFromCanvas(snapshot: WorkflowSnapshot | null | undefined): VideoShotSpec[] {
-  const snap = expandProductVideo(snapshot)
-  const nodes = nodesOf(snap)
-  const { tasks } = planTasks(snap)
-  const byNode = taskMapOf(tasks)
-  // 必要な役割カット: 役割ポート直結ならその役割、前段が Try-On ならその服のカットの役割
-  const cutRoleBehind = (ref: InputRef | undefined): CutRole | null => {
-    if (!ref) return null
-    if (ref.kind === 'cut') return ref.role
-    if (ref.kind === 'dep') { const img = byNode.get(ref.nodeId)?.inputs.image; return img?.kind === 'cut' ? img.role : null }
-    return null
+/** Kling の参照一式（elements）の自動選択（2026-11-01）: そのショットと、同じ Video Merge につながる兄弟ショットの
+ *  開始・終了フレームにある「向きつきの画像」（参照画像の向き・Model ノードの向き・Try-On の結果）を集め、正面 1 + 別角度（REFERENCE_PRIORITY 順）最大 3 を返す。
+ *  正面が無ければ空（参照一式は付けない）。返すのは画像の出どころ（ノード id とポート）で、URL は呼び出し側がノードのデータから取る */
+export function autoElementSources(nodes: SnapshotNode[], edges: SnapshotEdge[], videoGenId: string): Array<{ role: CutRole; source: string; sourceHandle: string | null }> {
+  const kindOfId = (id: string) => nodeKindOf(nodes.find((n) => n.id === id))
+  const merges = edges.filter((e) => e.source === videoGenId && kindOfId(e.target) === 'videoMerge').map((e) => e.target)
+  const shots = [videoGenId, ...edges.filter((e) => merges.includes(e.target) && e.source !== videoGenId && kindOfId(e.source) === 'videoGen').map((e) => e.source)]
+  const byRole = new Map<CutRole, { role: CutRole; source: string; sourceHandle: string | null }>()
+  for (const shot of shots) {
+    for (const handle of [VIDEO_GEN_START_HANDLE, VIDEO_GEN_END_HANDLE]) {
+      const e = edges.find((x) => x.target === shot && x.targetHandle === handle)
+      if (!e) continue
+      const role = imageRoleOfSource(nodes, edges, e.source, e.sourceHandle)
+      if (role && !byRole.has(role)) byRole.set(role, { role, source: e.source, sourceHandle: e.sourceHandle ?? null })
+    }
   }
-  return tasks
-    .filter((t) => t.kind === 'videoShot' && cutRoleBehind(t.inputs.start) !== null)
-    .sort((a, b) => ((a.input.__shot as { index: number }).index - (b.input.__shot as { index: number }).index))
-    .map((t) => {
-      const s = t.input.__shot as { duration: number }
-      const role = cutRoleBehind(t.inputs.start) as CutRole
-      const endRole = cutRoleBehind(t.inputs.end)
-      const motion = str(nodes.find((n) => n.id === t.nodeId)?.data?.params?.prompt)
-      return { role, duration: s.duration, motion, ...(endRole ? { endRole } : {}) }
-    })
+  const frontal = byRole.get(FRONTAL_ROLE)
+  if (!frontal) return []
+  return [frontal, ...REFERENCE_PRIORITY.filter((r) => r !== FRONTAL_ROLE).map((r) => byRole.get(r)).filter((x): x is NonNullable<typeof x> => !!x).slice(0, MAX_ELEMENT_REFS)]
 }
