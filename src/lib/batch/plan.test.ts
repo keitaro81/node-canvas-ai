@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { ELEMENT_TAG, expandProductVideo, imageRoleOfSource, inputNodesOf, planTasks, promptTextsToTranslateForPlan, shotsFromCanvas, snapshotHasVideo, taskMapOf, taskSatisfied, availableVideos, type WorkflowSnapshot } from './plan'
+import { ELEMENT_TAG, expandProductVideo, imageRoleOfSource, inputNodesOf, materializeTurnPresets, planTasks, promptTextsToTranslateForPlan, shotsFromCanvas, snapshotHasVideo, taskMapOf, taskSatisfied, availableVideos, type WorkflowSnapshot } from './plan'
+import { NEG_JP_NO_BACK, TO_END_EN, turnInstruction, turnPreset } from '../video/productVideo'
 
 const RB_PARAMS = { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '1024x1024', alphaThreshold: 8, featherPx: 0 }
 const bi = { id: 'bi', data: { type: 'batchInput', params: {} } }
@@ -159,7 +160,9 @@ describe('旧 Product Video ノードの展開（決定的な id・既存ジョ�
     expect(ex.nodes!.map((n) => n.data.type)).toEqual(['cutSetInput', 'textPrompt', 'videoGen', 'videoGen', 'videoGen', 'videoGen', 'videoMerge'])
     expect(ex.edges!.filter((x) => x.target === 'pv:shot:0').map((x) => `${x.source}:${x.sourceHandle}→${x.targetHandle}`)).toEqual(['pv:cuts:out-image-front→in-image', 'pv:cuts:out-image-right→in-image-end', 'pv:cuts:out-cuts-set→in-cuts-set', 'pv:base:out-text-text-out→in-text'])
     expect(ex.edges!.filter((x) => x.target === 'pv').map((x) => `${x.source}→${x.targetHandle}`)).toEqual(['pv:shot:0→in-video-1', 'pv:shot:1→in-video-2', 'pv:shot:2→in-video-3', 'pv:shot:3→in-video-4'])
-    expect(ex.nodes![2].data).toMatchObject({ label: '商品動画 1: 正面 → 右側面', model: 'kling-v3-pro', duration: '3', audioEnabled: false, params: { autoTurn: true, prompt: '足は動かさず、腕はリラックス。' } })   // ターンテーブルの補足文はそのまま（静止用の定型文だけ空にする）
+    expect(ex.nodes![2].data).toMatchObject({ label: 'ショット 1: 正面 → 右側面', model: 'kling-v3-pro', duration: '3', audioEnabled: false, params: { autoTurn: false, negativePrompt: expect.stringContaining('背中を見せる') } })   // 名前はテンプレートと同じ。回転の定型文を欄に（トグル廃止・2026-11-01）
+    expect(String(ex.nodes![2].data.params.prompt)).toContain('4 分の 1 回転')
+    expect(ex.nodes![6].data.label).toBe('Video Merge')
     expect(JSON.stringify(expandProductVideo(legacy))).toBe(JSON.stringify(ex))   // 決定的
     expect(expandProductVideo(ex)).toBe(ex)   // 旧ノードが無ければそのまま
   })
@@ -218,7 +221,8 @@ describe('planTasks: Try-On（2b-3・写真ごとの試着）', () => {
   it('モデルが無い / 服がつながっていない Try-On は注意を出して対象外。両方が固定の画像なら対話実行だけ（注意なし）', () => {
     const noModel = planTasks({ nodes: [bi, tryOn('t1', { model: null })], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })
     expect(noModel.tasks).toEqual([])
-    expect(noModel.warnings).toEqual(['Try-On（t1）はモデルの画像が無いため一括実行の対象外です（つなぐか「モデル」から選んでください）'])
+    expect(noModel.warnings).toEqual(['Try-On（t1）はモデルの画像が無いため一括実行の対象外です（Model ノードをつなぐか、参照画像のモデルタブから入れてください）'])
+    expect(noModel.excluded).toEqual({ t1: noModel.warnings[0] })
     const noGarment = planTasks({ nodes: [bi, tryOn('t1', { model: null })], edges: [e('bi', 'out-image-image', 't1', 'in-image-model')] })
     expect(noGarment.tasks).toEqual([])
     expect(noGarment.warnings).toEqual(['Try-On（t1）は服の画像がつながっていないため一括実行の対象外です'])
@@ -264,5 +268,27 @@ describe('2b-4: Try-On の向きを Video Generation の始点・終点に引き
     expect(shotsFromCanvas(snap).map((s) => `${s.role}>${s.endRole}:${s.duration}`)).toEqual(['front>right:3'])
     const { tasks } = planTasks(snap)
     expect(tasks.find((t) => t.nodeId === 'tf')!.inputs).toEqual({ image: { kind: 'cut', role: 'front' }, model: { kind: 'asset', url: MODEL('front') } })
+  })
+})
+
+describe('materializeTurnPresets（トグル廃止・読み込み時 / 組んだ直後に回転の定型文を欄に）', () => {
+  it('autoTurn 未設定の VG: 向きが違えば定型文を動き・避けたいことに入れて autoTurn: false。同じ向きなら autoTurn だけ。向きが分からない / autoTurn: false はそのまま', () => {
+    const nodes = [cs, vg('v1', { params: { prompt: 'Feet stay planted.', negativePrompt: 'blur' } }), vg('v2', { params: { prompt: '呼吸する' } }), vg('v3', { params: {} }), vg('v4', { params: { autoTurn: false, prompt: 'x' } })]
+    const edges = [e('cs', 'out-image-front', 'v1', 'in-image'), e('cs', 'out-image-right', 'v1', 'in-image-end'), e('cs', 'out-image-back', 'v2', 'in-image'), e('cs', 'out-image-back', 'v2', 'in-image-end'), e('cs', 'out-image-front', 'v4', 'in-image'), e('cs', 'out-image-right', 'v4', 'in-image-end')]
+    const r = materializeTurnPresets(nodes, edges)
+    expect(r.changed).toBe(true)
+    const [, v1, v2, v3, v4] = r.nodes
+    expect(v1.data.params).toEqual({ prompt: `${turnPreset('front', 'right').motion}\nFeet stay planted.`, negativePrompt: `blur、${NEG_JP_NO_BACK}`, autoTurn: false })
+    expect(v2.data.params).toEqual({ prompt: '呼吸する', autoTurn: false })
+    expect(v3).toBe(nodes[3])
+    expect(v4).toBe(nodes[4])
+    expect(materializeTurnPresets(r.nodes, edges).changed).toBe(false)
+    // 生成される指示は旧互換（自動で付く）と同じ内容: 定型文は対訳（行ごと）、補足はそのまま、最短で終点へ。避けたいことは日本語が混ざるので翻訳の対象に
+    const before = planTasks({ nodes, edges }).tasks[0].input
+    const after = planTasks({ nodes: r.nodes, edges }).tasks[0].input
+    for (const p of [before.prompt, after.prompt]) { expect(String(p)).toContain(turnInstruction('front', 'right').motion); expect(String(p)).toContain('Feet stay planted.'); expect(String(p)).toContain(TO_END_EN) }
+    expect(after.negative_prompt).toBe(`blur、${NEG_JP_NO_BACK}`)
+    expect(promptTextsToTranslateForPlan({ nodes: r.nodes, edges })).toEqual([`blur、${NEG_JP_NO_BACK}`, '呼吸する'])   // v2 の日本語の動きも対象
+    expect(promptTextsToTranslateForPlan({ nodes: [cs, vg('v5', { params: { prompt: `${turnPreset('front', 'right').motion}\nゆっくり`, autoTurn: false } })], edges: [e('cs', 'out-image-front', 'v5', 'in-image'), e('cs', 'out-image-right', 'v5', 'in-image-end')] })).toEqual(['ゆっくり'])
   })
 })

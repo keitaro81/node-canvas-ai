@@ -7,7 +7,7 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
-import { CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, REFERENCE_PRIORITY, type CutRole } from '../../lib/video/productVideo'
+import { CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, REFERENCE_PRIORITY, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
 import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle, imageRoleOfSource, inputNodesOf, planTasks, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
@@ -129,12 +129,17 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const activeShots = useMemo(() => (supportsShots ? shots.filter((x) => x.prompt.trim() !== '') : EMPTY_SHOTS), [supportsShots, shots])
   const shotsSeconds = shotsTotalSeconds(activeShots)
 
-  // 商品動画向けの設定（動き / 避けたいこと / 回転指示の自動生成）。回転指示は始点・終点が役割カットのときだけ
+  // 商品動画向けの設定（動き / 避けたいこと）。始点と終点の向きが違うのに回転の定型文が無ければ、入れるボタンを出す（トグルで裏で付けるのはやめた・2026-11-01）
   const vp = (nodeData.params ?? {}) as { prompt?: string; negativePrompt?: string; autoTurn?: boolean }
   const setParam = (patch: Partial<typeof vp>) => upd(updateNode, id, { params: { ...vp, ...patch } })
   const supportsNegative = currentModel?.paramStyle === 'kling' || currentModel?.paramStyle === 'kling-o3-i2v'
   const turnApplies = !!startRole && !!endRole && startRole !== endRole
-  const autoTurn = vp.autoTurn !== false
+  const turnMissing = turnApplies && !hasTurnPreset(vp.prompt ?? '')
+  const insertTurnPreset = () => {
+    if (!startRole || !endRole) return
+    const t = turnPreset(startRole, endRole)
+    setParam({ prompt: withTurnMotion(vp.prompt ?? '', t.motion), negativePrompt: withTurnNegative(vp.negativePrompt ?? '', t.negativeJp), autoTurn: false })
+  }
 
   // 一括実行の対象か（Batch Input / Cut Set Input があるキャンバスでだけ表示。計画はサーバーと同じ純関数）
   const live = useLiveCanvas()
@@ -142,12 +147,11 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     const snap = live as unknown as WorkflowSnapshot
     const ins = inputNodesOf(snap)
     if (!ins.batchInputId && !ins.cutSetInputId) return null
-    const { tasks, warnings } = planTasks(snap)
+    const { tasks, excluded } = planTasks(snap)
     const t = tasks.find((x) => x.nodeId === id)
     if (t) return { ok: true as const, stage: t.stage, reason: null }
-    const label = nodeData.label || 'Video Generation'
-    return { ok: false as const, stage: 0, reason: warnings.find((w) => w.includes(`（${label}）`) || w.includes(`${label} は`)) ?? null }
-  }, [live, id, nodeData.label])
+    return { ok: false as const, stage: 0, reason: excluded[id] ?? null }
+  }, [live, id])
 
   const handleGenerate = useCallback(async () => {
     const quota = await checkQuota('video')
@@ -638,14 +642,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           <div className="rounded-md px-2 py-1.5 flex flex-col gap-1" style={{ background: 'rgba(244,114,182,0.08)', border: '1px solid rgba(244,114,182,0.3)' }}>
             <div className="text-[11px] font-medium" style={{ color: 'var(--text-primary)' }}>
               {startRole ? CUT_ROLE_LABEL[startRole] : '開始フレーム'}{endRole ? ` → ${CUT_ROLE_LABEL[endRole]}` : ''}
-              <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}>（Cut Set Input の役割カット）</span>
+              <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}>（つないだ画像の向き）</span>
             </div>
-            {turnApplies && (
-              <div className="flex items-center justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                <span title="始点と終点の組み合わせから、回る向き・途中で見える姿・見せない姿の指示を自動で付けます（動きの欄は補足だけ）">回転の指示を自動で付ける</span>
-                <button className="relative w-8 h-4 rounded-full transition-colors nodrag" style={{ background: autoTurn ? '#EC4899' : 'var(--border-active)' }} onClick={() => setParam({ autoTurn: !autoTurn })} disabled={isGenerating} title={autoTurn ? '自動の回転指示をやめる（動きの欄だけを使う）' : '自動の回転指示を付ける'}>
-                  <div className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform" style={{ left: autoTurn ? '18px' : '2px' }} />
-                </button>
+            {turnMissing && (
+              <div className="flex items-center justify-between gap-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                <span>向きが変わるショットです</span>
+                <button className="h-6 px-2 rounded text-[11px] font-medium text-white nodrag disabled:opacity-50" style={{ background: '#EC4899' }} onClick={insertTurnPreset} disabled={isGenerating} title="始点と終点の向きに合う回転の指示文を「動き」と「避けたいこと」に入れます（文は編集できます）">回転の指示文を入れる</button>
               </div>
             )}
           </div>
@@ -678,7 +680,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             value={vp.prompt ?? ''}
             onChange={(e) => setParam({ prompt: e.target.value })}
             rows={2}
-            placeholder={turnApplies && autoTurn ? '補足の動き（任意。回転の指示は自動で付きます）' : 'つないだテキストの後に付く動き（例: ゆっくり正面を向く）'}
+            placeholder={turnApplies ? '回転の指示文を入れて、必要なら書き足す' : 'つないだテキストの後に付く動き（例: ゆっくり正面を向く）'}
             className="w-full rounded-md px-2 py-1 text-[11px] resize-none nodrag nowheel focus:outline-none"
             style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
             onKeyDown={(e) => e.stopPropagation()}
@@ -902,8 +904,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
               disabled={isGenerating}
             >
+              {!currentModel.supportedAspectRatios.includes('auto') && currentModel.supportedModes.includes('image-to-video') && <option value="auto">auto（写真の比率）</option>}
               {currentModel.supportedAspectRatios.map((ar) => (
-                <option key={ar} value={ar}>{ar}</option>
+                <option key={ar} value={ar}>{ar === 'auto' ? 'auto（写真の比率）' : ar}</option>
               ))}
             </select>
           </div>

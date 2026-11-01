@@ -19,6 +19,8 @@ describe('ノードのカタログ', () => {
     expect(port('tryOn', 'inputs', 'model')).toBe(TRY_ON_MODEL_HANDLE)
     expect(port('tryOn', 'inputs', 'garment')).toBe(TRY_ON_GARMENT_HANDLE)
     expect(port('tryOn', 'outputs', 'image')).toBe(TRY_ON_OUTPUT_HANDLE)
+    expect(port('libraryModel', 'outputs', 'right')).toBe(cutSetRoleHandle('right'))
+    expect(catalogNode('videoGen')!.params.some((p) => p.key === 'autoTurn')).toBe(false)
     expect(port('export', 'inputs', 'item')).toBe('in-item-item')
   })
   it('種別は重複せず、build は data.type を返す', () => {

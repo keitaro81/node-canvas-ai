@@ -16,7 +16,7 @@ export function useLiveCanvas(debounceMs = 400): CanvasLike {
   const latest = useRef({ nodes, edges })
   latest.current = { nodes, edges }
   const signature = useMemo(() => JSON.stringify({
-    n: nodes.map((n) => { const d = n.data as unknown as Record<string, unknown>; return [n.id, n.type, d.type, d.params ?? null, typeof d.output === 'string' ? d.output : null, typeof d.imageUrl === 'string' ? d.imageUrl : null, d.model ?? null] }),
+    n: nodes.map((n) => { const d = n.data as unknown as Record<string, unknown>; return [n.id, n.type, d.type, d.params ?? null, typeof d.output === 'string' ? d.output : null, typeof d.imageUrl === 'string' ? d.imageUrl : null, d.model ?? null, d.cuts ?? null, d.role ?? null] }),
     e: edges.map((e) => [e.source, e.sourceHandle ?? null, e.target, e.targetHandle ?? null]),
   }), [nodes, edges])
   const settled = useDebounced(signature, debounceMs)

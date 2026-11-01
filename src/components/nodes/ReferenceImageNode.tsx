@@ -35,6 +35,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
         updateNode(id, {
           imageUrl: signedUrl,
           uploadedImagePreview: previewUrl,
+          role: null,
         } as Parameters<typeof updateNode>[1])
       } catch {
         updateNode(id, {
@@ -83,7 +84,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   )
 
   const handleClear = useCallback(() => {
-    updateNode(id, { imageUrl: null, uploadedImagePreview: null, maskUrl: null } as Parameters<typeof updateNode>[1])
+    updateNode(id, { imageUrl: null, uploadedImagePreview: null, maskUrl: null, role: null } as Parameters<typeof updateNode>[1])
   }, [id, updateNode])
 
   // ライブラリから選ぶ（自分のアップロード・チーム共有・生成画像）
@@ -93,7 +94,8 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
     setIsUploading(true)
     try {
       const signedUrl = await signLibraryUrl(picked.url)
-      updateNode(id, { imageUrl: signedUrl, uploadedImagePreview: null, maskUrl: null, maskPreviewDataUrl: null } as Parameters<typeof updateNode>[1])
+      // モデルタブから入れたときは向きも持つ（Video Generation の回転指示・Try-On の向きに使う）
+      updateNode(id, { imageUrl: signedUrl, uploadedImagePreview: null, maskUrl: null, maskPreviewDataUrl: null, role: picked.role ?? null } as Parameters<typeof updateNode>[1])
     } finally { setIsUploading(false) }
   }, [id, updateNode])
 

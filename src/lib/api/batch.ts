@@ -80,6 +80,14 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
       if (d.type === 'imageDisplay' || d.type === 'referenceImage' || d.type === 'image') {
         const url = typeof d.output === 'string' ? d.output : typeof d.imageUrl === 'string' ? d.imageUrl : null
         if (url) data.output = toCanonicalRef(url) ?? url
+        if (typeof d.role === 'string' && d.role) data.role = d.role   // 参照画像: モデルタブから入れた向き
+      }
+      if (d.type === 'libraryModel') {
+        // Model ノード: 向きごとのカット（固定の画像・canonical）
+        const cuts = (d.cuts && typeof d.cuts === 'object' ? d.cuts : {}) as Record<string, { itemId?: unknown; url?: unknown }>
+        const out: Record<string, { itemId: string | null; url: string }> = {}
+        for (const [role, c] of Object.entries(cuts)) if (c && typeof c.url === 'string' && c.url) out[role] = { itemId: typeof c.itemId === 'string' ? c.itemId : null, url: toCanonicalRef(c.url) ?? c.url }
+        data.cuts = out
       }
       if (d.type === 'batchInput') {
         data.items = (Array.isArray(d.items) ? (d.items as BatchItem[]) : []).map((it) => ({ id: it.id, index: it.index, originalName: it.originalName, sku: it.sku, path: it.path, width: it.width, height: it.height, status: it.status }))

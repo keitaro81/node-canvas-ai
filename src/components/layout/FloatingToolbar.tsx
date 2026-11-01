@@ -30,6 +30,7 @@ import {
   Layout,
   Images,
   TShirt,
+  UserCircle,
   DownloadSimple,
   UploadSimple,
   SquaresFour,
@@ -67,6 +68,7 @@ const PALETTE = [
       { type: 'imageGen' as NodeType, label: 'Image Generation', description: 'AI画像を生成', icon: <Sparkle size={15} />, color: '#8B5CF6' },
       { type: 'referenceImage' as NodeType, label: 'Reference Image', description: '参照画像をアップロード', icon: <Image size={15} />, color: '#8B5CF6' },
       { type: 'tryOn' as NodeType, label: 'Try-On', description: 'モデルに服を着せた着用画像を作る（ライブラリのモデル × 商品写真・Nano Banana 2）', icon: <TShirt size={15} />, color: '#8B5CF6' },
+      { type: 'libraryModel' as NodeType, label: 'Model', description: 'ライブラリのモデルを置き、向きごとのカットを Try-On や Video Generation につなぐ', icon: <UserCircle size={15} />, color: '#8B5CF6' },
     ],
   },
   {
@@ -121,13 +123,14 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   videoMerge: 'videoMergeNode',
   cutSetInput: 'cutSetInputNode',
   tryOn: 'tryOnNode',
+  libraryModel: 'libraryModelNode',
 }
 
 let nodeIdCounter = 1000
 
 function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   if (type === 'videoGen') {
-    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, capsuleFields: { model: { id: 'model', capsuleVisibility: 'visible' }, duration: { id: 'duration', capsuleVisibility: 'visible' }, resolution: { id: 'resolution', capsuleVisibility: 'visible' }, aspectRatio: { id: 'aspectRatio', capsuleVisibility: 'visible' }, audioEnabled: { id: 'audioEnabled', capsuleVisibility: 'visible' } } }
+    return { label, model: 'ltx-2.3-fast', duration: '6', resolution: '1080p', aspectRatio: '16:9', fps: 25, audioEnabled: true, seed: null, status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, params: { prompt: '', negativePrompt: '', autoTurn: false }, capsuleFields: { model: { id: 'model', capsuleVisibility: 'visible' }, duration: { id: 'duration', capsuleVisibility: 'visible' }, resolution: { id: 'resolution', capsuleVisibility: 'visible' }, aspectRatio: { id: 'aspectRatio', capsuleVisibility: 'visible' }, audioEnabled: { id: 'audioEnabled', capsuleVisibility: 'visible' } } }
   }
   if (type === 'referenceImage') {
     return { label, imageUrl: null, uploadedImagePreview: null }
@@ -164,6 +167,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'tryOn') {
     return { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
+  }
+  if (type === 'libraryModel') {
+    return { type: 'libraryModel', label, params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} }
   }
   if (type === 'cutSetInput') {
     return { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }

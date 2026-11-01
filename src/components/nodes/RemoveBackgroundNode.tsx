@@ -69,10 +69,6 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
   const { freshUrl } = useSignedMedia(rawUpstreamUrl, currentWorkflowId)
   const upstreamCanonical = rawUpstreamUrl ? (toCanonicalRef(rawUpstreamUrl) ?? rawUpstreamUrl) : null
 
-  // 後段に Image Generation（合成）か Try-On（試着）があるか: あれば実行時に透過の切り抜き画像も保存する（一括実行と同じ dual 出力）
-  const hasDownstreamGen = edges.some((e) => { const t = nodes.find((n) => n.id === e.target)?.type; return e.source === id && (t === 'imageGenerationNode' || t === 'tryOnNode') })
-  const cutoutMissing = !!output && hasDownstreamGen && !output.cutoutPath
-
   const isStale = !!output && !!upstreamCanonical && output.sourceRef !== upstreamCanonical
   const paramsDirty = !!output && (
     output.params.alphaThreshold !== params.alphaThreshold || output.params.featherPx !== params.featherPx
@@ -110,7 +106,7 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
         imageUrl: url,
         sourceRef,
         params,
-        dualOutput: hasDownstreamGen,
+        dualOutput: true,   // 常に透過画像も保存する（後段をつなぐ順番に依存しない・2026-11-01）
         onProgress: (m) => updateNode(id, { progress: m }),
       })
       cacheRef.current = { maskPath: res.ref.maskPath, rawAlpha: res.rawAlpha, original: res.original }
@@ -118,7 +114,7 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
     } catch (e) {
       updateNode(id, { status: 'error', progress: '', error: e instanceof Error ? e.message : String(e) })
     }
-  }, [id, params, rawUpstreamUrl, freshUrl, hasDownstreamGen, updateNode])
+  }, [id, params, rawUpstreamUrl, freshUrl, updateNode])
 
   /** 再適用/ダウンロードに必要な元画像と生マスクをセッション内に用意する（再読込後は保存先から読み戻す）。 */
   const ensureCache = useCallback(async (): Promise<SessionCache> => {
@@ -228,7 +224,6 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
         )}
         {isStale && <Notice tone="warning">入力画像が変わりました。再実行してください</Notice>}
         {!isStale && engineDirty && <Notice tone="info">エンジン設定が変わりました。「実行」で反映されます</Notice>}
-        {!isStale && !engineDirty && cutoutMissing && <Notice tone="warning">後段の Image Generation / Try-On 用の切り抜き画像がありません。「実行」でやり直すと切り抜き画像も保存されます</Notice>}
 
         <button
           className="w-full h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12px] font-medium text-white transition-all duration-150 disabled:opacity-50 nodrag"

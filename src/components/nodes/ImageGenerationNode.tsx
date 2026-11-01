@@ -12,7 +12,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadImageFromUrl } from '../../lib/api/storage'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
-import { signBatchPath } from '../../lib/cutout/store'
+import { ensureCutoutImage } from '../../lib/cutout/ensureCutout'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
 import { itemAiStageOf } from '../../lib/review/model'
 
@@ -35,10 +35,10 @@ async function resolveUpstreamCutoutUrls(nodes: AppNode[], edges: Edge[]): Promi
     const ref = cutoutRefOf(src)
     const label = ((src.data as unknown as { label?: string }).label || 'Remove Background')
     if (!ref) throw new Error(`${label} を先に実行してください（切り抜き画像を入力にします）`)
-    if (!ref.cutoutPath) throw new Error(`${label} の切り抜き画像がありません。Image Generation をつないだ状態で ${label} を再実行してください`)
-    const url = await signBatchPath(ref.cutoutPath)
-    if (!url) throw new Error(`${label} の切り抜き画像を取得できません（チームの権限を確認してください）`)
-    out.set(src.id, url)
+    // 透過画像が無い古い結果はその場で作って保存する（fal は呼ばない・2026-11-01）
+    const ensured = await ensureCutoutImage(ref, src.id, useWorkflowStore.getState().currentWorkflowId, getImageUrlFromNodeData(src.data))
+    if (ensured.ref !== ref) useCanvasStore.getState().updateNode(src.id, { output: ensured.ref } as Partial<NodeData>)
+    out.set(src.id, ensured.signedUrl)
   }
   return out
 }

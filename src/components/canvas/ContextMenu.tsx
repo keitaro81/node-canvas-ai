@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download, LayoutGrid, Clapperboard, Shirt } from 'lucide-react'
+import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download, LayoutGrid, Clapperboard, Shirt, UserRound } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
 
 interface MenuItem {
@@ -26,6 +26,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   videoMerge:     ['video'],
   cutSetInput:    [],
   tryOn:          ['image', 'cutout'],
+  libraryModel:   [],
   imageGen:       ['text', 'image', 'list'],
   videoGen:       ['text', 'image', 'video', 'cuts'],
   note:           [],
@@ -47,6 +48,7 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   videoMerge:     ['video'],
   cutSetInput:    ['image', 'cuts', 'item'],
   tryOn:          ['image'],
+  libraryModel:   ['image'],
   imageGen:       ['image'],
   referenceImage: ['image'],
   videoGen:       ['video'],
@@ -69,6 +71,7 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
       { type: 'imageGen',       label: 'Image Generation', icon: <Sparkles size={14} />,  color: '#8B5CF6' },
       { type: 'referenceImage', label: 'Reference Image',  icon: <ImagePlus size={14} />, color: '#8B5CF6' },
       { type: 'tryOn',          label: 'Try-On',           icon: <Shirt size={14} />,     color: '#8B5CF6' },
+      { type: 'libraryModel',   label: 'Model',            icon: <UserRound size={14} />, color: '#8B5CF6' },
     ],
   },
   {

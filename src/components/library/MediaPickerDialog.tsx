@@ -14,6 +14,10 @@ import { listBatchVideos, signBatchVideos, type BatchVideo } from '../../lib/api
 import { listBatchFolders, signFolderPreviews, type BatchFolder, type FolderImage } from '../../lib/api/batchFolders'
 import { FolderTile } from './BatchFolderCard'
 import { BatchFolderDialog } from './BatchFolderDialog'
+import { ModelCutGrid } from './ModelCutGrid'
+import { modelCutKey } from '../../lib/library/modelRoles'
+import { CUT_ROLE_LABEL, type CutRole } from '../../lib/video/productVideo'
+import type { LibraryModel } from '../../lib/api/libraryModels'
 import { showToast } from '../../hooks/useToast'
 
 const ACCENT = '#8B5CF6'
@@ -29,6 +33,7 @@ export interface PickedMedia {
   height?: number | null
   file?: File                 // このダイアログでアップロードした元ファイル（再取得せずに使える）
   signedUrl?: string          // 署名済み URL（商品動画の結果など、すぐ表示に使えるとき）
+  role?: CutRole              // モデルタブから入れたときの向き（参照画像ノードが持ち、動画の回転指示・試着の向きに使う）
 }
 interface Props {
   open: boolean
@@ -41,7 +46,7 @@ interface Props {
 }
 
 type Entry = { key: string; kind: 'upload' | 'generated'; media: LibraryMedia; url: string; name: string | null; isTeam: boolean; createdAt: string; lib?: LibraryItem; gen?: GenerationWithWorkflow; batch?: BatchVideo; folder?: BatchFolder }
-type TabId = 'all' | 'uploads' | 'gen-image' | 'gen-video'
+type TabId = 'all' | 'uploads' | 'gen-image' | 'gen-video' | 'models'
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)
 
@@ -57,6 +62,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(0)
   const [selected, setSelected] = useState<string[]>([])            // entry.key（選んだ順）
+  const [modelSel, setModelSel] = useState<{ key: string; model: LibraryModel; role: CutRole; item: LibraryItem; signedUrl: string } | null>(null)   // モデルタブで選んだ向き（1 枚）
   const [myId, setMyId] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement | null>(null)
   const uploadedFiles = useRef(new Map<string, File>())   // entry.key → このダイアログで上げた File
@@ -91,7 +97,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
 
   useEffect(() => {
     if (!open) return
-    setTab('all'); setSelected([]); setFolderOpen(null); uploadedFiles.current.clear()
+    setTab('all'); setSelected([]); setModelSel(null); setFolderOpen(null); uploadedFiles.current.clear()
     void load()
   }, [open, load])
 
@@ -116,6 +122,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
 
   const toggle = (key: string) => {
     if (byKey.get(key)?.folder) return   // フォルダは選ぶものではなく開くもの
+    if (!multiple) setModelSel(null)
     setSelected((cur) => {
       if (cur.includes(key)) return cur.filter((k) => k !== key)
       return multiple ? [...cur, key] : [key]
@@ -150,10 +157,11 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   // 決定: ここで選んだ素材 ＋ フォルダの中で選んだ画像（extra）。1 枚だけの入力ではフォルダで選んだ 1 枚を優先
   const finish = (extra: PickedMedia[]) => {
     const picked = selected.map((k) => byKey.get(k)).filter((e): e is Entry => !!e && !e.folder)
-    if (!picked.length && !extra.length) return
-    void touchLibraryItems(picked.map((e) => e.lib?.id).filter((id): id is string => !!id))
+    const fromModel: PickedMedia[] = modelSel ? [{ url: libraryCanonicalUrl(modelSel.item), media: 'image', libraryItemId: modelSel.item.id, name: `${modelSel.model.name}・${CUT_ROLE_LABEL[modelSel.role]}`, width: modelSel.item.width, height: modelSel.item.height, signedUrl: modelSel.signedUrl, role: modelSel.role }] : []
+    if (!picked.length && !extra.length && !fromModel.length) return
+    void touchLibraryItems([...picked.map((e) => e.lib?.id).filter((id): id is string => !!id), ...fromModel.map((m) => m.libraryItemId!)])
     const own = picked.map((e): PickedMedia => ({ url: e.url, media: e.media, libraryItemId: e.lib?.id, generationId: e.gen?.id, name: e.name, width: e.lib?.width ?? null, height: e.lib?.height ?? null, file: uploadedFiles.current.get(e.key), signedUrl: e.batch ? signed[e.key] : undefined }))
-    onPick(multiple ? [...own, ...extra] : extra.length ? [extra[0]] : own)
+    onPick(multiple ? [...own, ...fromModel, ...extra] : extra.length ? [extra[0]] : fromModel.length ? fromModel : own)
     onClose()
   }
   const confirm = () => finish([])
@@ -166,7 +174,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const noun = media === 'video' ? '動画' : '画像'
   const tabs: Array<{ id: TabId; label: string }> = [
     { id: 'all', label: 'すべて' }, { id: 'uploads', label: 'アップロード' },
-    ...(media === 'image' ? [{ id: 'gen-image' as TabId, label: 'AI 画像生成' }] : [{ id: 'gen-video' as TabId, label: 'AI 動画生成' }]),
+    ...(media === 'image' ? [{ id: 'gen-image' as TabId, label: 'AI 画像生成' }, { id: 'models' as TabId, label: 'モデル' }] : [{ id: 'gen-video' as TabId, label: 'AI 動画生成' }]),
   ]
   const genTabId: TabId = media === 'image' ? 'gen-image' : 'gen-video'
   const genLabel = media === 'image' ? 'AI 画像生成' : 'AI 動画生成'
@@ -230,17 +238,23 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
               {tab === 'all' && (<>{section('アップロード', uploadEntries, 'uploads', PREVIEW_COUNT)}{section(genLabel, genEntries, genTabId, PREVIEW_COUNT)}</>)}
               {tab === 'uploads' && section('アップロード', uploadEntries, 'uploads')}
               {(tab === 'gen-image' || tab === 'gen-video') && section(genLabel, genEntries, genTabId)}
+              {tab === 'models' && (
+                <section>
+                  <div className="flex items-center justify-between mb-2"><h3 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>モデル（向きを 1 つ選ぶ）</h3><span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>選んだ向きは参照画像に記録され、動画の回転指示や試着の向きに使われます</span></div>
+                  <ModelCutGrid selectedKey={modelSel?.key ?? null} onPick={(model, role, item, signedUrl) => { const key = modelCutKey(model.id, role); setModelSel((cur) => (cur?.key === key ? null : { key, model, role, item, signedUrl })); if (!multiple) setSelected([]) }} />
+                </section>
+              )}
             </>
           )}
         </div>
         {/* フッター */}
         <div className="flex items-center gap-3 px-6 py-3 border-t" style={{ borderColor: 'var(--border)', background: 'var(--bg-surface)' }}>
-          {firstSel ? <div className="w-10 h-10 rounded-md overflow-hidden shrink-0" style={{ background: 'var(--bg-placeholder)' }}><MediaImg src={signed[firstSel.key] ?? firstSel.url} video={firstSel.media === 'video'} muted className="w-full h-full object-cover" /></div> : <div className="w-10 h-10 rounded-md shrink-0" style={{ background: 'var(--bg-placeholder)' }} />}
-          <div className="text-[13px]" style={{ color: 'var(--text-primary)' }}>{selected.length} 件選択中</div>
+          {firstSel ? <div className="w-10 h-10 rounded-md overflow-hidden shrink-0" style={{ background: 'var(--bg-placeholder)' }}><MediaImg src={signed[firstSel.key] ?? firstSel.url} video={firstSel.media === 'video'} muted className="w-full h-full object-cover" /></div> : modelSel ? <div className="w-10 h-10 rounded-md overflow-hidden shrink-0" style={{ background: 'var(--bg-placeholder)' }}><MediaImg src={modelSel.signedUrl} className="w-full h-full object-cover" /></div> : <div className="w-10 h-10 rounded-md shrink-0" style={{ background: 'var(--bg-placeholder)' }} />}
+          <div className="text-[13px]" style={{ color: 'var(--text-primary)' }}>{selected.length + (modelSel ? 1 : 0)} 件選択中{modelSel ? `（${modelSel.model.name}・${CUT_ROLE_LABEL[modelSel.role]}）` : ''}</div>
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" className="h-9 px-4 rounded-lg text-[13px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => setSelected([])} disabled={!selected.length}>すべてクリア</button>
-            <button type="button" className="h-9 px-4 rounded-lg text-[13px] font-medium disabled:opacity-50" style={{ background: 'var(--text-primary)', color: 'var(--bg-surface)' }} onClick={confirm} disabled={!selected.length}>
-              {multiple ? `${selected.length} 枚の${noun}を追加` : `この${noun}を使う`}
+            <button type="button" className="h-9 px-4 rounded-lg text-[13px]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => { setSelected([]); setModelSel(null) }} disabled={!selected.length && !modelSel}>すべてクリア</button>
+            <button type="button" className="h-9 px-4 rounded-lg text-[13px] font-medium disabled:opacity-50" style={{ background: 'var(--text-primary)', color: 'var(--bg-surface)' }} onClick={confirm} disabled={!selected.length && !modelSel}>
+              {multiple ? `${selected.length + (modelSel ? 1 : 0)} 枚の${noun}を追加` : `この${noun}を使う`}
             </button>
           </div>
         </div>

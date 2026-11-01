@@ -28,7 +28,19 @@ describe('DSL → キャンバス', () => {
     expect(r.errors).toEqual([])
     expect(r.canvas!.edges.filter((e) => e.target === 'ex').map((e) => e.targetHandle)).toEqual(['in-image-0', 'in-image-1', 'in-item-item'])
     expect(r.notes.some((n) => n.includes('モデルの画像が無い'))).toBe(true)   // モデル未選択なので計画の注意
-    expect(r.notes.some((n) => n.includes('「モデル」でライブラリのモデルと向きを選んで'))).toBe(true)
+    expect(r.notes.some((n) => n.includes('モデル入力に Model ノード'))).toBe(true)
+  })
+  it('Model ノード → Try-On、Try-On の結果 → Video Generation の始点・終点: 回転の定型文が欄に入り、autoTurn は false', () => {
+    const r = compileWorkflow({
+      nodes: [{ id: 'cuts', type: 'cutSetInput' }, { id: 'm', type: 'libraryModel' }, { id: 'tf', type: 'tryOn', params: { role: 'front' } }, { id: 'tr', type: 'tryOn', params: { role: 'right' } }, { id: 'v', type: 'videoGen', params: { prompt: 'ゆっくり' } }],
+      edges: [{ from: 'cuts.front', to: 'tf.garment' }, { from: 'm.front', to: 'tf.model' }, { from: 'cuts.right', to: 'tr.garment' }, { from: 'm.right', to: 'tr.model' }, { from: 'tf.image', to: 'v.start' }, { from: 'tr.image', to: 'v.end' }],
+    })
+    expect(r.errors).toEqual([])
+    const v = r.canvas!.nodes.find((n) => n.id === 'v')!
+    expect(v.data.params).toMatchObject({ autoTurn: false, negativePrompt: expect.stringContaining('背中を見せる') })
+    expect(String(v.data.params.prompt)).toMatch(/^正面を向いたまま[\s\S]*\nゆっくり$/)
+    expect(r.canvas!.edges.filter((e) => e.target === 'tf').map((e) => `${e.source}.${e.sourceHandle}→${e.targetHandle}`)).toEqual(['cuts.out-image-front→in-image-garment', 'm.out-image-front→in-image-model'])
+    expect(r.notes.some((n) => n.includes('Model ノードでライブラリのモデルを選んで'))).toBe(true)
   })
   it('種別・ポート・相性・本数の誤りは errors（キャンバスは作らない）', () => {
     const r = compileWorkflow({

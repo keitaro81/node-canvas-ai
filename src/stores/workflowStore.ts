@@ -17,7 +17,7 @@ import {
   type WorkflowVisibility,
   type WorkflowRow,
 } from '../lib/api/workflows'
-import { expandProductVideo, hasLegacyProductVideo, type SnapshotEdge, type SnapshotNode } from '../lib/batch/plan'
+import { expandProductVideo, hasLegacyProductVideo, materializeTurnPresets, type SnapshotEdge, type SnapshotNode } from '../lib/batch/plan'
 import { onCanvasVersion } from '../lib/workflow/canvasVersion'
 import { FREE_LOCK, classifySaveError, editSessionId, lockRequiredFor, type EditLockView } from '../lib/workflow/editLock'
 import { canonicalizeCanvasNodes, signCanvasNodes } from '../lib/api/signMedia'
@@ -187,8 +187,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const expanded = hasLegacyProductVideo({ nodes: restoredNodes as unknown as SnapshotNode[] })
         ? expandProductVideo({ nodes: restoredNodes as unknown as SnapshotNode[], edges: (canvasData?.edges ?? []) as unknown as SnapshotEdge[] })
         : null
-      const nodesToLoad = (expanded ? expanded.nodes : restoredNodes) as AppNode[]
       const edgesToLoad = (expanded ? expanded.edges : (canvasData?.edges ?? [])) as Edge[]
+      // 「回転の指示を自動で付ける」トグルの廃止（2026-11-01）: 旧ワークフローの Video Generation には同じ内容の定型文を欄に書き込む（1 回だけ。保存は展開と同じく autosave）
+      const turned = materializeTurnPresets((expanded ? expanded.nodes : restoredNodes) as unknown as SnapshotNode[], edgesToLoad as unknown as SnapshotEdge[])
+      const nodesToLoad = turned.nodes as AppNode[]
       // 非公開バケット化(L1)+テナント分離(L2): canonical URL を、サーバーが WF アクセス認可した上で署名URLへ変換
       const signedNodes = await signCanvasNodes(nodesToLoad, id)
       // nodes/edges/capsuleGroupId を原子的にセット。

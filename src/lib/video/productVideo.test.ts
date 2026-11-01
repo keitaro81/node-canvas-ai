@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_EN, DEFAULT_BASE_PROMPT, END_CUT_CFG_SCALE, VIDEO_TEMPLATES, applyPromptTranslations, builtinEnglish, cutOf, elementCutsOf, hasJapanese, isStaticPresetMotion, normalizeProductVideoParams, parseShotTaskNodeId, promptTextsToTranslate, shotAvailable, shotNegativePrompt, shotPrompt, shotRoleLabel, shotTaskNodeId, shotsAvailableFor, totalSeconds, turnInstruction, videoNodeOf } from './productVideo'
+import { BUILTIN_EN, DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, END_CUT_CFG_SCALE, NEG_JP_NO_BACK, NEG_JP_NO_FRONT, TO_END_EN, VIDEO_TEMPLATES, applyPromptTranslations, builtinEnglish, cutOf, elementCutsOf, hasJapanese, hasTurnPreset, isStaticPresetMotion, normalizeProductVideoParams, parseShotTaskNodeId, promptTextsToTranslate, shotAvailable, shotNegativePrompt, shotPrompt, shotRoleLabel, shotTaskNodeId, shotsAvailableFor, totalSeconds, turnInstruction, turnPreset, videoNodeOf, withTurnMotion, withTurnNegative } from './productVideo'
 
 const cuts = [
   { role: 'front' as const, path: 'f.jpg' }, { role: 'right' as const, path: 'r.jpg' }, { role: 'back' as const, path: 'b.jpg' },
@@ -94,5 +94,29 @@ describe('日本語で編集 → 生成時に英語', () => {
     expect(shotPrompt(en, en.shots[2])).toBe(`${en.basePrompt}\n@Element1 wearing the garment. Close on the collar, breathing slowly`)
     // 翻訳表に無い日本語はそのまま（保険）
     expect(applyPromptTranslations(params, {}).shots[2].motion).toBe('襟元に寄って、ゆっくり呼吸する')
+  })
+})
+
+describe('回転の定型文（2026-11-01・「回転の指示を自動で付ける」トグルの廃止）', () => {
+  it('turnPreset は向きの組み合わせごとの日本語の文と negative を返し、対訳が BUILTIN_EN にある（英語は turnInstruction と同じ言い回し + 最短で終点へ）', () => {
+    const t = turnPreset('front', 'right')
+    expect(hasTurnPreset(t.motion)).toBe(true)
+    expect(hasTurnPreset('ゆっくり正面を向く')).toBe(false)
+    expect(t.negativeJp).toBe(NEG_JP_NO_BACK)
+    expect(builtinEnglish(t.motion)).toContain(turnInstruction('front', 'right').motion)
+    expect(builtinEnglish(t.motion)).toContain(TO_END_EN)
+    expect(turnPreset('right', 'back').negativeJp).toBe(NEG_JP_NO_FRONT)
+    expect(turnPreset('front', 'back').negativeJp).toBeNull()
+    expect(builtinEnglish(withTurnNegative(DEFAULT_NEGATIVE_PROMPT, NEG_JP_NO_FRONT))).toContain(turnInstruction('right', 'back').negative!)
+  })
+  it('withTurnMotion: 空・静止の定型文・補足だけ → 定型文に置き換え、別の定型文は入れ替え、それ以外は定型文を前に足す。withTurnNegative は既定を補い重複を足さない', () => {
+    const t = turnPreset('front', 'right')
+    expect(withTurnMotion('', t.motion)).toBe(t.motion)
+    expect(withTurnMotion('足は動かさず、腕はリラックス。', t.motion)).toBe(t.motion)
+    expect(withTurnMotion('ゆっくり', t.motion)).toBe(`${t.motion}\nゆっくり`)
+    expect(withTurnMotion(t.motion, turnPreset('right', 'back').motion)).toBe(turnPreset('right', 'back').motion)
+    expect(withTurnNegative('', NEG_JP_NO_BACK)).toBe(`${DEFAULT_NEGATIVE_PROMPT}、${NEG_JP_NO_BACK}`)
+    expect(withTurnNegative(`${DEFAULT_NEGATIVE_PROMPT}、${NEG_JP_NO_BACK}`, NEG_JP_NO_BACK)).toBe(`${DEFAULT_NEGATIVE_PROMPT}、${NEG_JP_NO_BACK}`)
+    expect(withTurnNegative('x', null)).toBe('x')
   })
 })

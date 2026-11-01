@@ -1,12 +1,12 @@
 // Try-On ノード（2026-11-01・設計 docs/specs/library-tryon.md §4.1 / §7）: モデル画像 + 服の画像 → 着用画像。
 // エンジンは Nano Banana 2 edit だけ（2b-1 の試作で最良・ユーザー決定「案 A」）。試着用の既定プロンプトはノードが持ち（src/lib/tryon/prompt.ts）、
 // ユーザーは「服の説明・補足」（任意・日本語可 → 生成時に any-llm で英訳）だけ書く。
-// モデルは in-image-model につなぐか、ノード内の「モデル」でライブラリのモデルと向きを選ぶ（配線があれば配線が優先）。
+// モデルは in-image-model につなぐ（Model ノードの向きポート / 参照画像のモデルタブ / Cut Set Input / 別の Try-On）。ノード内の「モデル」ボタンは 2026-11-01 に廃止（旧ワークフローの data.model は読む）。
 // 服は in-image-garment（Reference Image / Batch Input の写真 / Image Display / Remove Background の切り抜き）。
 // 結果は Image Generation と同じく右に Image Display を作って出し、このノードの output（最新）にも入れる（後段の Video Generation 等につなげる）。
 // 生成履歴（node_type 'try-on'）とライブラリの生成画像に入る。一括実行（2b-3）: Batch Input の写真をつなぐと写真ごとに 1 枚（計画は src/lib/batch/plan.ts・モデルは固定の画像として投入時にサーバーが署名）
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Edge, NodeProps } from '@xyflow/react'
+import { Handle, Position, type Edge, type NodeProps } from '@xyflow/react'
 import { Shirt, Play, Loader2, UserRound, X } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
@@ -19,21 +19,24 @@ import { fal } from '../../lib/ai/fal-client'
 import { toCanonicalRef, uploadImageFromUrl } from '../../lib/api/storage'
 import { checkQuota, saveGeneration } from '../../lib/api/generations'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
-import { libraryCanonicalUrl, signLibraryUrl, touchLibraryItems, type LibraryItem } from '../../lib/api/library'
-import type { LibraryModel } from '../../lib/api/libraryModels'
-import { resolveFetchableUrl, signBatchPath } from '../../lib/cutout/store'
+import { signLibraryUrl, touchLibraryItems } from '../../lib/api/library'
+import { resolveFetchableUrl } from '../../lib/cutout/store'
+import { ensureCutoutImage } from '../../lib/cutout/ensureCutout'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { cutSetRoleOfHandle, inputNodesOf, planTasks, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { imageRoleOfSource, inputNodesOf, planTasks, type SnapshotEdge, type SnapshotNode, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
-import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, isCutRole, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
-import { CUT_ROLE_LABEL, type CutRole } from '../../lib/video/productVideo'
-import { ModelCutPickerDialog, type ModelCutPickExtra } from '../library/ModelCutPickerDialog'
+import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
+import { CUT_ROLE_LABEL } from '../../lib/video/productVideo'
 import type { CutoutRef, NodeData, TryOnModelRef, TryOnNodeData } from '../../types/nodes'
 
 export { TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE }
 const ACCENT = '#8B5CF6'
 const NODE_WIDTH = 280, H_GAP = 40, V_GAP = 10, DISPLAY_HEIGHT = 360
+// 入力ポートは「モデル」「服」の行の横に置く（BaseNode の 1/3・2/3 配置だと服のポートが行から離れてつなぎにくい・2026-11-01 D1 の指摘）
+const HEADER_H = 36, BODY_PAD = 12, ROW_H = 78, ROW_GAP = 8
+const MODEL_PORT_TOP = HEADER_H + BODY_PAD + ROW_H / 2
+const GARMENT_PORT_TOP = HEADER_H + BODY_PAD + ROW_H + ROW_GAP + ROW_H / 2
 const completedDisplayIds = new Set<string>()   // 通常フローと復旧フローの二重登録を防ぐ（Image Generation と同じ）
 
 const cutoutRefOf = (node: AppNode | undefined): CutoutRef | null => (node?.type === 'removeBackgroundNode' ? ((node.data as unknown as { output?: CutoutRef | null }).output ?? null) : null)
@@ -112,14 +115,13 @@ function TryOnNodeInner(props: NodeProps) {
   const workflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const params = normalizeTryOnParams(nodeData.params)
   const picked = nodeData.model ?? null
-  const [pickerOpen, setPickerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   // ── 上流（配線）──
   const modelEdge = edges.find((e) => e.target === id && e.targetHandle === TRY_ON_MODEL_HANDLE)
   const modelNode = modelEdge ? nodes.find((n) => n.id === modelEdge.source) : undefined
   const modelRaw = modelNode ? imageUrlFromNodeData(modelNode.data as Record<string, unknown>, modelEdge?.sourceHandle) : null
-  const modelWiredRole = modelNode?.type === 'cutSetInputNode' ? cutSetRoleOfHandle(modelEdge?.sourceHandle) : null
+  const modelWiredRole = modelEdge ? imageRoleOfSource(nodes as unknown as SnapshotNode[], edges as unknown as SnapshotEdge[], modelEdge.source, modelEdge.sourceHandle) : null
   const { url: modelWiredThumb, freshUrl: modelFresh } = useSignedMedia(modelRaw, workflowId)
 
   const garmentEdge = edges.find((e) => e.target === id && e.targetHandle === TRY_ON_GARMENT_HANDLE)
@@ -142,12 +144,10 @@ function TryOnNodeInner(props: NodeProps) {
     ? `${labelOf(modelNode, 'つないだ画像')}${modelWiredRole ? `・${CUT_ROLE_LABEL[modelWiredRole]}` : ''}`
     : picked ? `${picked.modelName ?? 'モデル'}${picked.role ? `・${CUT_ROLE_LABEL[picked.role]}` : ''}` : null
   const plannedRole = params.role ?? null   // 向きの予定（テンプレートが付ける）
-  const modelSub = modelNode && picked ? '配線を優先（選んだモデルは使いません）'
-    : modelNode ? '配線から'
-    : picked ? (plannedRole && picked.role !== plannedRole ? `ライブラリのモデルから（向きの予定は ${CUT_ROLE_LABEL[plannedRole]}）` : 'ライブラリのモデルから')
-    : plannedRole ? `向きの予定: ${CUT_ROLE_LABEL[plannedRole]}（「モデル」で選ぶ）` : 'つなぐか「モデル」から選ぶ'
-  // 同じモデルを向きごとに入れられる他の Try-On（向きの予定があり、モデル入力が配線されていないもの）
-  const others = useMemo(() => nodes.filter((n) => n.type === 'tryOnNode' && n.id !== id && isCutRole((n.data as { params?: { role?: unknown } }).params?.role) && !edges.some((e) => e.target === n.id && e.targetHandle === TRY_ON_MODEL_HANDLE)), [nodes, edges, id])
+  const modelSub = modelNode && picked ? '配線を優先（以前に選んだモデルは使いません）'
+    : modelNode ? (modelWiredRole && plannedRole && modelWiredRole !== plannedRole ? `配線から（向きの予定は ${CUT_ROLE_LABEL[plannedRole]}）` : '配線から')
+    : picked ? '以前にノードで選んだモデル（Model ノードをつなぐと置き換わります）'
+    : plannedRole ? `向きの予定: ${CUT_ROLE_LABEL[plannedRole]}。Model ノードの${CUT_ROLE_LABEL[plannedRole]}をつなぐ` : 'Model ノードか参照画像（モデルタブ）をつなぐ'
   const garmentText = garmentNode ? (garmentCutout ? `${labelOf(garmentNode, 'Remove Background')}（切り抜き）` : labelOf(garmentNode, 'つないだ画像')) : null
   const hasModel = !!modelNode || !!picked
   const hasGarment = !!garmentNode
@@ -159,31 +159,14 @@ function TryOnNodeInner(props: NodeProps) {
     const snap = live as unknown as WorkflowSnapshot
     const ins = inputNodesOf(snap)
     if (!ins.batchInputId && !ins.cutSetInputId) return null
-    const { tasks, warnings } = planTasks(snap)
+    const { tasks, excluded } = planTasks(snap)
     const t = tasks.find((x) => x.nodeId === id)
     if (t) return { ok: true as const, stage: t.stage, reason: null }
-    const label = nodeData.label || 'Try-On'
-    return { ok: false as const, stage: 0, reason: warnings.find((w) => w.includes(`（${label}）`) || w.includes(`${label} は`)) ?? null }
-  }, [live, id, nodeData.label])
+    return { ok: false as const, stage: 0, reason: excluded[id] ?? null }
+  }, [live, id])
 
   const setParams = useCallback((patch: Partial<typeof params>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
-  const onPickModel = useCallback((model: LibraryModel, role: CutRole, item: LibraryItem, extra: ModelCutPickExtra) => {
-    const refOf = (it: LibraryItem, r: CutRole): TryOnModelRef => ({ itemId: it.id, url: libraryCanonicalUrl(it), modelId: model.id, modelName: model.name, role: r })
-    updateNode(id, { model: refOf(item, role) } as Partial<NodeData>)
-    if (!extra.applyToOthers) return
-    // 他の Try-On にも同じモデルを向きごとに（そのモデルにその向きのカットが無ければ入れない）
-    let applied = 0
-    const missing: string[] = []
-    for (const n of others) {
-      const r = (n.data as { params?: { role?: CutRole } }).params?.role as CutRole
-      const itemId = model.cuts[r]
-      const it = itemId ? extra.items[itemId] : undefined
-      if (it) { updateNode(n.id, { model: refOf(it, r) } as Partial<NodeData>); applied++ }
-      else missing.push(CUT_ROLE_LABEL[r])
-    }
-    if (applied || missing.length) showToast(`他の Try-On ${applied} 個にも「${model.name}」を入れました${missing.length ? `（${[...new Set(missing)].join('・')} のカットが無いものは空のまま）` : ''}`, missing.length ? 'warning' : 'success')
-  }, [id, updateNode, others])
 
   // ── 実行 ──
   const handleRun = useCallback(async () => {
@@ -193,7 +176,7 @@ function TryOnNodeInner(props: NodeProps) {
     const gEdge = allEdges.find((e) => e.target === id && e.targetHandle === TRY_ON_GARMENT_HANDLE)
     const mNode = mEdge ? allNodes.find((n) => n.id === mEdge.source) : undefined
     const gNode = gEdge ? allNodes.find((n) => n.id === gEdge.source) : undefined
-    if (!mNode && !picked) { showToast('モデルの画像をつなぐか、「モデル」からライブラリのモデルを選んでください', 'warning'); return }
+    if (!mNode && !picked) { showToast('モデルの画像をつないでください（Model ノードの向きのポート、または参照画像のモデルタブ）', 'warning'); return }
     if (!gNode) { showToast('服の画像をつないでください', 'warning'); return }
     setBusy(true)
     updateNode(id, { status: 'generating', progress: '準備中…', error: null } as Partial<NodeData>)
@@ -210,7 +193,7 @@ function TryOnNodeInner(props: NodeProps) {
         if (!raw) throw new Error(`${labelOf(mNode, 'モデル')} に画像がありません`)
         if (raw.startsWith('blob:') || raw.startsWith('data:')) throw new Error('モデル画像のアップロード完了を待ってから実行してください')
         modelUrl = await resolveFetchableUrl({ canonical: toCanonicalRef(raw) ?? raw, fresh: modelFresh, liveUrl: raw })
-        modelRole = mNode.type === 'cutSetInputNode' ? cutSetRoleOfHandle(mEdge?.sourceHandle) : null
+        modelRole = mEdge ? imageRoleOfSource(allNodes as unknown as SnapshotNode[], allEdges as unknown as SnapshotEdge[], mEdge.source, mEdge.sourceHandle) : null
       } else {
         const ref = picked!
         modelUrl = await signLibraryUrl(ref.url)
@@ -225,10 +208,11 @@ function TryOnNodeInner(props: NodeProps) {
       if (gNode.type === 'removeBackgroundNode') {
         const label = labelOf(gNode, 'Remove Background')
         if (!cut) throw new Error(`${label} を先に実行してください（切り抜き画像を服の入力にします）`)
-        if (!cut.cutoutPath) throw new Error(`${label} の切り抜き画像がありません。Try-On をつないだ状態で ${label} を再実行してください`)
-        const signed = await signBatchPath(cut.cutoutPath)
-        if (!signed) throw new Error(`${label} の切り抜き画像を取得できません（チームの権限を確認してください）`)
-        garmentUrl = signed
+        // 透過画像が無い古い結果はその場で作って保存する（fal は呼ばない）
+        updateNode(id, { progress: '切り抜き画像を用意中…' } as Partial<NodeData>)
+        const ensured = await ensureCutoutImage(cut, gNode.id, useWorkflowStore.getState().currentWorkflowId, imageUrlFromNodeData(gNode.data as Record<string, unknown>))
+        if (ensured.ref !== cut) updateNode(gNode.id, { output: ensured.ref } as Partial<NodeData>)
+        garmentUrl = ensured.signedUrl
       } else {
         const raw = imageUrlFromNodeData(gNode.data as Record<string, unknown>, gEdge?.sourceHandle)
         if (!raw) throw new Error(`${labelOf(gNode, '服')} に画像がありません`)
@@ -308,27 +292,24 @@ function TryOnNodeInner(props: NodeProps) {
       data={nodeData as unknown as NodeData}
       icon={<Shirt size={14} />}
       hideStatus
-      inputs={[{ id: 'model', portType: 'image', label: 'モデル' }, { id: 'garment', portType: 'image', label: '服' }]}
+      inputs={[]}
       outputs={[{ id: 'image-out', portType: 'image', label: '着用画像' }]}
     >
+      <Handle id={TRY_ON_MODEL_HANDLE} type="target" position={Position.Left} className="handle-image" title="モデル画像（Model ノードの向き / 参照画像 / Cut Set Input）" style={{ top: MODEL_PORT_TOP, width: 20, height: 20 }} />
+      <Handle id={TRY_ON_GARMENT_HANDLE} type="target" position={Position.Left} className="handle-image" title="服の画像（商品写真 / 切り抜き / 参照画像）" style={{ top: GARMENT_PORT_TOP, width: 20, height: 20 }} />
       <div className="flex flex-col gap-2 nodrag">
         <SourceRow
-          label="モデル（上の入力）"
+          label="モデル（左のポート・上）"
           thumb={modelNode ? (modelWiredThumb ?? null) : pickedThumb}
           text={modelText}
           sub={modelSub}
           placeholder={<UserRound size={18} />}
-          actions={
-            <div className="flex items-center gap-1 shrink-0">
-              {picked && !modelNode && (
-                <button className="w-6 h-6 rounded flex items-center justify-center hover:bg-[var(--bg-elevated)]" style={{ color: 'var(--text-tertiary)' }} title="選んだモデルを外す" onClick={() => updateNode(id, { model: null } as Partial<NodeData>)} disabled={isRunning}><X size={12} /></button>
-              )}
-              <button className="h-7 px-2 rounded-md text-[11px] font-medium hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-40" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} onClick={() => setPickerOpen(true)} disabled={isRunning} title="ライブラリのモデルから向きを選ぶ">モデル</button>
-            </div>
-          }
+          actions={picked && !modelNode ? (
+            <button className="w-6 h-6 rounded flex items-center justify-center hover:bg-[var(--bg-elevated)] shrink-0" style={{ color: 'var(--text-tertiary)' }} title="以前に選んだモデルを外す" onClick={() => updateNode(id, { model: null } as Partial<NodeData>)} disabled={isRunning}><X size={12} /></button>
+          ) : undefined}
         />
         <SourceRow
-          label="服（下の入力）"
+          label="服（左のポート・下）"
           thumb={garmentCutout ? garmentCutoutThumb : (garmentWiredThumb ?? null)}
           text={garmentText}
           sub={garmentNode ? (garmentCutout ? '切り抜き画像を使う' : '配線から') : '商品写真・切り抜き・参照画像をつなぐ'}
@@ -367,15 +348,14 @@ function TryOnNodeInner(props: NodeProps) {
           style={{ background: ACCENT }}
           onClick={() => void handleRun()}
           disabled={isRunning || busy || !hasModel || !hasGarment}
-          title={!hasModel ? 'モデルをつなぐか「モデル」から選んでください' : !hasGarment ? '服の画像をつないでください' : 'Nano Banana 2 で着用画像を 1 枚作ります（約 $0.04）'}
+          title={!hasModel ? 'Model ノードか参照画像のモデルタブからモデルをつないでください' : !hasGarment ? '服の画像をつないでください' : 'Nano Banana 2 で着用画像を 1 枚作ります（約 $0.04）'}
         >
           {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
           {isRunning ? (nodeData.progress || '試着中…') : '試着（Nano Banana 2）'}
         </button>
         {nodeData.status === 'error' && nodeData.error && <div className="text-[11px] break-words" style={{ color: '#EF4444' }}>{nodeData.error}</div>}
-        <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>服の写真と同じ向きのモデルを選ぶと側面・背面も作れます。結果は右の Image Display に出て、生成履歴とライブラリの生成画像にも入ります。Batch Input の写真をつなぐと一括実行で写真ごとに作れます。</div>
+        <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>服の写真と同じ向きのモデルをつなぐと側面・背面も作れます。結果は右の Image Display に出て、生成履歴とライブラリの生成画像にも入ります。Batch Input の写真をつなぐと一括実行で写真ごとに作れます。</div>
       </div>
-      <ModelCutPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={onPickModel} preferredRole={plannedRole} othersCount={others.length} />
     </BaseNode>
   )
 }
