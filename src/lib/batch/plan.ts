@@ -11,7 +11,7 @@ import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFp
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
 import { CUT_ROLES, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, isStaticPresetMotion, normalizeProductVideoParams, shotRoleLabel, turnInstruction, type CutRole, type ItemCut, type VideoShotSpec } from '../video/productVideo'
 import { textsNeedingTranslation } from '../video/translate'
-import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../tryon/prompt'
+import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, buildTryOnInput, isCutRole, normalizeTryOnParams, tryOnPromptFromNote } from '../tryon/prompt'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface SnapshotNode { id: string; type?: string; data?: any; position?: { x: number; y: number } }
@@ -25,7 +25,7 @@ export type InputRef =
   | { kind: 'photo' }                                            // Batch Input の写真（item.source_path）
   | { kind: 'cut'; role: CutRole }                               // Cut Set Input の役割カット（item.cuts[role]）
   | { kind: 'set' }                                              // カット一式（正面 + 別角度 → elements）
-  | { kind: 'dep'; nodeId: string; prefer: 'cutout' | 'result' } // 前段の結果（切り抜きは透過画像 cutout_path を優先）
+  | { kind: 'dep'; nodeId: string; prefer: 'cutout' | 'result'; role?: CutRole } // 前段の結果（切り抜きは透過画像 cutout_path を優先）。role = その画像の向き（Try-On のモデルの向き。回転指示に使う）
   | { kind: 'asset'; url: string }                               // 固定の画像（Try-On のモデル・参照画像・結果ノードの画像。全アイテム共通。作成時に権限を確かめ、投入時にサーバーが署名）
 /** model: 試着のモデル画像（image = 服）。image_urls は [モデル, 服] の順 */
 export interface TaskInputs { image?: InputRef; model?: InputRef; start?: InputRef; end?: InputRef; elements?: { kind: 'set' }; videos?: string[] }
@@ -61,6 +61,8 @@ export const VIDEO_GEN_END_HANDLE = 'in-image-end'
 export const VIDEO_GEN_SET_HANDLE = 'in-cuts-set'
 export const VIDEO_GEN_TEXT_HANDLES = ['in-text', 'in-text-prompt']
 export const VIDEO_OUTPUT_HANDLE = 'out-video'
+/** 参照の向き（役割カットはその役割、前段の結果は載っている向き）。回転指示・ショットの見出しに使う */
+export const roleOfRef = (ref: InputRef | null | undefined): CutRole | null => (ref?.kind === 'cut' ? ref.role : ref?.kind === 'dep' ? ref.role ?? null : null)
 export const VIDEO_MERGE_MAX_INPUTS = 8
 export const videoMergeSlotHandle = (n: number): string => `in-video-${n}`
 export const videoMergeSlotOf = (handle: string | null | undefined): number | null => {
@@ -80,6 +82,28 @@ export function nodeKindOf(n: SnapshotNode | null | undefined): string | undefin
   const t = n?.data?.type
   if (typeof t === 'string' && t) return t
   return n?.type ? RF_TYPE_TO_KIND[n.type] : undefined
+}
+
+/** Try-On の画像の向き: モデル入力が Cut Set Input の役割ポートならその役割、別の Try-On（またはその結果ノード）なら同じ向き、配線が無ければノード内で選んだカットの向き */
+function tryOnRoleOf(nodes: SnapshotNode[], edges: SnapshotEdge[], nodeId: string, seen: Set<string> = new Set()): CutRole | null {
+  if (seen.has(nodeId)) return null
+  seen.add(nodeId)
+  const e = edges.find((x) => x.target === nodeId && x.targetHandle === TRY_ON_MODEL_HANDLE)
+  if (e) return imageRoleOfSource(nodes, edges, e.source, e.sourceHandle, seen)
+  const r = nodes.find((n) => n.id === nodeId)?.data?.model?.role
+  return isCutRole(r) ? r : null
+}
+/** 画像の出どころの向き（キャンバスでも写しでも使える純関数）: Cut Set Input の役割ポート / Try-On / Try-On の結果ノード。それ以外は null */
+export function imageRoleOfSource(nodes: SnapshotNode[], edges: SnapshotEdge[], sourceId: string, sourceHandle: string | null | undefined, seen: Set<string> = new Set()): CutRole | null {
+  const src = nodes.find((n) => n.id === sourceId)
+  const k = nodeKindOf(src)
+  if (k === 'cutSetInput') return cutSetRoleOfHandle(sourceHandle)
+  if (k === 'tryOn') return tryOnRoleOf(nodes, edges, sourceId, seen)
+  if (k === 'imageDisplay') {
+    const feed = edges.find((e) => e.target === sourceId && nodeKindOf(nodes.find((n) => n.id === e.source)) === 'tryOn')
+    return feed ? tryOnRoleOf(nodes, edges, feed.source, seen) : null
+  }
+  return null
 }
 const DEFAULT_LABELS: Record<string, string> = { removeBackground: 'Remove Background', imageGen: 'Image Generation', videoGen: 'Video Generation', videoMerge: 'Video Merge', tryOn: 'Try-On' }
 export function nodeLabelOf(n: SnapshotNode | null | undefined): string {
@@ -183,8 +207,8 @@ export function videoPromptOf(nodes: SnapshotNode[], edges: SnapshotEdge[], node
   const p = (node.data?.params ?? {}) as Record<string, unknown>
   const base = textsInto(nodes, edges, node.id).map(tr).join('\n\n')
   const ownRaw = str(p.prompt).trim()
-  const startRole = inputs.start?.kind === 'cut' ? inputs.start.role : null
-  const endRole = inputs.end?.kind === 'cut' ? inputs.end.role : null
+  const startRole = roleOfRef(inputs.start)
+  const endRole = roleOfRef(inputs.end)
   const turn = p.autoTurn !== false && startRole && endRole && startRole !== endRole ? turnInstruction(startRole, endRole) : null
   const own = turn && isStaticPresetMotion(ownRaw) ? '' : tr(ownRaw)
   const motion = turn ? [turn.motion, own, TO_END].filter(Boolean).join(' ') : own
@@ -208,14 +232,14 @@ export function promptTextsToTranslateForPlan(snapshot: WorkflowSnapshot | null 
 export function videoPromptSources(nodes: SnapshotNode[], edges: SnapshotEdge[], nodeId: string, inputs: TaskInputs): string[] {
   const node = nodes.find((n) => n.id === nodeId)
   const p = (node?.data?.params ?? {}) as Record<string, unknown>
-  const startRole = inputs.start?.kind === 'cut' ? inputs.start.role : null
-  const endRole = inputs.end?.kind === 'cut' ? inputs.end.role : null
+  const startRole = roleOfRef(inputs.start)
+  const endRole = roleOfRef(inputs.end)
   const turned = p.autoTurn !== false && startRole && endRole && startRole !== endRole
   return [...(turned && isStaticPresetMotion(str(p.prompt)) ? [] : [str(p.prompt)]), str(p.negativePrompt), ...textsInto(nodes, edges, nodeId)]
 }
 
 // ───────────────────────── 計画 ─────────────────────────
-type Producer = { kind: 'input'; ref: InputRef } | { kind: 'ai'; nodeId: string } | { kind: 'other' }
+type Producer = { kind: 'input'; ref: InputRef } | { kind: 'ai'; nodeId: string; role?: CutRole | null } | { kind: 'other' }
 type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number; stage: number; notes: string[] } | { ok: false; reason: 'not_connected' | 'upstream' | 'no_inputs' | 'no_garment' | 'no_model'; upstream?: string }
 
 /**
@@ -243,10 +267,11 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
         const role = cutSetRoleOfHandle(sourceHandle)
         return role ? { kind: 'input', ref: { kind: 'cut', role } } : { kind: 'other' }
       }
-      if (k === 'removeBackground' || k === 'imageGen' || k === 'tryOn') return { kind: 'ai', nodeId: sourceId }
+      if (k === 'removeBackground' || k === 'imageGen') return { kind: 'ai', nodeId: sourceId }
+      if (k === 'tryOn') return { kind: 'ai', nodeId: sourceId, role: imageRoleOfSource(nodes, edges, sourceId, sourceHandle) }   // 試着の結果は向きを持つ（回転指示に使う）
       if (k === 'imageDisplay') {
         const feed = edges.find((e) => e.target === sourceId && (kindOf(e.source) === 'imageGen' || kindOf(e.source) === 'tryOn'))
-        return feed ? { kind: 'ai', nodeId: feed.source } : { kind: 'other' }
+        return feed ? { kind: 'ai', nodeId: feed.source, role: kindOf(feed.source) === 'tryOn' ? imageRoleOfSource(nodes, edges, sourceId, sourceHandle) : null } : { kind: 'other' }
       }
       return { kind: 'other' }
     }
@@ -258,7 +283,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     return { kind: 'other' }
   }
   const preferOf = (depId: string): 'cutout' | 'result' => (kindOf(depId) === 'removeBackground' ? 'cutout' : 'result')
-  const refOf = (p: Producer): InputRef | null => (p.kind === 'input' ? p.ref : p.kind === 'ai' ? { kind: 'dep', nodeId: p.nodeId, prefer: preferOf(p.nodeId) } : null)
+  const refOf = (p: Producer): InputRef | null => (p.kind === 'input' ? p.ref : p.kind === 'ai' ? { kind: 'dep', nodeId: p.nodeId, prefer: preferOf(p.nodeId), ...(p.role ? { role: p.role } : {}) } : null)
   const isPerItemKind = (k: string | undefined) => k === 'removeBackground' || k === 'imageGen' || k === 'tryOn' || k === 'videoGen' || k === 'videoMerge'
 
   // 段の割り当てと入力の参照。メモ化して循環も止める
@@ -477,7 +502,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   for (const t of tasks) if (t.kind === 'videoShot' && !order.includes(t.nodeId)) order.push(t.nodeId)
   for (const t of tasks) {
     if (t.kind !== 'videoShot') continue
-    t.input.__shot = { index: order.indexOf(t.nodeId), role: t.inputs.start?.kind === 'cut' ? t.inputs.start.role : null, endRole: t.inputs.end?.kind === 'cut' ? t.inputs.end.role : null, duration: Number(t.input.duration) || 0 }
+    t.input.__shot = { index: order.indexOf(t.nodeId), role: roleOfRef(t.inputs.start), endRole: roleOfRef(t.inputs.end), duration: Number(t.input.duration) || 0 }
   }
   // 段の順に並べる（1 段目 → 2 段目 → 結合）
   tasks.sort((x, y) => x.stage - y.stage)
@@ -574,17 +599,27 @@ export const taskMapOf = (tasks: PlannedTask[]): Map<string, PlannedTask> => new
 export function snapshotHasVideo(snapshot: WorkflowSnapshot | null | undefined): boolean {
   return planTasks(snapshot).tasks.some((t) => t.kind === 'videoShot')
 }
-/** App の「カットを入れる」欄の構成: Cut Set Input のカットを始点にする Video Generation ごとに 1 ショット（結合のスロット順） */
+/** App の「カットを入れる」欄の構成: Cut Set Input のカット（Try-On を 1 段はさんでも可: 試着の服のカット）を始点にする Video Generation ごとに 1 ショット（結合のスロット順） */
 export function shotsFromCanvas(snapshot: WorkflowSnapshot | null | undefined): VideoShotSpec[] {
   const snap = expandProductVideo(snapshot)
   const nodes = nodesOf(snap)
   const { tasks } = planTasks(snap)
+  const byNode = taskMapOf(tasks)
+  // 必要な役割カット: 役割ポート直結ならその役割、前段が Try-On ならその服のカットの役割
+  const cutRoleBehind = (ref: InputRef | undefined): CutRole | null => {
+    if (!ref) return null
+    if (ref.kind === 'cut') return ref.role
+    if (ref.kind === 'dep') { const img = byNode.get(ref.nodeId)?.inputs.image; return img?.kind === 'cut' ? img.role : null }
+    return null
+  }
   return tasks
-    .filter((t) => t.kind === 'videoShot' && t.inputs.start?.kind === 'cut')
+    .filter((t) => t.kind === 'videoShot' && cutRoleBehind(t.inputs.start) !== null)
     .sort((a, b) => ((a.input.__shot as { index: number }).index - (b.input.__shot as { index: number }).index))
     .map((t) => {
-      const s = t.input.__shot as { role: CutRole; endRole: CutRole | null; duration: number }
+      const s = t.input.__shot as { duration: number }
+      const role = cutRoleBehind(t.inputs.start) as CutRole
+      const endRole = cutRoleBehind(t.inputs.end)
       const motion = str(nodes.find((n) => n.id === t.nodeId)?.data?.params?.prompt)
-      return { role: s.role, duration: s.duration, motion, ...(s.endRole ? { endRole: s.endRole } : {}) }
+      return { role, duration: s.duration, motion, ...(endRole ? { endRole } : {}) }
     })
 }

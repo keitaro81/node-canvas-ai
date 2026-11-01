@@ -26,9 +26,9 @@ import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
 import { cutSetRoleOfHandle, inputNodesOf, planTasks, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
-import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
+import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, isCutRole, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
 import { CUT_ROLE_LABEL, type CutRole } from '../../lib/video/productVideo'
-import { ModelCutPickerDialog } from '../library/ModelCutPickerDialog'
+import { ModelCutPickerDialog, type ModelCutPickExtra } from '../library/ModelCutPickerDialog'
 import type { CutoutRef, NodeData, TryOnModelRef, TryOnNodeData } from '../../types/nodes'
 
 export { TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE }
@@ -141,7 +141,13 @@ function TryOnNodeInner(props: NodeProps) {
   const modelText = modelNode
     ? `${labelOf(modelNode, 'つないだ画像')}${modelWiredRole ? `・${CUT_ROLE_LABEL[modelWiredRole]}` : ''}`
     : picked ? `${picked.modelName ?? 'モデル'}${picked.role ? `・${CUT_ROLE_LABEL[picked.role]}` : ''}` : null
-  const modelSub = modelNode && picked ? '配線を優先（選んだモデルは使いません）' : modelNode ? '配線から' : picked ? 'ライブラリのモデルから' : 'つなぐか「モデル」から選ぶ'
+  const plannedRole = params.role ?? null   // 向きの予定（テンプレートが付ける）
+  const modelSub = modelNode && picked ? '配線を優先（選んだモデルは使いません）'
+    : modelNode ? '配線から'
+    : picked ? (plannedRole && picked.role !== plannedRole ? `ライブラリのモデルから（向きの予定は ${CUT_ROLE_LABEL[plannedRole]}）` : 'ライブラリのモデルから')
+    : plannedRole ? `向きの予定: ${CUT_ROLE_LABEL[plannedRole]}（「モデル」で選ぶ）` : 'つなぐか「モデル」から選ぶ'
+  // 同じモデルを向きごとに入れられる他の Try-On（向きの予定があり、モデル入力が配線されていないもの）
+  const others = useMemo(() => nodes.filter((n) => n.type === 'tryOnNode' && n.id !== id && isCutRole((n.data as { params?: { role?: unknown } }).params?.role) && !edges.some((e) => e.target === n.id && e.targetHandle === TRY_ON_MODEL_HANDLE)), [nodes, edges, id])
   const garmentText = garmentNode ? (garmentCutout ? `${labelOf(garmentNode, 'Remove Background')}（切り抜き）` : labelOf(garmentNode, 'つないだ画像')) : null
   const hasModel = !!modelNode || !!picked
   const hasGarment = !!garmentNode
@@ -162,10 +168,22 @@ function TryOnNodeInner(props: NodeProps) {
 
   const setParams = useCallback((patch: Partial<typeof params>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
-  const onPickModel = useCallback((model: LibraryModel, role: CutRole, item: LibraryItem) => {
-    const ref: TryOnModelRef = { itemId: item.id, url: libraryCanonicalUrl(item), modelId: model.id, modelName: model.name, role }
-    updateNode(id, { model: ref } as Partial<NodeData>)
-  }, [id, updateNode])
+  const onPickModel = useCallback((model: LibraryModel, role: CutRole, item: LibraryItem, extra: ModelCutPickExtra) => {
+    const refOf = (it: LibraryItem, r: CutRole): TryOnModelRef => ({ itemId: it.id, url: libraryCanonicalUrl(it), modelId: model.id, modelName: model.name, role: r })
+    updateNode(id, { model: refOf(item, role) } as Partial<NodeData>)
+    if (!extra.applyToOthers) return
+    // 他の Try-On にも同じモデルを向きごとに（そのモデルにその向きのカットが無ければ入れない）
+    let applied = 0
+    const missing: string[] = []
+    for (const n of others) {
+      const r = (n.data as { params?: { role?: CutRole } }).params?.role as CutRole
+      const itemId = model.cuts[r]
+      const it = itemId ? extra.items[itemId] : undefined
+      if (it) { updateNode(n.id, { model: refOf(it, r) } as Partial<NodeData>); applied++ }
+      else missing.push(CUT_ROLE_LABEL[r])
+    }
+    if (applied || missing.length) showToast(`他の Try-On ${applied} 個にも「${model.name}」を入れました${missing.length ? `（${[...new Set(missing)].join('・')} のカットが無いものは空のまま）` : ''}`, missing.length ? 'warning' : 'success')
+  }, [id, updateNode, others])
 
   // ── 実行 ──
   const handleRun = useCallback(async () => {
@@ -357,7 +375,7 @@ function TryOnNodeInner(props: NodeProps) {
         {nodeData.status === 'error' && nodeData.error && <div className="text-[11px] break-words" style={{ color: '#EF4444' }}>{nodeData.error}</div>}
         <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>服の写真と同じ向きのモデルを選ぶと側面・背面も作れます。結果は右の Image Display に出て、生成履歴とライブラリの生成画像にも入ります。Batch Input の写真をつなぐと一括実行で写真ごとに作れます。</div>
       </div>
-      <ModelCutPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={onPickModel} />
+      <ModelCutPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={onPickModel} preferredRole={plannedRole} othersCount={others.length} />
     </BaseNode>
   )
 }

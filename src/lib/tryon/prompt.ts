@@ -2,6 +2,7 @@
 // 試作で分かったこと: 「2 枚目の服だけを着せ、それ以外（人物・ポーズ・インナー・ボトム・バッグ）は出さない。1 枚目はそのまま」と明記しないと、
 // 着用写真の人物のポーズ・インナー・小物まで写し取る。ユーザーは「服の説明・補足」（任意・日本語可 → 生成時に英訳）だけ書く。
 // サーバー（一括実行・2b-3）でも同じ文を使えるよう、ブラウザに依存しない純関数にしておく。
+import { CUT_ROLES, type CutRole } from '../video/productVideo'
 
 export const TRY_ON_MODEL = 'fal-ai/nano-banana-2'
 // ノードのハンドル名（BaseNode の規約 in-<port>-<id> / out-<port>-<id>。出力は Image Generation と同じ id にして Image Display の fallback も効くように）
@@ -17,13 +18,15 @@ export const TRY_ON_DEFAULT_RESOLUTION: TryOnResolution = '2K'
 export interface TryOnParams {
   resolution: TryOnResolution
   note: string            // 服の説明・補足（任意・日本語可。例: ニットカーディガン。ボタンは開けたまま）
+  role?: CutRole          // 向きの予定（テンプレートが付ける。「モデル」で選ぶときの既定・他の Try-On への一括適用に使う。実際の向きは選んだカットで決まる）
 }
 export const DEFAULT_TRY_ON_PARAMS: TryOnParams = { resolution: TRY_ON_DEFAULT_RESOLUTION, note: '' }
+export const isCutRole = (r: unknown): r is CutRole => typeof r === 'string' && CUT_ROLES.some((x) => x.id === r)
 
 export function normalizeTryOnParams(raw: unknown): TryOnParams {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const resolution = (TRY_ON_RESOLUTIONS as readonly string[]).includes(String(p.resolution)) ? (p.resolution as TryOnResolution) : TRY_ON_DEFAULT_RESOLUTION
-  return { resolution, note: typeof p.note === 'string' ? p.note : '' }
+  return { resolution, note: typeof p.note === 'string' ? p.note : '', ...(isCutRole(p.role) ? { role: p.role } : {}) }
 }
 
 /**

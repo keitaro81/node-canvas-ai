@@ -8,7 +8,7 @@ import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, REFERENCE_PRIORITY, type CutRole } from '../../lib/video/productVideo'
-import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle, cutSetRoleOfHandle, inputNodesOf, planTasks, videoPromptOf, videoPromptSources, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_SET_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle, imageRoleOfSource, inputNodesOf, planTasks, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
@@ -62,8 +62,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const startEdge = rfEdges.find((e) => e.target === id && e.targetHandle === VIDEO_GEN_START_HANDLE)
   const startSource = startEdge ? rfNodes.find((n) => n.id === startEdge.source) : undefined
   const connectedImageUrl = startSource ? getImageUrlFromNodeData(startSource.data, startEdge?.sourceHandle) : null
-  // 役割カット（Cut Set Input の役割ポート）から来ているか: 始点・終点の役割は回転指示の自動生成に使う（設計 §4.2）
-  const startRole: CutRole | null = startSource?.type === 'cutSetInputNode' ? cutSetRoleOfHandle(startEdge?.sourceHandle) : null
+  // 始点・終点の向き（Cut Set Input の役割ポート / Try-On のモデルの向き・その結果ノード）: 回転指示の自動生成に使う（設計 §4.2・2b-4）
+  const startRole: CutRole | null = startEdge ? imageRoleOfSource(rfNodes as unknown as SnapshotNode[], rfEdges as unknown as SnapshotEdge[], startEdge.source, startEdge.sourceHandle) : null
 
   const hasConnectedImageNode = !!startEdge
 
@@ -94,7 +94,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const endEdge = rfEdges.find((e) => e.target === id && e.targetHandle === VIDEO_GEN_END_HANDLE)
   const endSource = endEdge ? rfNodes.find((n) => n.id === endEdge.source) : undefined
   const connectedEndImageUrl = endSource ? getImageUrlFromNodeData(endSource.data, endEdge?.sourceHandle) : null
-  const endRole: CutRole | null = endSource?.type === 'cutSetInputNode' ? cutSetRoleOfHandle(endEdge?.sourceHandle) : null
+  const endRole: CutRole | null = endEdge ? imageRoleOfSource(rfNodes as unknown as SnapshotNode[], rfEdges as unknown as SnapshotEdge[], endEdge.source, endEdge.sourceHandle) : null
 
   // 接続されている参照動画URLをリアクティブに取得
   const connectedVideoUrl = (() => {
