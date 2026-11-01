@@ -140,7 +140,7 @@ try {
   const r3 = await runJob(A, items, '③レタッチ→切り抜き', snapshotRetouchThenCutout(), 'retouch', 'rb')
   if (r3) {
     const rb = r3.tasks.filter((t) => t.node_id === 'rb')
-    check(`③: 切り抜きはマスクだけ保存（後段が無いので透過画像は作らない。cutout_path ${rb.filter((t) => t.result_meta?.cutout_path).length}/${ITEMS}）`, rb.every((t) => t.result_path?.endsWith('rb-result.png') && !t.result_meta?.cutout_path))
+    check(`③: 切り抜きは後段が無くてもマスク＋透過画像の両方を保存（2026-11-01 常に dual。cutout_path ${rb.filter((t) => t.result_meta?.cutout_path).length}/${ITEMS}）`, rb.every((t) => t.result_path?.endsWith('rb-result.png') && typeof t.result_meta?.cutout_path === 'string' && t.result_meta.cutout_path.endsWith('rb-cutout.png')))
     const names = ((await (await fetch(`${URL_BASE}/storage/v1/object/list/batch`, { method: 'POST', headers: adminHeaders, body: JSON.stringify({ prefix: `${A.teamId}/${r3.jobId}/${r3.itemsRows[0].id}`, limit: 100 }) })).json()) ?? []).map((f) => f.name)
     check(`③: 1 枚目のフォルダ: ${names.join(', ')}`, names.includes('retouch-result.png') && names.includes('rb-result.png'))
     const del = await api(A.jwt, 'delete', { jobId: r3.jobId }); check(`③: delete 200（削除 ${del.json?.deletedFiles} ファイル）`, del.status === 200); created.jobs = created.jobs.filter((j) => j !== r3.jobId)
