@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { DEFAULT_LLM_MODEL } from '../../lib/ai/llmModels'
+import { DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useStore } from 'zustand'
@@ -28,6 +29,7 @@ import {
   Scissors,
   Layout,
   Images,
+  TShirt,
   DownloadSimple,
   UploadSimple,
   SquaresFour,
@@ -64,6 +66,7 @@ const PALETTE = [
     items: [
       { type: 'imageGen' as NodeType, label: 'Image Generation', description: 'AI画像を生成', icon: <Sparkle size={15} />, color: '#8B5CF6' },
       { type: 'referenceImage' as NodeType, label: 'Reference Image', description: '参照画像をアップロード', icon: <Image size={15} />, color: '#8B5CF6' },
+      { type: 'tryOn' as NodeType, label: 'Try-On', description: 'モデルに服を着せた着用画像を作る（ライブラリのモデル × 商品写真・Nano Banana 2）', icon: <TShirt size={15} />, color: '#8B5CF6' },
     ],
   },
   {
@@ -117,6 +120,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   productVideo: 'productVideoNode',
   videoMerge: 'videoMergeNode',
   cutSetInput: 'cutSetInputNode',
+  tryOn: 'tryOnNode',
 }
 
 let nodeIdCounter = 1000
@@ -157,6 +161,9 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
   }
   if (type === 'videoMerge') {
     return { type: 'videoMerge', label, params: {}, status: 'idle', videoUrl: null }
+  }
+  if (type === 'tryOn') {
+    return { type: 'tryOn', label, params: { ...DEFAULT_TRY_ON_PARAMS }, status: 'idle', model: null, output: null }
   }
   if (type === 'cutSetInput') {
     return { type: 'cutSetInput', label, params: {}, status: 'idle', items: [], currentItemId: null }
