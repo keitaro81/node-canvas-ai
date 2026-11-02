@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import type { NodeProps } from '@xyflow/react'
 import { ChevronDown, Download, Loader2 } from 'lucide-react'
 import { BaseNode } from './BaseNode'
@@ -14,6 +14,7 @@ import { normalizeLayoutParams } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
 import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { REMOVE_BACKGROUND_INPUT_HANDLE, imageUrlFromNodeData } from '../../lib/cutout/upstream'
+import { latestVideoOf } from '../../lib/video/latestVideo'
 import { Field, Num, Sel } from './pp/controls'
 import { NamePatternEditor } from './pp/NamePatternEditor'
 import { CTRL, INPUT_STYLE, PP_ACCENT, stopKeys } from './pp/styles'
@@ -119,8 +120,9 @@ function ExportNodeInner(props: NodeProps) {
     .map(({ slot, node }) => {
       const d = node?.data as Record<string, unknown> | undefined
       const label = typeof d?.label === 'string' && d.label.trim() ? d.label.trim() : 'video'
-      return { slot, kind: 'video' as const, url: typeof d?.videoUrl === 'string' && d.videoUrl ? d.videoUrl : null, variant: label, transparent: false, sourceLabel: label }
-    }), [videoEdges, nodes])
+      // Video Generation を直接つないだときは最新の Video Result の動画（2026-11-02 メモ 54）
+      return { slot, kind: 'video' as const, url: node ? latestVideoOf(node.id, nodes, edges) : null, variant: label, transparent: false, sourceLabel: label }
+    }), [videoEdges, nodes, edges])
 
   // アイテム情報: 接続があればそれ、無ければ上流をたどる
   const itemEdge = edges.find((e) => e.target === id && e.targetHandle === EXPORT_ITEM_HANDLE)
@@ -248,6 +250,13 @@ function ExportNodeInner(props: NodeProps) {
       setProgress('')
     }
   }, [id, inputs, videoInputs, allInputs, busy, params, itemInfo, currentWorkflowId, updateNode])
+
+  // 生成 App（ショット → 結合）の「ダウンロード」から呼ぶ（2026-11-02 メモ 54）: この Export の名前の付け方・まとめ方で書き出す
+  useEffect(() => {
+    const onExport = (e: Event) => { if ((e as CustomEvent<{ nodeId: string }>).detail?.nodeId === id) void handleExport() }
+    window.addEventListener('capsule:export', onExport)
+    return () => window.removeEventListener('capsule:export', onExport)
+  }, [id, handleExport])
 
   const error = typeof nodeData.error === 'string' ? nodeData.error : null
   const showQuality = params.format !== 'png'

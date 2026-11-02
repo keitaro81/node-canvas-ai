@@ -2,7 +2,7 @@
 // 対話実行: 「結合」でつないだ動画（Video Result / Reference Video / 他の Video Merge）をスロット順に fal の ffmpeg merge-videos へ渡し、
 // Video Generation と同じく結果用の Video Result ノードを右に作って接続し、そこに動画を出す（1 本だけならそのまま通す。fal は呼ばない）。
 // 一括実行では SKU ごとの結合タスクになる（計画は src/lib/batch/plan.ts・サーバーは完了したショットの結果を順に結合）
-import { Fragment, memo, useCallback, useMemo, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Handle, Position, useEdges, useNodes, type Edge, type NodeProps } from '@xyflow/react'
 import { PortLabel } from './PortLabel'
 import { BatchMark } from './BatchMark'
@@ -12,7 +12,8 @@ import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { fal } from '../../lib/ai/fal-client'
 import { MERGE_VIDEOS_ENDPOINT } from '../../lib/video/productVideo'
-import { VIDEO_MERGE_MAX_INPUTS, videoMergeSlotHandle, videoMergeSlotOf } from '../../lib/batch/plan'
+import { VIDEO_MERGE_MAX_INPUTS, videoMergeSlotHandle } from '../../lib/batch/plan'
+import { mergeInputsOf } from '../../lib/video/latestVideo'
 import { signMediaRequest, signOwnUpload, toCanonicalRef, uploadVideoFromUrl } from '../../lib/api/storage'
 import { saveGeneration, updateGeneration } from '../../lib/api/generations'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
@@ -22,8 +23,6 @@ import type { VideoDisplayNodeData, VideoMergeNodeData } from '../../types/nodes
 const ACCENT = '#EC4899'
 const HANDLE_STYLE = (color: string) => ({ width: 20, height: 20, background: `radial-gradient(circle, ${color} 3px, var(--bg-surface) 3px 5px, transparent 5px)`, border: 'none', borderRadius: 0 })
 const NODE_WIDTH = 280, H_GAP = 40, V_GAP = 10, DISPLAY_HEIGHT = 400
-
-const videoUrlOf = (d: Record<string, unknown> | undefined): string | null => (typeof d?.videoUrl === 'string' && d.videoUrl ? d.videoUrl : null)
 
 /** fal が取りに行ける URL にする（非公開バケットの canonical は署名。署名済み・外部 URL はそのまま） */
 async function fetchableUrl(url: string, workflowId: string | null): Promise<string> {
@@ -65,17 +64,17 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
   const workflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const [busy, setBusy] = useState(false)
 
-  // 接続中のスロット（順序 = スロット番号）。空きスロットを 1 つ余分に出す（最大 8）
-  const inputs = useMemo(() => rfEdges
-    .filter((e) => e.target === id && videoMergeSlotOf(e.targetHandle) !== null)
-    .map((e) => { const n = rfNodes.find((x) => x.id === e.source); return { slot: videoMergeSlotOf(e.targetHandle)!, label: ((n?.data as Record<string, unknown> | undefined)?.label as string) || e.source, url: videoUrlOf(n?.data as Record<string, unknown> | undefined) } })
-    .sort((a, b) => a.slot - b.slot), [rfEdges, rfNodes, id])
+  // 接続中のスロット（順序 = スロット番号）。空きスロットを 1 つ余分に出す（最大 8）。
+  // Video Generation を直接つないだときは、その最新の Video Result の動画を使う（2026-11-02 メモ 54・latestVideoOf）
+  const inputs = useMemo(() => mergeInputsOf(id, rfNodes, rfEdges), [rfEdges, rfNodes, id])
   const slotCount = Math.min(VIDEO_MERGE_MAX_INPUTS, Math.max(1, (inputs.length ? Math.max(...inputs.map((i) => i.slot)) : 0) + 1))
   const ready = inputs.filter((i) => !!i.url)
 
   const merge = useCallback(async () => {
     if (busy) return
-    const urls = inputs.map((i) => i.url).filter((u): u is string => !!u)
+    // 入力は呼んだ時点のストアから読む（App から続けて呼ぶとき、画面の再描画を待たずに最新の結果を使う）
+    const { nodes: storeNodes, edges: storeEdges } = useCanvasStore.getState()
+    const urls = mergeInputsOf(id, storeNodes, storeEdges).map((i) => i.url).filter((u): u is string => !!u)
     if (!urls.length) { showToast('結合する動画をつないでください', 'warning'); return }
     setBusy(true)
     const single = urls.length === 1
@@ -121,7 +120,14 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
     } finally {
       setBusy(false)
     }
-  }, [busy, inputs, id, updateNode, workflowId])
+  }, [busy, id, updateNode, workflowId])
+
+  // 生成 App（ショット → 結合）から呼ぶ（2026-11-02 メモ 54）
+  useEffect(() => {
+    const onMerge = (e: Event) => { if ((e as CustomEvent<{ nodeId: string }>).detail?.nodeId === id) void merge() }
+    window.addEventListener('capsule:merge', onMerge)
+    return () => window.removeEventListener('capsule:merge', onMerge)
+  }, [id, merge])
 
   const generating = nodeData.status === 'generating'
   return (

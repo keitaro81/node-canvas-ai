@@ -10,6 +10,8 @@ import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { llmComplete } from '../../lib/ai/llmClient'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
+import { MergeAppView } from './MergeAppView'
+import { mergeAppShapeOf } from '../../lib/apps/mergeApp'
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { downloadFile } from '../../lib/downloadFile'
@@ -2429,6 +2431,8 @@ export function CapsuleView() {
   const [activePreviewIndex, setActivePreviewIndex] = useState(0)
 
   const group = getActiveCapsuleGroup(capsuleGroupId, nodes)
+  // 動画のショットを並べて Video Merge でまとめる形は「ショット → 結合」の App（2026-11-02 メモ 54）
+  const mergeShape = capsuleGroupId ? mergeAppShapeOf(capsuleGroupId, nodes, edges) : null
   const stages = capsuleGroupId ? buildCapsuleStages(capsuleGroupId, nodes, edges) : []
   const inputs = capsuleGroupId ? buildCapsuleInputNodes(capsuleGroupId, nodes, edges, stages) : []
 
@@ -2447,6 +2451,8 @@ export function CapsuleView() {
       </div>
     )
   }
+
+  if (mergeShape && capsuleGroupId) return <MergeAppView groupId={capsuleGroupId} groupLabel={group.data.label} shape={mergeShape} />
 
   if (stages.length === 0 && inputs.length === 0) {
     return (
