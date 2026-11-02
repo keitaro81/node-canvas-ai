@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { WORKFLOW_TEMPLATES, buildPostProductionTemplate, buildProductVideoTemplate, buildTryOnImagesTemplate, buildTryOnTurntableTemplate, type TemplateCanvas } from './index'
 import { autoElementSources, planTasks, type WorkflowSnapshot } from '../batch/plan'
-import { appKindOf } from '../apps/appKind'
+import { appKindOf, appScopeOf } from '../apps/appKind'
 
 describe('テンプレートから作成（商品動画）', () => {
   it('ターンテーブル: 参照画像（向き）× 4 / Text Prompt / Video Generation × 4 / Video Merge / Export を読みやすい id で組み、ノード名は種類名のまま', () => {
@@ -24,9 +24,14 @@ describe('テンプレートから作成（商品動画）', () => {
     expect(WORKFLOW_TEMPLATES[1].build().nodes.filter((n) => n.type === 'videoGenerationNode').length).toBe(5)
     expect(new Set(WORKFLOW_TEMPLATES.map((t) => t.id)).size).toBe(WORKFLOW_TEMPLATES.length)
   })
-  it('商品写真の背景処理: Batch Input → Remove Background → Product Layout → Export（切り抜き 1 段の計画・App は撮影後工程）', () => {
+  it('商品写真の背景処理: Batch Input → Remove Background → Product Layout → Export（切り抜き 1 段の計画・App は撮影後工程）。最初からグループに入れて App 化（2026-11-02）', () => {
     const c = buildPostProductionTemplate()
-    expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['batch-input:batchInputNode', 'cutout:removeBackgroundNode', 'layout:productLayoutNode', 'export:exportNode'])
+    expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['app-group:groupNode', 'batch-input:batchInputNode', 'cutout:removeBackgroundNode', 'layout:productLayoutNode', 'export:exportNode'])
+    expect(c.capsuleGroupId).toBe('app-group')
+    expect(c.nodes[0].data).toEqual({ label: 'Group', capsuleEnabled: true })
+    expect(c.nodes.slice(1).map((n) => (n as { parentId?: string }).parentId)).toEqual(['app-group', 'app-group', 'app-group', 'app-group'])
+    expect(c.nodes[1].position).toEqual({ x: 40, y: 68 })   // グループからの相対位置（余白 40・見出し 28）
+    expect(appScopeOf(c)).toEqual({ kind: 'batch', groupId: 'app-group', entryId: 'batch-input', entryCount: 1 })
     expect(c.edges.map((e) => `${e.source}:${e.sourceHandle}→${e.target}:${e.targetHandle}`)).toEqual(['batch-input:out-image-image→cutout:in-image-image', 'cutout:out-cutout-cutout→layout:in-cutout-cutout', 'layout:out-image-image→export:in-image-0', 'batch-input:out-item-item→export:in-item-item'])
     const { tasks, warnings } = planTasks(c)
     expect(warnings).toEqual([])
@@ -58,7 +63,8 @@ describe('テンプレートから作成（試着・2b-4）', () => {
   })
   it('商品写真から着用画像: Batch Input ＋ Model → Try-On（正面）→ Export（画像とアイテム情報）', () => {
     const c = buildTryOnImagesTemplate()
-    expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['batch-input:batchInputNode', 'model:libraryModelNode', 'tryon:tryOnNode', 'export:exportNode'])
+    expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['app-group:groupNode', 'batch-input:batchInputNode', 'model:libraryModelNode', 'tryon:tryOnNode', 'export:exportNode'])
+    expect(appScopeOf(c)).toMatchObject({ kind: 'batch', groupId: 'app-group', entryId: 'batch-input' })
     expect(c.edges.map((e) => `${e.source}:${e.sourceHandle}→${e.target}:${e.targetHandle}`)).toEqual(['batch-input:out-image-image→tryon:in-image-garment', 'model:out-image-front→tryon:in-image-model', 'tryon:out-image-image-out→export:in-image-0', 'batch-input:out-item-item→export:in-item-item'])
     expect(planTasks(c).warnings).toEqual(['Try-On（Try-On 正面）はモデルの画像が無いため一括実行の対象外です（Model ノードをつなぐか、参照画像のモデルタブから入れてください）'])   // 注意文・列名では向きの予定を添える
     const { tasks, warnings } = planTasks(withModels(c))

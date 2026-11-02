@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type 
 import type { NodeProps } from '@xyflow/react'
 import { Scissors, Play, Loader2, Download, RefreshCw } from 'lucide-react'
 import { BaseNode } from './BaseNode'
+import { BatchMark } from './BatchMark'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
@@ -224,6 +225,7 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
         )}
         {isStale && <Notice tone="warning">入力画像が変わりました。再実行してください</Notice>}
         {!isStale && engineDirty && <Notice tone="info">エンジン設定が変わりました。「実行」で反映されます</Notice>}
+        <BatchMark nodeId={id} />
 
         <button
           className="w-full h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12px] font-medium text-white transition-all duration-150 disabled:opacity-50 nodrag"

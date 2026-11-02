@@ -11,6 +11,7 @@ import {
 } from '../../lib/api/batch'
 import { formatCost, formatDuration } from '../../lib/batch/cost'
 import { pruneToEntry } from '../../lib/batch/plan'
+import { kindLabel } from '../../lib/batch/kindLabel'
 import type { NodeData } from '../../types/nodes'
 
 type Phase = 'estimating' | 'confirm' | 'creating' | 'submitting' | 'done' | 'error'
@@ -18,7 +19,6 @@ type Phase = 'estimating' | 'confirm' | 'creating' | 'submitting' | 'done' | 'er
 interface ApiError extends Error { code?: string; status?: number; details?: Record<string, unknown> }
 
 const ROW = 'flex items-center justify-between text-[12px] py-1'
-const KIND_LABEL: Record<string, string> = { cutout: '切り抜き', imageEdit: '画像生成（写真ごと）', imageGen: '背景生成（1 回）', videoShot: '動画ショット（SKU ごと）', videoMerge: '結合（SKU ごと）' }
 
 /**
  * 一括実行の確認 → 作成 → 投入（仕様 4-7 / 4-8）。Batch Input ノードの「一括実行…」から開く。
@@ -142,7 +142,7 @@ export function BatchSubmitDialog() {
                 {plan.breakdown.map((b) => (
                   <div key={b.nodeId} className="flex items-center justify-between py-0.5 gap-2">
                     <span className="truncate" style={{ color: 'var(--text-secondary)' }} title={b.endpoint}>
-                      {b.label}<span style={{ color: 'var(--text-tertiary)' }}>（{KIND_LABEL[b.kind] ?? b.kind}{b.scope === 'item' && (plan.maxStage ?? 1) > 1 ? `・${b.stage} 段目` : ''}）</span>
+                      {b.label}<span style={{ color: 'var(--text-tertiary)' }}>（{kindLabel(b.kind)}{b.scope === 'item' && (plan.maxStage ?? 1) > 1 ? `・${b.stage} 段目` : ''}）</span>
                     </span>
                     <span className="tabular-nums shrink-0" style={{ color: 'var(--text-primary)' }}>
                       {b.count} 件{plan.showCost ? <span style={{ color: 'var(--text-tertiary)' }}>（{formatCost(b.unitUsd)} × {b.count} = {formatCost(b.totalUsd)}）</span> : null}

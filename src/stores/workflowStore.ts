@@ -76,7 +76,7 @@ interface WorkflowState {
   saveCopyOfCurrent(): Promise<string>  // この画面の内容を自分の新しいワークフローとして保存し、その id を返す
   updateThumbnail(workflowId: string, url: string): Promise<void>
   cloneWorkflow(sourceId?: string): Promise<string>  // クローンして新しいworkflowIdを返す
-  createWorkflowFromCanvas(name: string, canvas: { nodes: unknown[]; edges: unknown[] }): Promise<string>  // テンプレートから作成（組み済みのノードで新しいワークフローを作り id を返す）
+  createWorkflowFromCanvas(name: string, canvas: { nodes: unknown[]; edges: unknown[]; capsuleGroupId?: string | null }): Promise<string>  // テンプレート・チャットから作成（組み済みのノードで新しいワークフローを作り id を返す。capsuleGroupId = 最初から App 化したグループ）
 }
 
 export type SaveBlockedKind = 'conflict' | 'lock' | 'forbidden'
@@ -379,10 +379,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     return created.id
   },
 
-  async createWorkflowFromCanvas(name: string, canvas: { nodes: unknown[]; edges: unknown[] }): Promise<string> {
+  async createWorkflowFromCanvas(name: string, canvas: { nodes: unknown[]; edges: unknown[]; capsuleGroupId?: string | null }): Promise<string> {
     const projectId = await get().initializeDefaultProject()
     // 素の JSON に落として保存（テンプレートの生成物は純粋なデータ）
-    const created = await createWorkflow({ project_id: projectId, name, canvas_data: JSON.parse(JSON.stringify({ nodes: canvas.nodes, edges: canvas.edges, viewport: null })) })
+    const created = await createWorkflow({ project_id: projectId, name, canvas_data: JSON.parse(JSON.stringify({ nodes: canvas.nodes, edges: canvas.edges, viewport: null, capsuleGroupId: canvas.capsuleGroupId ?? null })) })
     await get().loadWorkflows()
     return created.id
   },

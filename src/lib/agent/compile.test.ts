@@ -14,9 +14,11 @@ describe('DSL → キャンバス', () => {
     })
     expect(r.errors).toEqual([])
     const c = r.canvas!
-    expect(c.nodes.map((n) => `${n.id}:${n.type}:${n.position!.x}`)).toEqual(['input:batchInputNode:80', 'cutout:removeBackgroundNode:500', 'layout:productLayoutNode:920', 'export:exportNode:1340'])
+    // 一括の構成は最初からグループ＋App 化（2026-11-02）: 子の位置はグループ（x = 80 - 40）からの相対
+    expect(c.nodes.map((n) => `${n.id}:${n.type}:${n.position!.x}`)).toEqual(['app-group:groupNode:40', 'input:batchInputNode:40', 'cutout:removeBackgroundNode:460', 'layout:productLayoutNode:880', 'export:exportNode:1300'])
+    expect(c.capsuleGroupId).toBe('app-group')
     expect(c.edges.map((e) => `${e.source}.${e.sourceHandle}→${e.target}.${e.targetHandle}`)).toEqual(['input.out-image-image→cutout.in-image-image', 'cutout.out-cutout-cutout→layout.in-cutout-cutout', 'layout.out-image-image→export.in-image-0', 'input.out-item-item→export.in-item-item'])
-    expect(c.nodes[2].data.params).toMatchObject({ width: 1000, height: 1000, backgroundColor: '#FFFFFF', variantName: 'ec_white' })
+    expect(c.nodes[3].data.params).toMatchObject({ width: 1000, height: 1000, backgroundColor: '#FFFFFF', variantName: 'ec_white' })
     expect(planTasks(c).tasks.map((t) => t.kind)).toEqual(['cutout'])
     expect(r.notes).toEqual([])
   })
@@ -29,7 +31,7 @@ describe('DSL → キャンバス', () => {
     expect(r.canvas!.edges.filter((e) => e.target === 'ex').map((e) => e.targetHandle)).toEqual(['in-image-0', 'in-image-1', 'in-item-item'])
     expect(r.notes.some((n) => n.includes('モデルの画像が無い'))).toBe(true)   // モデル未選択なので計画の注意
     expect(r.notes.some((n) => n.includes('モデル入力に Model ノード'))).toBe(true)
-    expect(r.canvas!.nodes.map((n) => n.data.label)).toEqual(['Batch Input', 'Try-On', 'Export'])   // 名前は種類名のまま
+    expect(r.canvas!.nodes.map((n) => n.data.label)).toEqual(['Group', 'Batch Input', 'Try-On', 'Export'])   // 名前は種類名のまま（先頭は App 化したグループ）
   })
   it('Model ノード → Try-On、Try-On の結果 → Video Generation の始点・終点: 回転の定型文が欄に入り、autoTurn は false', () => {
     const r = compileWorkflow({
@@ -64,7 +66,7 @@ describe('DSL → キャンバス', () => {
     })
     expect(r.errors).toEqual([])
     expect(r.canvas!.edges.filter((e) => e.target === 'm').map((e) => e.targetHandle)).toEqual(['in-video-1', 'in-video-2'])
-    expect(r.canvas!.nodes.find((n) => n.id === 'm')!.position!.x).toBe(80 + 2 * 420)
+    expect(r.canvas!.nodes.find((n) => n.id === 'm')!.position!.x).toBe(80 + 2 * 420 - 40)   // グループからの相対位置
     expect(planTasks(r.canvas!).tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['s1:videoShot', 's2:videoShot', 'm:videoMerge'])
   })
 })
@@ -91,7 +93,7 @@ describe('チャットの構成: 名前は種類名のまま・LLM の label は
       edges: [{ from: 'in.image', to: 'rb.image' }, { from: 'rb.cutout', to: 't.garment' }, { from: 'm.front', to: 't.model' }],
     })
     expect(r.errors).toEqual([])
-    expect(r.canvas!.nodes.map((n) => n.data.label)).toEqual(['Batch Input', 'Remove Background', 'Model', 'Try-On'])
+    expect(r.canvas!.nodes.map((n) => n.data.label)).toEqual(['Group', 'Batch Input', 'Remove Background', 'Model', 'Try-On'])
     expect(r.hints).toEqual({ in: '商品写真（服）', rb: '切り抜き', t: '試着 正面' })
     expect(r.notes.some((n) => n.includes('AI 処理が 2 段'))).toBe(false)   // モデル未選択なので試着は対象外（2 段の注意はモデルが入ってから）
     expect(buildSystemPrompt()).toContain('Remove Background は、ユーザーが背景処理')

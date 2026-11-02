@@ -4,8 +4,9 @@ import { catalogNode, multiHandle, portsCompatible, type CatalogPort } from './c
 import type { DslWorkflow } from './dsl'
 import { inputNodesOf, materializeTurnPresets, planTasks, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
 import { TRY_ON_MODEL_HANDLE } from '../tryon/prompt'
+import { wrapInAppGroup } from '../apps/groupCanvas'
 
-export interface CompiledCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null }
+export interface CompiledCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null; capsuleGroupId?: string | null }   // capsuleGroupId: 一括の構成は最初から App 化したグループに入れる（2026-11-02）
 export interface CompileResult { canvas: CompiledCanvas | null; errors: string[]; notes: string[]; name: string; hints: Record<string, string> }   // hints = LLM が付けた短い説明（ノード id → 文。ノードの名前にはしない・2026-11-01）
 
 const COL_W = 420, X0 = 80, Y0 = 80, GAP = 40
@@ -85,10 +86,12 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
   })
   // 始点と終点の向きが違う Video Generation には回転の定型文を「動き」「避けたいこと」に入れる（テンプレートと同じ・トグル廃止）
   const nodes = materializeTurnPresets(placed, edges).nodes.map((n) => (n.data?.type === 'videoGen' ? { ...n, data: { ...n.data, params: { ...n.data.params, autoTurn: false } } } : n))
-  const canvas: CompiledCanvas = { nodes, edges, viewport: null }
+  const laidOut: CompiledCanvas = { nodes, edges, viewport: null }
+  // 一括処理の入口があれば、最初からグループに入れて App 化した形にする（2026-11-02・再設計 §1）。入口が無い構成はそのまま（App 化は手動）
+  const ins = inputNodesOf(laidOut)
+  const canvas: CompiledCanvas = ins.batchInputId ? wrapInAppGroup(laidOut) : laidOut
 
   // 注意: 一括処理の入口があれば計画の注意を添える。Try-On があればモデルの選択を促す
-  const ins = inputNodesOf(canvas)
   if (ins.batchInputId) {
     const { tasks, warnings } = planTasks(canvas)
     notes.push(...warnings)

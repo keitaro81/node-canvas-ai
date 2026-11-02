@@ -5,6 +5,7 @@
 import { Fragment, memo, useCallback, useMemo, useState } from 'react'
 import { Handle, Position, useEdges, useNodes, type Edge, type NodeProps } from '@xyflow/react'
 import { PortLabel } from './PortLabel'
+import { BatchMark } from './BatchMark'
 import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { AlertCircle, Film, Loader2, Play, X } from 'lucide-react'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
@@ -143,6 +144,7 @@ function VideoMergeNodeInner({ id, data, selected }: NodeProps) {
       {/* Body */}
       <div className="px-3 py-3 flex flex-col gap-2">
         <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>つないだ動画を上から順に 1 本に結合します（最大 {VIDEO_MERGE_MAX_INPUTS} 本・音声なし・再エンコードなし）。結果は右に作る Video Result に出ます。一括実行では SKU ごとに結合します。</div>
+        <BatchMark nodeId={id} />
         <div className="rounded-md px-2 py-1.5 flex flex-col gap-0.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
           {inputs.length === 0 && <div className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>動画をつないでください</div>}
           {inputs.map((i) => (

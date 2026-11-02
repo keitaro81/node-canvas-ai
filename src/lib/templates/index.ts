@@ -15,8 +15,9 @@ import { DEFAULT_LAYOUT_PARAMS } from '../layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_CUTOUT, PRODUCT_LAYOUT_OUTPUT } from '../layout/nodeIo'
 import { REMOVE_BACKGROUND_INPUT } from '../batch/plan'
 import { REMOVE_BACKGROUND_OUTPUT_HANDLE } from '../cutout/upstream'
+import { wrapInAppGroup } from '../apps/groupCanvas'
 
-export interface TemplateCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null }
+export interface TemplateCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null; capsuleGroupId?: string | null }   // capsuleGroupId: 最初から App 化したグループ（一括のテンプレート・2026-11-02）
 /** 目的（一覧のグループ）: 商品写真を整える / モデルに着せる / 商品動画を作る */
 export type TemplateGoal = 'photo' | 'tryon' | 'video'
 export const TEMPLATE_GOALS: Array<{ id: TemplateGoal; label: string }> = [{ id: 'photo', label: '商品写真を整える' }, { id: 'tryon', label: 'モデルに着せる（着用画像）' }, { id: 'video', label: '商品動画を作る' }]
@@ -114,7 +115,7 @@ export function buildTryOnTurntableTemplate(): TemplateCanvas {
   return { nodes, edges, viewport: null }
 }
 
-/** 商品写真の背景処理: Batch Input → Remove Background → Product Layout（白背景 1200×1200）→ Export（画像とアイテム情報） */
+/** 商品写真の背景処理: Batch Input → Remove Background → Product Layout（白背景 1200×1200）→ Export（画像とアイテム情報）。最初からグループに入れて App 化（2026-11-02） */
 export function buildPostProductionTemplate(): TemplateCanvas {
   const x = 80, y = 80
   const nodes: SnapshotNode[] = [
@@ -129,10 +130,10 @@ export function buildPostProductionTemplate(): TemplateCanvas {
     edge('layout', PRODUCT_LAYOUT_OUTPUT, 'export', 'in-image-0'),
     edge('batch-input', 'out-item-item', 'export', 'in-item-item'),
   ]
-  return { nodes, edges, viewport: null }
+  return wrapInAppGroup({ nodes, edges })
 }
 
-/** 商品写真から着用画像（一括）: Batch Input（服の写真）＋ Model ノード → Try-On（正面）→ Export。作った後に Model ノードでモデルを選ぶ */
+/** 商品写真から着用画像（一括）: Batch Input（服の写真）＋ Model ノード → Try-On（正面）→ Export。作った後に Model ノードでモデルを選ぶ。最初からグループに入れて App 化（2026-11-02） */
 export function buildTryOnImagesTemplate(): TemplateCanvas {
   const x = 80, y = 80
   const nodes: SnapshotNode[] = [
@@ -147,7 +148,7 @@ export function buildTryOnImagesTemplate(): TemplateCanvas {
     edge('tryon', TRY_ON_OUTPUT_HANDLE, 'export', 'in-image-0'),
     edge('batch-input', 'out-item-item', 'export', 'in-item-item'),
   ]
-  return { nodes, edges, viewport: null }
+  return wrapInAppGroup({ nodes, edges })
 }
 
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [

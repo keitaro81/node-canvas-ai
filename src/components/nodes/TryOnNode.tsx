@@ -5,7 +5,7 @@
 // 服は in-image-garment（Reference Image / Batch Input の写真 / Image Display / Remove Background の切り抜き）。
 // 結果は Image Generation と同じく右に Image Display を作って出し、このノードの output（最新）にも入れる（後段の Video Generation 等につなげる）。
 // 生成履歴（node_type 'try-on'）とライブラリの生成画像に入る。一括実行（2b-3）: Batch Input の写真をつなぐと写真ごとに 1 枚（計画は src/lib/batch/plan.ts・モデルは固定の画像として投入時にサーバーが署名）
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Handle, Position, type Edge, type NodeProps } from '@xyflow/react'
 import { PortLabel } from './PortLabel'
 import { dimIfNotTarget, useDragTarget } from './portDrag'
@@ -15,7 +15,7 @@ import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
-import { useLiveCanvas } from '../../hooks/useLiveCanvas'
+import { BatchMark } from './BatchMark'
 import { showToast } from '../../hooks/useToast'
 import { fal } from '../../lib/ai/fal-client'
 import { toCanonicalRef, uploadImageFromUrl } from '../../lib/api/storage'
@@ -25,7 +25,7 @@ import { signLibraryUrl, touchLibraryItems } from '../../lib/api/library'
 import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { ensureCutoutImage } from '../../lib/cutout/ensureCutout'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { imageRoleOfSource, inputNodesOf, planTasksForNode, type SnapshotEdge, type SnapshotNode, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { imageRoleOfSource, type SnapshotEdge, type SnapshotNode } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, buildTryOnInput, normalizeTryOnParams, tryOnPromptFromNote } from '../../lib/tryon/prompt'
@@ -156,17 +156,6 @@ function TryOnNodeInner(props: NodeProps) {
   const hasGarment = !!garmentNode
   const isRunning = nodeData.status === 'generating'
 
-  // 一括実行の対象か（Batch Input / Cut Set Input があるキャンバスだけ・Video Generation と同じ表示）
-  const live = useLiveCanvas()
-  const batchInfo = useMemo(() => {
-    const snap = live as unknown as WorkflowSnapshot
-    const ins = inputNodesOf(snap)
-    if (!ins.batchInputId) return null
-    const { tasks, excluded } = planTasksForNode(snap, id)   // 自分の入口の枝だけで計画（メモ 24）
-    const t = tasks.find((x) => x.nodeId === id)
-    if (t) return { ok: true as const, stage: t.stage, reason: null }
-    return { ok: false as const, stage: 0, reason: excluded[id] ?? null }
-  }, [live, id])
 
   const setParams = useCallback((patch: Partial<typeof params>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
@@ -342,11 +331,7 @@ function TryOnNodeInner(props: NodeProps) {
           />
         </div>
 
-        {batchInfo && (
-          <div className="text-[10px] leading-snug px-2 py-1 rounded" style={{ background: batchInfo.ok ? 'rgba(34,197,94,0.10)' : 'rgba(245,158,11,0.10)', color: batchInfo.ok ? '#22C55E' : '#F59E0B' }}>
-            {batchInfo.ok ? `一括実行: 対象（${batchInfo.stage} 段目・写真ごとに 1 枚）` : `一括実行: 対象外（${batchInfo.reason ?? '写真由来の入力（Batch Input / Cut Set Input / 前段の AI ノード）がありません'}）`}
-          </div>
-        )}
+        <BatchMark nodeId={id} />
 
         <button
           className="w-full h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12px] font-medium text-white transition-all duration-150 disabled:opacity-50"

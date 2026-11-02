@@ -1,8 +1,10 @@
-import { memo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { type NodeProps, NodeResizer } from '@xyflow/react'
 import { Layers, Pencil, Check } from 'lucide-react'
 import type { GroupNodeData } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
+import { useLiveCanvas } from '../../hooks/useLiveCanvas'
+import { appIssueOf } from '../../lib/apps/appKind'
 
 function GroupNodeInner({ id, data, selected }: NodeProps) {
   const groupData = data as unknown as GroupNodeData
@@ -13,8 +15,9 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
   const [labelDraft, setLabelDraft] = useState(groupData.label)
 
   const isCapsuleTarget = capsuleGroupId === id
-  // App 化したグループの入口（Batch Input）の数: 2 つ以上は一括 App として動かない（2026-11-02 段階 3）
-  const entryCount = useCanvasStore((s) => s.nodes.filter((n) => n.parentId === id && (n.data as { type?: string }).type === 'batchInput').length)
+  // App 化したグループが一括 App として動かせない理由（入口が 2 つ以上・画像と動画の混在・動画が 2 本以上）をグループの上に出す（2026-11-02 段階 3）
+  const live = useLiveCanvas()
+  const issue = useMemo(() => (isCapsuleTarget ? appIssueOf({ capsuleGroupId, nodes: live.nodes, edges: live.edges }, id) : null), [isCapsuleTarget, live, capsuleGroupId, id])
 
   function commitLabel() {
     const trimmed = labelDraft.trim() || 'Group'
@@ -44,8 +47,8 @@ function GroupNodeInner({ id, data, selected }: NodeProps) {
         handleStyle={{ background: 'var(--border-active)', border: 'none', width: 8, height: 8, borderRadius: 2 }}
       />
 
-      {isCapsuleTarget && entryCount > 1 && (
-        <div className="absolute left-2.5 right-2.5 px-2 py-1 rounded text-[11px] pointer-events-none" style={{ top: 34, color: '#F59E0B', background: 'rgba(245,158,11,0.12)', zIndex: 1 }}>入口（Batch Input）が {entryCount} つあります。一括 App として動かすには 1 つにしてください</div>
+      {issue && (
+        <div className="absolute left-2.5 right-2.5 px-2 py-1 rounded text-[11px] pointer-events-none" style={{ top: 34, color: '#F59E0B', background: 'rgba(245,158,11,0.12)', zIndex: 1 }}>{issue.message}</div>
       )}
 
       {/* Header bar */}

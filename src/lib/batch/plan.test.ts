@@ -63,13 +63,14 @@ describe('planTasks: Batch Input → Video Generation → Video Merge（写真�
 describe('planTasks: 動画があるジョブは動画だけ（2026-10-31 決定）と段の数え方', () => {
   const pl = { id: 'pl', data: { type: 'productLayout', params: {} } }
   it('動画につながらない切り抜き（Product Layout 向け）は対象外にして注意を出す', () => {
-    const { tasks, warnings } = planTasks({
+    const { tasks, warnings, droppedForVideo } = planTasks({
       nodes: [bi, rb('rb'), pl, tp('tp', 'p'), vg('v1')],
       edges: [e('bi', 'out-image-image', 'rb', 'in-image-image'), e('rb', 'out-cutout-cutout', 'pl', 'in-cutout-cutout'), e('bi', 'out-image-image', 'v1', 'in-image'), e('tp', 'out-text-text-out', 'v1', 'in-text')],
     })
     expect(tasks.map((t) => t.nodeId)).toEqual(['v1'])
     expect(warnings).toContain('この構成では動画だけを処理します（Remove Background の画像は作りません）')
     expect(warnings).toContain('この構成では Product Layout の画像は作りません（動画だけを処理します）')
+    expect(droppedForVideo.map((t) => t.nodeId)).toEqual(['rb'])   // App の「画像と動画の混在」の判定に使う（2026-11-02）
   })
   it('切り抜き → 動画: 切り抜きは動画の前段として動き、透過画像を開始フレームにする（両出力）。結合は AI 段に数えない', () => {
     const { tasks, warnings } = planTasks({
