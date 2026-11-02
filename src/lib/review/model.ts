@@ -35,11 +35,58 @@ export function taskDependencyOf(task: Pick<BatchTaskRow, 'input'> | null | unde
 }
 
 /** タスク行から生成結果の列を作る（写真ごとの編集タスク = input.__kind 'imageEdit'。ノードごとに 1 列、段の順） */
+/** 写真ごとの処理のうち、ほかの処理が結果を使ったノード（途中の結果）。タスクの __depends_on から（2026-11-02 メモ 60） */
+export function consumedNodeIdsOf(tasks: Array<Pick<BatchTaskRow, 'item_id' | 'input'>>): Set<string> {
+  const out = new Set<string>()
+  for (const t of tasks) {
+    if (!t.item_id) continue
+    const d = t.input?.__depends_on
+    if (typeof d === 'string' && d) out.add(d)
+    else if (Array.isArray(d)) for (const x of d) if (typeof x === 'string' && x) out.add(x)
+  }
+  return out
+}
+
+/** 切り抜きの列（切り抜き・バリアント）を出すか: バリアントがある、または切り抜きを AI が使っていない（途中の結果ではない）とき（メモ 60） */
+export function cutoutColumnShown(tasks: Array<Pick<BatchTaskRow, 'item_id' | 'input'>>, cutoutNodeId: string | null | undefined, variantCount: number): boolean {
+  if (!cutoutNodeId) return false
+  return variantCount > 0 || !consumedNodeIdsOf(tasks).has(cutoutNodeId)
+}
+
+/**
+ * 途中の結果（拡大表示の「途中の結果」・メモ 60）: 最終の出力の写真ごとのタスクから前段へたどり、早い順に返す。
+ * 生成の結果は resultKeyOf(ノード)、切り抜きは CUTOUT_VARIANT_KEY（拡大表示の描き方がそのまま使える）
+ */
+export function intermediateStepsOf(tasks: Array<Pick<BatchTaskRow, 'item_id' | 'node_id' | 'input'>>, itemId: string, finalNodeId: string, cutoutNodeId: string | null | undefined): Array<{ key: string; name: string; nodeId: string }> {
+  const out: Array<{ key: string; name: string; nodeId: string }> = []
+  const seen = new Set<string>([finalNodeId])
+  const depsOf = (nodeId: string): string[] => {
+    const d = tasks.find((t) => t.item_id === itemId && t.node_id === nodeId)?.input?.__depends_on
+    return typeof d === 'string' && d ? [d] : Array.isArray(d) ? d.filter((x): x is string => typeof x === 'string' && !!x) : []
+  }
+  let frontier = depsOf(finalNodeId)
+  while (frontier.length) {
+    const next: string[] = []
+    for (const id of frontier) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const t = tasks.find((x) => x.item_id === itemId && x.node_id === id)
+      if (id === cutoutNodeId) out.push({ key: CUTOUT_VARIANT_KEY, name: '切り抜き', nodeId: id })
+      else if (t?.input?.__kind === 'imageEdit') out.push({ key: resultKeyOf(id), name: typeof t.input.__label === 'string' && t.input.__label.trim() ? t.input.__label.trim() : 'Image Generation', nodeId: id })
+      next.push(...depsOf(id))
+    }
+    frontier = next
+  }
+  return out.reverse()
+}
+
 export function resultColumnsOf(tasks: Array<Pick<BatchTaskRow, 'item_id' | 'node_id' | 'input'>>, snapshot?: Snapshot | null): ReviewResultColumn[] {
   const nodes = nodesOf(snapshot)
   const seen = new Map<string, ReviewResultColumn>()
+  // 結果の列は最終の出力だけ（ほかの処理が使った途中の結果は列にしない・拡大表示の「途中の結果」で見る。2026-11-02 メモ 60）
+  const consumed = consumedNodeIdsOf(tasks)
   for (const t of tasks) {
-    if (!t.item_id || t.input?.__kind !== 'imageEdit' || seen.has(t.node_id)) continue
+    if (!t.item_id || t.input?.__kind !== 'imageEdit' || seen.has(t.node_id) || consumed.has(t.node_id)) continue
     const fromTask = t.input.__label
     const fromSnap = nodes.find((n) => n.id === t.node_id)?.data?.label
     const raw = typeof fromTask === 'string' && fromTask.trim() ? fromTask.trim() : typeof fromSnap === 'string' && fromSnap.trim() ? fromSnap.trim() : 'Image Generation'

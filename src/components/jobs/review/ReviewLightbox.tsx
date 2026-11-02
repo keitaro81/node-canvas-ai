@@ -26,11 +26,12 @@ interface Props {
   hasNext: boolean
   zIndex?: number                                  // 既定 100。ダイアログ（z 20000）の上に出すときは大きく
   hideCheck?: boolean                              // チェック（再切り抜き/書き出しの対象）が意味を持たない場面（ライブラリのフォルダ）では出さない
+  steps?: Array<{ key: string; name: string }>     // 途中の結果（最終の出力の前段・早い順。タブ・ダウンロードには無い・2026-11-02 メモ 60）
 }
 
 /** 拡大表示（仕様 5 章）: フル解像度をその場で描き、元画像と比較する。キー: ←→ 写真、↑↓ 列、Space チェック、C 比較、B 背景、Esc 閉じる */
 export function ReviewLightbox(p: Props) {
-  const { item, variantKey, columns, thumb, bg, onBg, originalUrl, renderFull, onClose, onPrev, onNext, onVariant, checked, onToggleCheck, hasPrev, hasNext, zIndex = 100, hideCheck = false } = p
+  const { item, variantKey, columns, thumb, bg, onBg, originalUrl, renderFull, onClose, onPrev, onNext, onVariant, checked, onToggleCheck, hasPrev, hasNext, zIndex = 100, hideCheck = false, steps = [] } = p
   const reqKey = `${item.id}|${variantKey}`
   // フル解像度の描画結果（表示中の 1 枚だけ保持。切替・閉じるで解放）。読み込み中は reqKey と一致しない
   const [full, setFull] = useState<{ key: string; url: string; warnings: string[] } | null>(null)
@@ -89,6 +90,14 @@ export function ReviewLightbox(p: Props) {
             <button key={c.key} onClick={() => onVariant(c.key)} className="h-7 px-2.5 rounded-md text-[11px] font-medium" style={{ background: c.key === variantKey ? 'rgba(255,255,255,0.18)' : 'transparent', color: c.key === variantKey ? '#fff' : '#9CA3AF' }}>{c.name}</button>
           ))}
         </div>
+        {steps.length > 0 && (
+          <div className="flex items-center gap-1 pl-2 ml-1" style={{ borderLeft: '1px solid rgba(255,255,255,0.2)' }} title="この結果を作る途中の画像（ダウンロードには入りません）">
+            <span style={{ color: '#9CA3AF' }}>途中の結果:</span>
+            {steps.map((s) => (
+              <button key={s.key} onClick={() => onVariant(s.key)} className="h-7 px-2.5 rounded-md text-[11px] font-medium" style={{ background: s.key === variantKey ? 'rgba(20,184,166,0.35)' : 'transparent', color: s.key === variantKey ? '#fff' : '#9CA3AF', border: '1px dashed rgba(255,255,255,0.25)' }}>{s.name}</button>
+            ))}
+          </div>
+        )}
         <div className="flex-1" />
         <div className="flex items-center gap-1">
           {BG_ORDER.map((b) => <button key={b} onClick={() => onBg(b)} className="w-5 h-5 rounded" title={`背景: ${BG_LABEL[b]}`} style={{ ...BG_STYLE[b], border: bg === b ? '2px solid #14B8A6' : '1px solid rgba(255,255,255,0.3)' }} />)}

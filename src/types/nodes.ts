@@ -71,7 +71,7 @@ export const PORT_COLORS: Record<PortType, string> = {
   cutout: '#14B8A6',
   item:   '#6B7280',
   cuts:   '#F472B6',
-  element: '#EC4899',
+  element: '#F472B6',   // 参照一式（Video Generation の入力・Kling Element の出力とそろえる。動画の #EC4899 と見分ける）
 }
 
 export const NODE_ACCENT_COLORS: Record<NodeType, string> = {

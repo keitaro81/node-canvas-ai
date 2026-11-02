@@ -5,7 +5,7 @@ import type { BatchItemRow } from '../../types/batch'
 import { EXT_OF } from '../export/naming'
 import type { LayoutExecutor } from './executor'
 import { CancelledError } from './executor'
-import { CUTOUT_VARIANT_KEY, estimateZipBytes, exportColumnsOf, jobZipName, planJobExport, resultKindOf, type ExportColumn, type ReviewResultColumn } from './model'
+import { CUTOUT_VARIANT_KEY, cutoutColumnShown, estimateZipBytes, exportColumnsOf, jobZipName, planJobExport, resultKindOf, type ExportColumn, type ReviewResultColumn } from './model'
 import { completedResultOf, renderableOf, type DoneTask, type ItemRenderable, type ReviewContext } from './reviewStore'
 import { signBatchPaths } from '../cutout/store'
 import { ZipWriter } from './zipStream'
@@ -21,7 +21,8 @@ export type ExportScope = 'selected' | 'all'
 export interface ExportTarget { item: BatchItemRow; renderable: ItemRenderable | null; results: Array<{ column: ReviewResultColumn; task: DoneTask }> }
 
 export function exportColumnsFor(ctx: ReviewContext, includeCutout = false): ExportColumn[] {
-  return exportColumnsOf(ctx.variants, ctx.results, !!ctx.cutoutNodeId, includeCutout)
+  // 切り抜きを AI が使った（途中の結果）でバリアントも無いときは、切り抜きは書き出さない（最終の出力だけ・2026-11-02 メモ 60）
+  return exportColumnsOf(ctx.variants, ctx.results, cutoutColumnShown(ctx.tasks, ctx.cutoutNodeId, ctx.variants.length), includeCutout)
 }
 
 export function exportTargets(ctx: ReviewContext, scope: ExportScope, selected?: ReadonlySet<string>): ExportTarget[] {
@@ -32,7 +33,7 @@ export function exportTargets(ctx: ReviewContext, scope: ExportScope, selected?:
       renderable: renderableOf(ctx, item),
       results: ctx.results.map((column) => ({ column, task: completedResultOf(ctx, item.id, column.nodeId) })).filter((x): x is { column: ReviewResultColumn; task: DoneTask } => !!x.task),
     }))
-    .filter((t) => !!t.renderable || t.results.length > 0)
+    .filter((t) => (!!t.renderable && cutoutColumnShown(ctx.tasks, ctx.cutoutNodeId, ctx.variants.length)) || t.results.length > 0)
 }
 
 /** 書き出すファイル数（写真ごとに、描けるレイアウト列 + 完了した結果列） */

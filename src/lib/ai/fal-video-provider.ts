@@ -1,4 +1,5 @@
 import { fal } from './fal-client';
+import { falErrorInfo } from './falErrors'
 import { VIDEO_MODELS, buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoEndpointFor } from './videoModels';
 import type {
   VideoProvider,
@@ -99,12 +100,9 @@ export class FalVideoProvider implements VideoProvider {
         },
       };
     } catch (error) {
-      const is422 = (error as { status?: number }).status === 422
-      return {
-        id: String(Date.now()),
-        status: 'failed',
-        error: is422 ? 'content_policy_violation' : (error instanceof Error ? error.message || 'Video generation failed' : 'Video generation failed'),
-      };
+      // 422 は理由（ポリシー違反か、入力の形の誤りか・どの入力か）を読んで、分かる文にする（2026-11-02 メモ 57）
+      const info = falErrorInfo(error)
+      return { id: String(Date.now()), status: 'failed', error: info.message, errorKind: info.kind };
     }
   }
 
@@ -155,11 +153,8 @@ export class FalVideoProvider implements VideoProvider {
         contentType: video.content_type || 'video/mp4',
       };
     } catch (error) {
-      return {
-        id: requestId,
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Video recovery failed',
-      };
+      const info = falErrorInfo(error)
+      return { id: requestId, status: 'failed', error: info.message || 'Video recovery failed', errorKind: info.kind };
     }
   }
 

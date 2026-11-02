@@ -13,7 +13,7 @@ import { normalizeCutoutParams } from '../cutout/engines'
 import { resolveBackgroundSource, type BgCanvas } from '../batch/background'
 import {
   ADDED_VARIANTS_KEY, CUTOUT_PREVIEW_PARAMS, CUTOUT_VARIANT_KEY, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, fullFileName, isResultKey,
-  resultColumnsOf, resultNodeIdOf, thumbKey, variantsFromSnapshot, type CanvasLike, type ReviewVariant,
+  resultColumnsOf, resultNodeIdOf, thumbKey, variantsFromSnapshot, cutoutColumnShown, type CanvasLike, type ReviewVariant,
 } from '../review/model'
 import { assetsFor, completedResultOf, renderableOf, type ReviewContext, type ReviewStoreApi } from '../review/reviewStore'
 import type { FullResult } from '../review/renderCore'
@@ -142,7 +142,7 @@ export async function loadFolderContents(jobId: string): Promise<FolderContents 
   }
   // 最終結果が 1 つも無い写真（失敗・未処理）は出さない
   const items = allItems.filter((it) => !!renderableOf(base, it) || results.some((c) => !!completedResultOf(base, it.id, c.nodeId)))
-  return { job, items, tasks, knownFull, ctx: { ...base, items }, columns: folderColumnsOf(!!cutoutNode, variants, results), exportParams: exportParamsFromSnapshot(job.workflow_snapshot) }
+  return { job, items, tasks, knownFull, ctx: { ...base, items }, columns: folderColumnsOf(cutoutColumnShown(tasks, cutoutNode?.nodeId, variants.length), variants, results), exportParams: exportParamsFromSnapshot(job.workflow_snapshot) }
 }
 
 // ───────────────────────── 選んだタイルを使える画像にする ─────────────────────────

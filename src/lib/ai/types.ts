@@ -60,6 +60,7 @@ export interface VideoGenerationResult {
   fileName?: string;
   contentType?: string;
   error?: string;
+  errorKind?: 'policy' | 'input' | 'other';   // 失敗の種類（fal の 422 の理由から・2026-11-02 メモ 57）
   metadata?: Record<string, unknown>;
 }
 

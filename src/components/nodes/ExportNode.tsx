@@ -15,6 +15,8 @@ import { PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/la
 import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { REMOVE_BACKGROUND_INPUT_HANDLE, imageUrlFromNodeData } from '../../lib/cutout/upstream'
 import { latestVideoOf } from '../../lib/video/latestVideo'
+import { jobZipName } from '../../lib/review/model'
+import { jstDateTimeLabel } from '../../lib/batch/dates'
 import { Field, Num, Sel } from './pp/controls'
 import { NamePatternEditor } from './pp/NamePatternEditor'
 import { CTRL, INPUT_STYLE, PP_ACCENT, stopKeys } from './pp/styles'
@@ -65,7 +67,26 @@ function findUpstreamItemInfo(startIds: string[], nodes: AppNode[], edges: { sou
   return null
 }
 
+/** 上流（または「アイテム情報」の入力）に Batch Input があるか（試し用の写真が無くても）。あれば一括の書き出しで、商品名は写真ごとのファイル名から取る（2026-11-02 メモ 58） */
+function hasUpstreamBatchInput(startIds: string[], nodes: AppNode[], edges: { source: string; target: string }[]): boolean {
+  const seen = new Set<string>()
+  let frontier = [...startIds]
+  for (let depth = 0; depth < 8 && frontier.length; depth++) {
+    const next: string[] = []
+    for (const nid of frontier) {
+      if (seen.has(nid)) continue
+      seen.add(nid)
+      if ((nodes.find((x) => x.id === nid)?.data as NodeData | undefined)?.type === 'batchInput') return true
+      for (const e of edges) if (e.target === nid) next.push(e.source)
+    }
+    frontier = next
+  }
+  return false
+}
+
 const DEFAULT_ITEM: BatchItemInfo = { sku: 'item', original: 'image', index: 1 }
+/** 一括で試し用の写真がまだ無いときの例（SKU の規則の既定 ^([A-Za-z0-9-]+)_ で取り出した形） */
+const SAMPLE_BATCH_ITEM: BatchItemInfo = { sku: 'ABC-123', original: 'ABC-123_front', index: 1 }
 const FORMAT_LABEL: Record<ExportFormat, string> = { jpeg: 'JPEG', png: 'PNG', webp: 'WebP' }
 
 async function fetchImage(url: string, workflowId: string | null): Promise<Blob> {
@@ -129,9 +150,11 @@ function ExportNodeInner(props: NodeProps) {
   const itemNode = itemEdge ? nodes.find((n) => n.id === itemEdge.source) : undefined
   const connectedInfo = (itemNode?.data as NodeData | undefined)?.itemInfo as BatchItemInfo | undefined
   const upstreamInfo = useMemo(() => (connectedInfo ? null : findUpstreamItemInfo([...slotEdges, ...videoEdges].map((e) => e.source), nodes, edges)), [connectedInfo, slotEdges, videoEdges, nodes, edges])
+  // 一括（上流に Batch Input）: 商品名は写真ごとのファイル名から。「商品名」欄は出さない（2026-11-02 メモ 58）
+  const batchContext = useMemo(() => (itemNode ? (itemNode.data as NodeData | undefined)?.type === 'batchInput' : false) || hasUpstreamBatchInput([...slotEdges, ...videoEdges].map((e) => e.source), nodes, edges), [itemNode, slotEdges, videoEdges, nodes, edges])
   // 入口（Batch Input）が無い構成は「商品名」の欄を {sku} に使う（空ならワークフロー名・2026-11-01）
   const fallbackSku = params.productName.trim() || currentWorkflowName?.trim() || DEFAULT_ITEM.sku
-  const itemInfo: BatchItemInfo = useMemo(() => connectedInfo ?? upstreamInfo ?? { ...DEFAULT_ITEM, sku: fallbackSku }, [connectedInfo, upstreamInfo, fallbackSku])
+  const itemInfo: BatchItemInfo = useMemo(() => connectedInfo ?? upstreamInfo ?? (batchContext ? SAMPLE_BATCH_ITEM : { ...DEFAULT_ITEM, sku: fallbackSku }), [connectedInfo, upstreamInfo, batchContext, fallbackSku])
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
   const itemConnected = !!itemEdge   // つないであるが SKU がまだ無い（Cut Set Input に SKU 0 件など）: 「未接続」とは出さない（2026-11-01）
 
@@ -170,8 +193,10 @@ function ExportNodeInner(props: NodeProps) {
   const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng, video: i.kind === 'video' }))
   const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now, { skus: 1 }), [allInputs, params, itemInfo, now])
   // 例の名前（2026-11-02 メモ 43: いつも見せる）。まだ何もつないでいなければ仮のバリアント名で
-  const exampleName = plan.entries[0]
-    ? `${plan.entries[0].base}.${plan.entries[0].ext}`
+  // 例は切り抜き PNG ではなく、つないだ画像（バリアント）の名前を優先する
+  const exampleEntry = plan.entries[allInputs.findIndex((i) => i.kind !== 'cutout')] ?? plan.entries[0]
+  const exampleName = exampleEntry
+    ? `${exampleEntry.base}.${exampleEntry.ext}`
     : `${applyNamePattern(params.namePattern, { ...itemInfo, variant: 'ec_white', now })}.${EXT_OF[params.format]}`
   const zipName = zipFileName(itemInfo, now)
 
@@ -294,14 +319,14 @@ function ExportNodeInner(props: NodeProps) {
               ))}
             </div>
           )}
-          {itemSource !== 'none' ? (
-            <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">商品名は写真のファイル名から取ります（例: {itemInfo.sku}）</div>
-          ) : itemConnected ? (
-            <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">商品名は写真のファイル名から取ります（写真を入れるまでは「{itemInfo.sku}」で表示）</div>
+          {batchContext || itemSource !== 'none' || itemConnected ? (
+            <div className="text-[11px] mt-1 leading-snug text-[var(--text-tertiary)]">
+              商品名は写真ごとにファイル名から取ります（例: {itemInfo.original} → {itemInfo.sku}）。全部の写真に同じ言葉を付けるときは「＋ 部品を足す」→「文字」
+            </div>
           ) : null}
           {videoInputs.length > 0 && <div className="text-[11px] mt-0.5 text-[var(--text-tertiary)]">動画の「バリアント」は、つないだ動画ノードの名前です（変えるときはノードの名前を変えてください）</div>}
         </Field>
-        {itemSource === 'none' && !itemConnected && (
+        {!batchContext && itemSource === 'none' && !itemConnected && (
           <Field label="商品名（ファイル名と ZIP の名前に使う）">
             <input
               type="text"
@@ -324,7 +349,11 @@ function ExportNodeInner(props: NodeProps) {
             </label>
             {params.zip && (
               <>
-                <div className="text-[11px] truncate text-[var(--text-tertiary)]" title={zipName}>ZIP の名前: <span className="font-mono text-[var(--text-primary)]">{zipName}</span></div>
+                {batchContext ? (
+                  <div className="text-[11px] leading-snug text-[var(--text-tertiary)]">ZIP の名前: App でダウンロードするときは処理の名前と日付（例: <span className="font-mono text-[var(--text-primary)]">{jobZipName(`${jstDateTimeLabel(now)} 10枚`, now)}</span>）</div>
+                ) : (
+                  <div className="text-[11px] truncate text-[var(--text-tertiary)]" title={zipName}>ZIP の名前: <span className="font-mono text-[var(--text-primary)]">{zipName}</span></div>
+                )}
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] shrink-0 text-[var(--text-secondary)]">フォルダ</span>
                   <Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', '商品別'], ['none', 'なし']]} onChange={(v) => setParams({ zipFolders: v })} />
