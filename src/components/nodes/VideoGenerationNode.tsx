@@ -639,10 +639,11 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               {startRole ? CUT_ROLE_LABEL[startRole] : '開始フレーム'}{endRole ? ` → ${CUT_ROLE_LABEL[endRole]}` : ''}
               <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}>（つないだ画像の向き）</span>
             </div>
+            {/* 説明とボタンは縦に並べる（横に並べるとノードの幅に収まらず、ボタンの文字が折り返して崩れる・2026-11-02） */}
             {turnMissing && (
-              <div className="flex items-center justify-between gap-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                <span>向きが変わるショットです</span>
-                <button className="h-6 px-2 rounded text-[11px] font-medium text-white nodrag disabled:opacity-50" style={{ background: '#EC4899' }} onClick={insertTurnPreset} disabled={isGenerating} title="始点と終点の向きに合う回転の指示文を「動き」と「避けたいこと」に入れます（文は編集できます）">回転の指示文を入れる</button>
+              <div className="flex flex-col gap-1.5 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                <span className="leading-snug">向きが変わるショットです。回転の指示文を「動き」と「避けたいこと」に入れられます</span>
+                <button className="w-full h-7 px-2 rounded-md text-[11px] font-medium text-white whitespace-nowrap nodrag disabled:opacity-50" style={{ background: '#EC4899' }} onClick={insertTurnPreset} disabled={isGenerating} title="始点と終点の向きに合う回転の指示文を「動き」と「避けたいこと」に入れます（文は編集できます）">回転の指示文を入れる</button>
               </div>
             )}
           </div>

@@ -62,6 +62,7 @@ import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
 import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
 import type { NodeType, NodeData, VideoGenerationNodeData, ReferenceImageNodeData, ReferenceVideoNodeData, PortType, GroupNodeData, ListNodeData, CameraListNodeData } from '../../types/nodes'
 import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
+import { mergeAppShapeOf } from '../../lib/apps/mergeApp'
 import { showToast } from '../../hooks/useToast'
 import { useTheme } from '../../hooks/useTheme'
 
@@ -278,7 +279,8 @@ function checkAndDisableCapsuleIfNeeded(groupId: string) {
   if (capsuleGroupId !== groupId) return
   // 一括 App（グループに Batch Input がある）は並列でもよい（枝ごとの結果）。問題はグループの注意と App の画面に出す（appIssueOf・2026-11-02）
   if (nodes.some((n) => n.parentId === groupId && (n.data as { type?: string }).type === 'batchInput')) return
-  if (hasParallelGenerationNodes(groupId, nodes, edges)) {
+  // 動画のショットを並べて Video Merge でまとめる形は、生成 App の「ショット → 結合」として App にできる（2026-11-02 メモ 54）
+  if (hasParallelGenerationNodes(groupId, nodes, edges) && !mergeAppShapeOf(groupId, nodes, edges)) {
     setCapsuleGroupId(null)
     showToast('並列生成ノードが検出されたため、App モードが解除されました', 'warning')
   }
@@ -1498,8 +1500,8 @@ export function Canvas() {
                     setCapsuleGroupId(null)
                   } else {
                     const isBatch = nodes.some((n) => n.parentId === singleGroup.id && (n.data as { type?: string }).type === 'batchInput')
-                    if (!isBatch && hasParallelGenerationNodes(singleGroup.id, nodes, edges)) {
-                      showToast('並列生成はAppモードでサポートされていません。直列接続のワークフローにしてください。', 'warning')
+                    if (!isBatch && hasParallelGenerationNodes(singleGroup.id, nodes, edges) && !mergeAppShapeOf(singleGroup.id, nodes, edges)) {
+                      showToast('並列の生成は App にできません。生成ノードを 1 本の流れにつなぐか、動画のショットを並べるときは Video Merge でまとめてください。', 'warning')
                       return
                     }
                     // 一括 App: 結果は 1 種類（入口 1 つ・画像と動画を混ぜない・動画は 1 本）。問題があれば App 化しない（2026-11-02）
