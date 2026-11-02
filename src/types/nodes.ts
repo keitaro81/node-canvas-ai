@@ -338,9 +338,10 @@ export interface BatchItem {
 
 /** ExportNode に渡すアイテム情報（仕様 2 章「元のファイル名、SKU、並び順」） */
 export interface BatchItemInfo {
-  sku: string
+  sku: string                      // 商品のまとまり（ファイル名から SKU の規則で取り出す）。「商品別」のフォルダ分けに使う
   original: string                 // 拡張子を除いた元ファイル名
   index: number
+  name?: string                    // ファイル名の「商品名」（一括では写真の名前そのまま・2026-11-02 メモ 65）。無ければ sku
 }
 
 export type ExportFormat = 'jpeg' | 'png' | 'webp'

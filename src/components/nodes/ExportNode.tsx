@@ -86,7 +86,7 @@ function hasUpstreamBatchInput(startIds: string[], nodes: AppNode[], edges: { so
 
 const DEFAULT_ITEM: BatchItemInfo = { sku: 'item', original: 'image', index: 1 }
 /** 一括で試し用の写真がまだ無いときの例（SKU の規則の既定 ^([A-Za-z0-9-]+)_ で取り出した形） */
-const SAMPLE_BATCH_ITEM: BatchItemInfo = { sku: 'ABC-123', original: 'ABC-123_front', index: 1 }
+const SAMPLE_BATCH_ITEM: BatchItemInfo = { sku: 'ABC-123', original: 'ABC-123_front', index: 1, name: 'ABC-123_front' }
 const FORMAT_LABEL: Record<ExportFormat, string> = { jpeg: 'JPEG', png: 'PNG', webp: 'WebP' }
 
 async function fetchImage(url: string, workflowId: string | null): Promise<Blob> {
@@ -154,7 +154,11 @@ function ExportNodeInner(props: NodeProps) {
   const batchContext = useMemo(() => (itemNode ? (itemNode.data as NodeData | undefined)?.type === 'batchInput' : false) || hasUpstreamBatchInput([...slotEdges, ...videoEdges].map((e) => e.source), nodes, edges), [itemNode, slotEdges, videoEdges, nodes, edges])
   // 入口（Batch Input）が無い構成は「商品名」の欄を {sku} に使う（空ならワークフロー名・2026-11-01）
   const fallbackSku = params.productName.trim() || currentWorkflowName?.trim() || DEFAULT_ITEM.sku
-  const itemInfo: BatchItemInfo = useMemo(() => connectedInfo ?? upstreamInfo ?? (batchContext ? SAMPLE_BATCH_ITEM : { ...DEFAULT_ITEM, sku: fallbackSku }), [connectedInfo, upstreamInfo, batchContext, fallbackSku])
+  // 一括のファイル名の「商品名」は写真の名前そのまま（2026-11-02 メモ 65。前から保存されている写真の情報には name が無いので original から）
+  const itemInfo: BatchItemInfo = useMemo(() => {
+    const info = connectedInfo ?? upstreamInfo ?? (batchContext ? SAMPLE_BATCH_ITEM : { ...DEFAULT_ITEM, sku: fallbackSku })
+    return batchContext || connectedInfo || upstreamInfo ? { ...info, name: info.name ?? info.original } : info
+  }, [connectedInfo, upstreamInfo, batchContext, fallbackSku])
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
   const itemConnected = !!itemEdge   // つないであるが SKU がまだ無い（Cut Set Input に SKU 0 件など）: 「未接続」とは出さない（2026-11-01）
 
@@ -321,7 +325,7 @@ function ExportNodeInner(props: NodeProps) {
           )}
           {batchContext || itemSource !== 'none' || itemConnected ? (
             <div className="text-[11px] mt-1 leading-snug text-[var(--text-tertiary)]">
-              商品名は写真ごとにファイル名から取ります（例: {itemInfo.original} → {itemInfo.sku}）。全部の写真に同じ言葉を付けるときは「＋ 部品を足す」→「文字」
+              商品名は写真の名前をそのまま使います（例: {itemInfo.original}）。全部の写真に同じ言葉を付けるときは「＋ 部品を足す」→「文字」
             </div>
           ) : null}
           {videoInputs.length > 0 && <div className="text-[11px] mt-0.5 text-[var(--text-tertiary)]">動画の「バリアント」は、つないだ動画ノードの名前です（変えるときはノードの名前を変えてください）</div>}

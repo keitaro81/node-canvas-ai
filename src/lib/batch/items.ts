@@ -67,7 +67,8 @@ export function applySkuPattern<T extends { originalName: string; sku: string }>
 }
 
 export function itemInfoOf(item: Pick<BatchItem, 'sku' | 'originalName' | 'index'>): BatchItemInfo {
-  return { sku: item.sku, original: stripExtension(item.originalName), index: item.index }
+  const original = stripExtension(item.originalName)
+  return { sku: item.sku, original, index: item.index, name: original }   // ファイル名の「商品名」は写真の名前そのまま（2026-11-02 メモ 65）
 }
 
 /** 保存先パス用に安全なファイル名にする（英数字・.-_ 以外は _）。 */

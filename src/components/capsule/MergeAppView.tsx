@@ -12,7 +12,8 @@ import { useSignedMedia } from '../../hooks/useSignedMedia'
 import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { signLibraryUrl } from '../../lib/api/library'
 import { downloadFile } from '../../lib/downloadFile'
-import { VIDEO_MODELS } from '../../lib/ai/videoModels'
+import { effectiveVideoSettings, videoPricePerSecond } from '../../lib/ai/videoModels'
+import { videoGenInputOf } from '../../lib/video/videoGenInput'
 import { latestVideoOf, videoResultsOf } from '../../lib/video/latestVideo'
 import { mergeAppInputsOf, missingImageInputs, shotStateOf, shotTurnLabel, type MergeAppInput, type MergeAppShape, type ShotState } from '../../lib/apps/mergeApp'
 
@@ -102,18 +103,20 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
   const inputs = useMemo(() => mergeAppInputsOf(groupId, nodes, edges, shape), [groupId, nodes, edges, shape])
   const missing = useMemo(() => missingImageInputs(inputs, nodes), [inputs, nodes])
 
-  // 本数・秒数・費用の目安（ショットの設定はキャンバスのまま。Count が 2 以上なら本数分）
+  // 本数・秒数・費用の目安（ショットの設定はキャンバスのまま。Count が 2 以上なら本数分）。モデル・長さはノードと同じ「実際に使う設定」、
+  // 単価は解像度・音声の有無も見る（2026-11-02 メモ 63）
   const summary = useMemo(() => {
     let videos = 0, seconds = 0, usd = 0
     for (const id of shape.shotIds) {
       const d = (nodes.find((n) => n.id === id)?.data ?? {}) as Record<string, unknown>
+      const eff = effectiveVideoSettings(d, videoGenInputOf(id, nodes, edges))
       const runs = Math.max(1, Math.min(10, Number(d.count) || 1))
-      const sec = Number(d.duration) || 0
-      const price = VIDEO_MODELS.find((m) => m.id === d.model)?.pricePerSecond ?? 0
+      const sec = Number(eff.duration) || 0
+      const price = eff.model ? videoPricePerSecond(eff.model, { resolution: eff.resolution, audioEnabled: d.audioEnabled }) : 0
       videos += runs; seconds += sec * runs; usd += sec * runs * price
     }
     return { videos, seconds, usd }
-  }, [shape, nodes])
+  }, [shape, nodes, edges])
 
   // 今回の実行（作り始める前にあった Video Result の id をショットごとに覚え、それより後の結果で進みを見る）
   const [run, setRun] = useState<{ id: number; since: Record<string, string[]> } | null>(null)

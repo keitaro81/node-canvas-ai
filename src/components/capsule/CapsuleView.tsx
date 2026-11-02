@@ -11,7 +11,7 @@ import { llmComplete } from '../../lib/ai/llmClient'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import { MergeAppView } from './MergeAppView'
-import { effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
+import { canStartFromImage, effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
 import { videoGenInputOf } from '../../lib/video/videoGenInput'
 import { mergeAppShapeOf } from '../../lib/apps/mergeApp'
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
@@ -489,7 +489,10 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
   )
 }
 
-function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldDef }) {
+/** 欄の値の出どころ。既定はキャンバスのノード（生成 App はノードに書く）。一括 App の「設定」は使う人ごとの上書き（data = ノードに上書きを重ねたもの・2026-11-02 メモ 67） */
+export interface FieldSource { data: Record<string, unknown>; update: (patch: Record<string, unknown>) => void }
+
+export function FieldRenderer({ nodeId, field, source }: { nodeId: string; field: CapsuleFieldDef; source?: FieldSource }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edgesForInput = useCanvasStore((s) => s.edges)
   const updateNode = useCanvasStore((s) => s.updateNode)
@@ -504,8 +507,9 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   })
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
-  const d = node.data as Record<string, unknown>
+  const d = (source?.data ?? node.data) as Record<string, unknown>
   const params = (d.params as Record<string, unknown>) ?? {}
+  const write = (patch: Record<string, unknown>) => (source ? source.update(patch) : updateNode(nodeId, patch as never))
   // 動画: つないだ入力の種類と、実際に使うモデル・設定（ノードと同じ判定）
   const videoInput = videoGenInputOf(nodeId, nodes, edgesForInput)
   const videoEff = effectiveVideoSettings(d, videoInput)
@@ -536,9 +540,9 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   function updateField(value: unknown) {
     if (videoDirectFields.includes(field.id) && isVideoGenNode) {
-      updateNode(nodeId, { [field.id]: value } as never)
+      write({ [field.id]: value })
     } else {
-      updateNode(nodeId, { params: { ...params, [field.id]: value } } as never)
+      write({ params: { ...params, [field.id]: value } })
     }
   }
 
@@ -612,7 +616,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
             className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
             style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
             value={(params.recraftImageSize as string) || 'square'}
-            onChange={(e) => updateNode(nodeId, { params: { ...params, recraftImageSize: e.target.value } } as never)}
+            onChange={(e) => write({ params: { ...params, recraftImageSize: e.target.value } })}
           >
             {RECRAFT_IMAGE_SIZES_CAPSULE.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
@@ -711,7 +715,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
             if (!m) return
             // ノードの欄と同じく、そのモデルで使えない長さ・解像度・比率はそのモデルの値にそろえる
             const next = effectiveVideoSettings({ ...d, model: m.id }, videoInput)
-            updateNode(nodeId, { model: m.id, duration: next.duration, resolution: next.resolution, aspectRatio: next.aspectRatio } as never)
+            write({ model: m.id, duration: next.duration, resolution: next.resolution, aspectRatio: next.aspectRatio })
           }}
         >
           {availableVideoModels.map((m) => (
@@ -727,7 +731,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   if (field.id === 'aspectRatio' && isVideoGenNode) {
     const currentVideoModel = videoEff.model
     const base = (currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']) as string[]
-    const ratios = currentVideoModel?.supportedModes.includes('image-to-video') && !base.includes('auto') ? [...base, 'auto'] : base
+    const ratios = currentVideoModel && canStartFromImage(currentVideoModel) && !base.includes('auto') ? [...base, 'auto'] : base
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>

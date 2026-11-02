@@ -53,10 +53,11 @@ export function AppLayoutSettings({ groupId = null }: { groupId?: string | null 
     const { canvas: next } = addLayoutNodeToCanvas(canvas, { ...DEFAULT_LAYOUT_PARAMS, variantName: `variant_${layouts.length + 1}` }, nodeId)
     const added = next.nodes.find((n) => n.id === nodeId)
     if (!added) return
-    const addedEdges = next.edges.filter((e) => e.target === nodeId)
+    // 切り抜き → 新しい Product Layout と、Product Layout → Export（ほかのバリアントと同じ Export・2026-11-02 メモ 66）
+    const addedEdges = next.edges.filter((e) => e.target === nodeId || e.source === nodeId)
     pasteNodes(
       [{ id: added.id, type: added.type, position: added.position ?? { x: 0, y: 0 }, data: added.data as unknown as NodeData, ...(groupId ? { parentId: groupId, extent: 'parent' as const } : {}) } as AppNode],
-      addedEdges.map((e) => ({ id: e.id ?? `e-${e.source}-${nodeId}`, source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined, style: { stroke: ACCENT, strokeWidth: 2 } } as Edge)),
+      addedEdges.map((e) => ({ id: e.id ?? `e-${e.source}-${e.target}`, source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined, style: (e.style as Edge['style']) ?? { stroke: ACCENT, strokeWidth: 2 } } as Edge)),
     )
     // グループを広げて、足したノードが収まるようにする
     if (groupId) {

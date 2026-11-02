@@ -7,7 +7,7 @@
 import { buildEngineRequest, normalizeCutoutParams } from '../cutout/engines'
 import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../ai/imageGenModels'
 import { backgroundSourcesOf, promptForGenerator } from './background'
-import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoModelById } from '../ai/videoModels'
+import { buildVideoInput, canStartFromImage, effectiveVideoSettings, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, retiredVideoModelOf, videoModelById } from '../ai/videoModels'
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
 import { CUT_ROLES, CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut } from '../video/productVideo'
 import { textsNeedingTranslation } from '../video/translate'
@@ -453,9 +453,14 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       const prompt = tryOnPromptFromNote(p.note, snap?.promptTranslations ?? {})
       push({ nodeId: node.id, scope: 'item', endpoint: TRY_ON_ENDPOINT, input: buildTryOnInput(prompt, p), kind: 'imageEdit', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
     } else if (k === 'videoGen') {
-      const modelDef = videoModelById(node.data?.model) ?? videoModelById(PRODUCT_VIDEO_DEFAULT_MODEL)!
+      // 外したモデル（Seedance 2.0・2026-11-02）を保存しているノードは、ノードと同じく使えるモデルに切り替える（長さ・解像度・比率もそのモデルの値に）
+      const retired = retiredVideoModelOf(node.data?.model)
+      const eff = retired ? effectiveVideoSettings((node.data ?? {}) as Record<string, unknown>, { video: false, image: true }) : null
+      const modelDef = eff?.model ?? videoModelById(node.data?.model) ?? videoModelById(PRODUCT_VIDEO_DEFAULT_MODEL)!
+      const videoNode = eff ? { ...node, data: { ...(node.data ?? {}), model: modelDef.id, duration: eff.duration, resolution: eff.resolution, aspectRatio: eff.aspectRatio } } : node
+      if (retired) warn(`${label} の ${retired.name} は使えなくなったため、${modelDef.name} で作ります`)
       // 画像 → 動画: 専用エンドポイント（i2vEndpoint）があるか、エンドポイント自体が image-to-video のモデル。参照動画が要るモデルは対象外
-      if (!modelDef.i2vEndpoint && !modelDef.supportedModes.includes('image-to-video')) { exclude(node.id, `Video Generation（${label}）のモデル ${modelDef.name} は画像から動画を作れないため一括実行の対象外です`); continue }
+      if (!canStartFromImage(modelDef)) { exclude(node.id, `Video Generation（${label}）のモデル ${modelDef.name} は画像から動画を作れないため一括実行の対象外です`); continue }
       const inputs: TaskInputs = { ...a.inputs }
       const withElements = !!inputs.elements && modelDef.features.includes('elements')   // 旧ジョブ（Cut Set Input の一式）だけ。新しい計画は付けない
       if (inputs.elements && !withElements) { warn(`参照カット一式（elements）は Kling v3 Pro だけが使えます（${label} では無視します）`); delete inputs.elements }
@@ -463,7 +468,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       if (inputs.end && !modelDef.endImageParam) { warn(`終了フレームは ${modelDef.name} では使えません（${label} では無視します）`); delete inputs.end }
       const { prompt, negative, turned } = videoPromptOf(nodes, edges, node, inputs, snap?.promptTranslations)
       if (!prompt) { exclude(node.id, `Video Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつなぐか、動きの欄に書いてください）`); emptyPrompt.push(node.id); continue }
-      const built = buildVideoTaskInput(modelDef, node, prompt, negative, turned)
+      const built = buildVideoTaskInput(modelDef, videoNode, prompt, negative, turned)
       push({ nodeId: node.id, scope: 'item', endpoint: modelDef.i2vEndpoint ?? modelDef.endpoint, input: built.input, kind: 'videoShot', stage: a.stage, label, dualOutput: false, inputs, video: { ...built.meta, elements: withElements } })
     } else {
       push({ nodeId: node.id, scope: 'item', endpoint: MERGE_VIDEOS_ENDPOINT, input: {}, kind: 'videoMerge', stage: a.stage, label, dualOutput: false, inputs: a.inputs })

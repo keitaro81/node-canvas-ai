@@ -259,7 +259,7 @@ export function planProfileImport(canvas: CanvasLike, profile: PostProductionPro
       next = updateLayoutNodeParams(next, hit.id, normalizeLayoutParams(params))
       matched.add(hit.id); layoutIdByVariant.set(v.variantName, hit.id); summary.updatedVariants.push(v.variantName)
     } else {
-      const r = addLayoutNodeToCanvas(next, normalizeLayoutParams(params), idGen('productLayoutNode'))
+      const r = addLayoutNodeToCanvas(next, normalizeLayoutParams(params), idGen('productLayoutNode'), { connectExport: false })   // Export へは 5) でつなぐ
       next = r.canvas; layoutIdByVariant.set(v.variantName, r.nodeId); summary.addedVariants.push(v.variantName)
     }
   }

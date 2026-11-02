@@ -58,7 +58,7 @@ export interface NameContext extends BatchItemInfo {
  */
 export function applyNamePattern(pattern: string, ctx: NameContext): string {
   const out = pattern.replace(/\{(sku|original|variant|index(?::0(\d+))?|date)\}/g, (_m, token: string, pad?: string) => {
-    if (token === 'sku') return ctx.sku
+    if (token === 'sku') return ctx.name ?? ctx.sku   // 「商品名」: 一括は写真の名前そのまま（メモ 65）、それ以外は商品名の欄
     if (token === 'original') return ctx.original
     if (token === 'variant') return ctx.variant
     if (token === 'date') return dateToken(ctx.now)
@@ -136,7 +136,7 @@ export function qualitySteps(start: number): number[] {
 
 /** ZIP のファイル名 */
 export function zipFileName(item: BatchItemInfo, now: Date, baseOverride?: string | null): string {
-  const base = (baseOverride ?? '').trim() || item.sku
+  const base = (baseOverride ?? '').trim() || item.name || item.sku
   return sanitizeFileName(`${base}_${dateToken(now)}.zip`)
 }
 

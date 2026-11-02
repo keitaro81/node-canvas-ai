@@ -69,6 +69,31 @@ describe('review model', () => {
     expect(r.edges.some((e) => e.target === 'pl-new')).toBe(false)
     expect(r.edges.length).toBe(2)
   })
+  it('足したバリアントは、ほかのバリアントと同じ Export の空いている画像の入力にもつなぐ（2026-11-02 メモ 66）', () => {
+    const canvas = {
+      nodes: [
+        { id: 'bi', data: { type: 'batchInput' } }, { id: 'rb', data: { type: 'removeBackground' } },
+        { id: 'pl1', position: { x: 0, y: 0 }, data: { type: 'productLayout', params: { variantName: 'EC' } } }, { id: 'ex', data: { type: 'export' } },
+      ],
+      edges: [
+        { source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' },
+        { source: 'rb', sourceHandle: 'out-cutout-cutout', target: 'pl1', targetHandle: 'in-cutout-cutout' },
+        { source: 'pl1', sourceHandle: 'out-image-image', target: 'ex', targetHandle: 'in-image-0' },
+        { source: 'bi', sourceHandle: 'out-item-item', target: 'ex', targetHandle: 'in-item-item' },
+      ],
+    }
+    const p = { ...variantsFromSnapshot(snapshot, null)[0].params, variantName: 'SNS' }
+    const a = addLayoutNodeToCanvas(canvas, p, 'pl-new')
+    const wires = a.canvas.edges.map((e) => `${e.source}:${e.sourceHandle}->${e.target}:${e.targetHandle}`)
+    expect(wires).toContain('rb:out-cutout-cutout->pl-new:in-cutout-cutout')
+    expect(wires).toContain('pl-new:out-image-image->ex:in-image-1')
+    const b = addLayoutNodeToCanvas(a.canvas, { ...p, variantName: 'X' }, 'pl-3')
+    expect(b.canvas.edges.some((e) => e.source === 'pl-3' && e.target === 'ex' && e.targetHandle === 'in-image-2')).toBe(true)
+    // Export が無い・ほかのバリアントが Export につながっていない・プロファイルの読み込み（自分でつなぐ）はつながない
+    const noEx = addLayoutNodeToCanvas({ ...canvas, edges: canvas.edges.filter((e) => e.target !== 'ex') }, p, 'pl-n')
+    expect(noEx.canvas.edges.some((e) => e.source === 'pl-n')).toBe(false)
+    expect(addLayoutNodeToCanvas(canvas, p, 'pl-p', { connectExport: false }).canvas.edges.some((e) => e.source === 'pl-p')).toBe(false)
+  })
   it('切り抜きノードと書き出し設定', () => {
     expect(cutoutNodesFromSnapshot(snapshot).map((c) => `${c.nodeId}:${c.params.alphaThreshold}`)).toEqual(['rb:12'])
     expect(exportParamsFromSnapshot(snapshot)).toMatchObject({ format: 'png', namePattern: '{sku}_{variant}' })
@@ -96,7 +121,7 @@ describe('review model', () => {
   it('サムネイル名・アイテム情報・ZIP 名', () => {
     expect(thumbFileName(CUTOUT_VARIANT_KEY, 'abcdef0123456789', true)).toBe('thumb-cutout-abcdef012345.png')
     expect(thumbFileName('productLayoutNode-1', 'abcdef0123456789', false)).toBe('thumb-productLayoutNode-1-abcdef012345.jpg')
-    expect(itemInfoOfRow(item())).toEqual({ sku: 'ABC-1', original: 'ABC-1_front', index: 3 })
+    expect(itemInfoOfRow(item())).toEqual({ sku: 'ABC-1', original: 'ABC-1_front', index: 3, name: 'ABC-1_front' })   // 商品名は写真の名前そのまま（メモ 65）
     expect(jobZipName('2026-09-23 10:00 20枚', new Date('2026-09-23T01:00:00Z'))).toBe('2026-09-23 10_00 20枚_20260923.zip')
   })
   it('絞り込みとキーボード移動', () => {
@@ -118,13 +143,13 @@ describe('review model', () => {
     const ev = exportVariantsOf([])
     expect(ev.map((v) => `${v.key}:${v.name}:${v.params.backgroundKind}`)).toEqual([`${CUTOUT_VARIANT_KEY}:cutout:transparent`])
     const plan = planJobExport([item({ sort_order: 2 })], exportColumnsOf([], [], true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
-    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ABC-1_cutout_02.png'   /* 列が 1 つだけならフォルダ無し（2026-11-01 メモ 34） */])
+    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ABC-1_front_cutout_02.png'   /* 列が 1 つだけならフォルダ無し（2026-11-01 メモ 34）。商品名は写真の名前そのまま（メモ 65） */])
     expect(exportVariantsOf(variantsFromSnapshot(snapshot, null)).length).toBe(2)
   })
   it('書き出し計画は透過バリアントを PNG にし、連番はアイテムの並び順', () => {
     const variants = variantsFromSnapshot(snapshot, null)
     const plan = planJobExport([item({ sort_order: 7 })], exportColumnsOf(variants, [], true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
-    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_07.jpg', 'sns/ABC-1_sns_07.png'])
+    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_front_ec_white_07.jpg', 'sns/ABC-1_front_sns_07.png'])
     expect(estimateZipBytes(150, 1200, 1200, 'jpeg')).toBe(54_000_000)
   })
 })
@@ -235,14 +260,14 @@ describe('フェーズ C(a): 連鎖と生成結果の列', () => {
     expect(exportColumnsOf([], results, true, true).map((c) => c.name)).toEqual(['cutout', '合成'])
     expect(exportColumnsOf(variantsFromSnapshot(snapshot, null), [], false, true)).toEqual([])
     const withCutout = planJobExport([item({ sort_order: 1 })], exportColumnsOf(variantsFromSnapshot(snapshot, null), [], true, true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
-    expect(withCutout[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/ABC-1_cutout_01.png', 'ec_white/ABC-1_ec_white_01.jpg', 'sns/ABC-1_sns_01.png'])
+    expect(withCutout[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout/ABC-1_front_cutout_01.png', 'ec_white/ABC-1_front_ec_white_01.jpg', 'sns/ABC-1_front_sns_01.png'])
     expect(withCutout[0].warnings.some((w) => w.includes('cutout'))).toBe(false)
     const plan = planJobExport([item({ sort_order: 1 })], withLayouts, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
-    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_01.jpg', 'sns/ABC-1_sns_01.png', '合成/ABC-1_合成_01.jpg'])
+    expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_front_ec_white_01.jpg', 'sns/ABC-1_front_sns_01.png', '合成/ABC-1_front_合成_01.jpg'])
     // バリアント名が cutout（予約名）なら、切り抜き PNG 側を cutout_png にして同じフォルダに混ぜない（2026-11-02 メモ 44・ジョブ 7004b5c0 で 2 枚ずつ入った件）
     const named = variantsFromSnapshot(snapshot, null).map((v, i) => (i === 0 ? { ...v, name: 'cutout' } : v))
     const reserved = planJobExport([item({ sort_order: 1 })], exportColumnsOf(named, [], true, true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
-    expect(reserved[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout_png/ABC-1_cutout_png_01.png', 'cutout/ABC-1_cutout_01.jpg', 'sns/ABC-1_sns_01.png'])
+    expect(reserved[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout_png/ABC-1_front_cutout_png_01.png', 'cutout/ABC-1_front_cutout_01.jpg', 'sns/ABC-1_front_sns_01.png'])
   })
   it('前段の結果を元画像にした切り抜きは、識別値の元画像参照が 結果パス#版 になる（再実行で差し替わると描き直す）', () => {
     const dep = task({ id: 'dep', node_id: 'retouch', result_path: 't/j/i1/retouch-result.png', completed_at: '2026-10-01T00:00:00Z', result_meta: { kind: 'image' } })

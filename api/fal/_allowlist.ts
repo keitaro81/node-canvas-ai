@@ -25,7 +25,7 @@ export const ALLOWED_MODEL_PREFIXES = [
   // 動画生成
   'fal-ai/ltx-2.3',
   'fal-ai/kling-video',
-  'bytedance/seedance-2.0',
+  // Seedance 2.0（bytedance/seedance-2.0）は 2026-11-02 に外した（生成費用が高い。戻すかはサービスイン前に検討・docs/engineer-handover.md §14）
   // LLM / 画像解析（2026-11-01: any-llm は deprecated 表示のため openrouter/router を主にし、any-llm は予備。src/lib/ai/llm.ts）
   'openrouter/router',
   'fal-ai/any-llm',

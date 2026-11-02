@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { buildVideoInput, nearestAspectRatio, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoEndpointFor, videoModelById } from './videoModels'
+import { VIDEO_MODELS, buildVideoInput, nearestAspectRatio, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoEndpointFor, videoModelById, videoPricePerSecond } from './videoModels'
 
 const v3 = videoModelById('kling-v3-pro')!
 const k25 = videoModelById('kling-2.5-turbo')!
 const o3 = videoModelById('kling-o3-pro-i2v')!
-const sd = videoModelById('seedance-2.0-i2v')!
 const ltx = videoModelById('ltx-2.3-fast')!
 
 describe('buildVideoInput（モデルごとの fal 入力・純関数）', () => {
@@ -21,8 +20,7 @@ describe('buildVideoInput（モデルごとの fal 入力・純関数）', () =>
     expect(buildVideoInput(k25, { prompt: 'p', model: k25.id, imageUrl: 's', endImageUrl: 'e' }, '5', 25, '9:16')).toEqual({ prompt: 'p', duration: '5', aspect_ratio: '9:16', image_url: 's', tail_image_url: 'e' })
     expect(buildVideoInput(o3, { prompt: 'p', model: o3.id, imageUrl: 's', endImageUrl: 'e', seed: 7 }, '5', 25, '1:1')).toEqual({ prompt: 'p', duration: '5', aspect_ratio: '1:1', image_url: 's', end_image_url: 'e', seed: 7, generate_audio: false })
   })
-  it('Seedance / LTX: 解像度・fps・音声の既定', () => {
-    expect(buildVideoInput(sd, { prompt: 'p', model: sd.id, imageUrl: 's' }, '5', 25, 'auto')).toEqual({ prompt: 'p', resolution: '720p', duration: '5', generate_audio: true, aspect_ratio: 'auto', image_url: 's' })
+  it('LTX: 解像度・fps・音声の既定', () => {
     expect(buildVideoInput(ltx, { prompt: 'p', model: ltx.id, imageUrl: 's', audioEnabled: false }, '6', 25, undefined)).toEqual({ prompt: 'p', duration: 6, resolution: '1080p', fps: 25, generate_audio: false, image_url: 's' })
   })
 })
@@ -32,7 +30,6 @@ describe('秒数・fps・比率の解決', () => {
     expect(resolveSafeDuration(k25, '7').safeDuration).toBe('5')
     expect(resolveSafeDuration(k25, '12').safeDuration).toBe('10')
     expect(resolveSafeDuration(v3, '3').safeDuration).toBe('3')
-    expect(resolveSafeDuration(sd, 'auto')).toMatchObject({ safeDuration: 'auto', isAutoDuration: true })
     expect(resolveSafeDuration(ltx, undefined).safeDuration).toBe('6')
   })
   it('48/50fps は 10 秒以下のみ', () => {
@@ -41,11 +38,10 @@ describe('秒数・fps・比率の解決', () => {
     expect(resolveSafeFps(50, false, 8)).toBe(50)
     expect(resolveSafeFps(undefined, false, 8)).toBe(25)
   })
-  it("比率 'auto': Kling 3.0 の i2v は送らない、他の Kling は寸法から（無ければ null = 画像を読む）、Seedance は 'auto'、LTX は省略", () => {
+  it("比率 'auto': Kling 3.0 の i2v は送らない、他の Kling は寸法から（無ければ null = 画像を読む）、LTX は省略", () => {
     expect(resolveAspectRatio(v3, { aspectRatio: 'auto', imageUrl: 's' })).toBeUndefined()
     expect(resolveAspectRatio(k25, { aspectRatio: 'auto', imageUrl: 's' })).toBeNull()
     expect(resolveAspectRatio(k25, { aspectRatio: 'auto', imageUrl: 's' }, { width: 1000, height: 1500 })).toBe('9:16')
-    expect(resolveAspectRatio(sd, { aspectRatio: 'auto', imageUrl: 's' })).toBe('auto')
     expect(resolveAspectRatio(ltx, { aspectRatio: 'auto', imageUrl: 's' })).toBeUndefined()
     expect(resolveAspectRatio(k25, { aspectRatio: '16:9', imageUrl: 's' })).toBe('16:9')
   })
@@ -60,5 +56,21 @@ describe('秒数・fps・比率の解決', () => {
     expect(videoEndpointFor(v3, { imageUrl: 's' })).toEqual({ endpoint: 'fal-ai/kling-video/v3/pro/image-to-video', isV2V: false, isI2V: true })
     expect(videoEndpointFor(v3, {}).endpoint).toBe('fal-ai/kling-video/v3/pro/text-to-video')
     expect(videoEndpointFor(videoModelById('kling-o3-pro-v2v')!, {}).isV2V).toBe(true)
+  })
+})
+
+describe('単価（fal の料金ページ 2026-11-02）と外したモデル', () => {
+  it('LTX は解像度、Kling v3 Pro / o3 Pro は音声の有無で単価が変わる', () => {
+    expect(videoPricePerSecond(ltx, { resolution: '1080p' })).toBe(0.06)
+    expect(videoPricePerSecond(ltx, { resolution: '2160p' })).toBe(0.24)
+    expect(videoPricePerSecond(v3, { audioEnabled: false })).toBe(0.112)
+    expect(videoPricePerSecond(v3, { audioEnabled: true })).toBe(0.168)
+    expect(videoPricePerSecond(o3, { audioEnabled: true })).toBe(0.14)
+    expect(videoPricePerSecond(k25, { audioEnabled: true })).toBe(0.07)
+    expect(videoPricePerSecond(videoModelById('kling-o3-standard-v2v')!)).toBe(0.126)
+  })
+  it('Seedance は選択肢に無い（2026-11-02 に外した）', () => {
+    expect(VIDEO_MODELS.some((m) => m.id.startsWith('seedance'))).toBe(false)
+    expect(videoModelById('seedance-2.0-r2v')).toBeNull()
   })
 })

@@ -4,16 +4,16 @@ import type { VideoDuration, VideoGenerationRequest, VideoModelDefinition } from
 import { buildKlingElements, buildMultiPrompt } from './videoShots'
 
 const KLING_V3_DURATIONS = ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
-const SEEDANCE_DURATIONS  = ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
-const SEEDANCE_ASPECTS    = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] as const;
 
+// 単価は fal の料金ページ（2026-11-02 に確認）。LTX は解像度で、Kling v3 Pro / o3 Pro（画像から）は音声の有無で変わる（videoPricePerSecond）
 export const VIDEO_MODELS: VideoModelDefinition[] = [
   {
     id: 'ltx-2.3-fast',
     name: 'LTX-2.3 Fast',
     endpoint: 'fal-ai/ltx-2.3/text-to-video/fast',
     i2vEndpoint: 'fal-ai/ltx-2.3/image-to-video/fast',
-    pricePerSecond: 0.04,
+    pricePerSecond: 0.06,
+    pricePerSecondByResolution: { '1080p': 0.06, '1440p': 0.12, '2160p': 0.24 },
     maxDuration: '20',
     supportedDurations: ['6', '8', '10', '12', '14', '16', '18', '20'],
     supportedResolutions: ['1080p', '1440p', '2160p'],
@@ -28,7 +28,8 @@ export const VIDEO_MODELS: VideoModelDefinition[] = [
     name: 'LTX-2.3 Pro',
     endpoint: 'fal-ai/ltx-2.3/text-to-video',
     i2vEndpoint: 'fal-ai/ltx-2.3/image-to-video',
-    pricePerSecond: 0.06,
+    pricePerSecond: 0.08,
+    pricePerSecondByResolution: { '1080p': 0.08, '1440p': 0.16, '2160p': 0.32 },
     maxDuration: '10',
     supportedDurations: ['6', '8', '10'],
     supportedResolutions: ['1080p', '1440p', '2160p'],
@@ -58,7 +59,8 @@ export const VIDEO_MODELS: VideoModelDefinition[] = [
     name: 'Kling v3 Pro',
     endpoint: 'fal-ai/kling-video/v3/pro/text-to-video',
     i2vEndpoint: 'fal-ai/kling-video/v3/pro/image-to-video',
-    pricePerSecond: 0.1,
+    pricePerSecond: 0.112,
+    pricePerSecondWithAudio: 0.168,
     maxDuration: '15',
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
@@ -73,7 +75,8 @@ export const VIDEO_MODELS: VideoModelDefinition[] = [
     id: 'kling-o3-pro-i2v',
     name: 'Kling o3 Pro',
     endpoint: 'fal-ai/kling-video/o3/pro/image-to-video',
-    pricePerSecond: 0.1,
+    pricePerSecond: 0.112,
+    pricePerSecondWithAudio: 0.14,
     maxDuration: '15',
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
@@ -84,50 +87,10 @@ export const VIDEO_MODELS: VideoModelDefinition[] = [
     endImageParam: 'end_image_url',
   },
   {
-    id: 'seedance-2.0-fast',
-    name: 'Seedance 2.0',
-    endpoint: 'bytedance/seedance-2.0/text-to-video',
-    pricePerSecond: 0.05,
-    maxDuration: '15',
-    supportedDurations: SEEDANCE_DURATIONS,
-    supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: [...SEEDANCE_ASPECTS],
-    features: ['audio'],
-    paramStyle: 'seedance',
-    supportedModes: ['text-to-video'],
-  },
-  {
-    id: 'seedance-2.0-i2v',
-    name: 'Seedance 2.0',
-    endpoint: 'bytedance/seedance-2.0/image-to-video',
-    pricePerSecond: 0.05,
-    maxDuration: '15',
-    supportedDurations: SEEDANCE_DURATIONS,
-    supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: [...SEEDANCE_ASPECTS],
-    features: ['audio'],
-    paramStyle: 'seedance',
-    supportedModes: ['image-to-video'],
-    endImageParam: 'end_image_url',
-  },
-  {
-    id: 'seedance-2.0-r2v',
-    name: 'Seedance 2.0 Reference',
-    endpoint: 'bytedance/seedance-2.0/reference-to-video',
-    pricePerSecond: 0.06,
-    maxDuration: '15',
-    supportedDurations: SEEDANCE_DURATIONS,
-    supportedResolutions: ['480p', '720p'],
-    supportedAspectRatios: [...SEEDANCE_ASPECTS],
-    features: ['audio'],
-    paramStyle: 'seedance-r2v',
-    supportedModes: ['video-to-video'],
-  },
-  {
     id: 'kling-o3-standard-v2v',
     name: 'Kling O3 Standard V2V',
     endpoint: 'fal-ai/kling-video/o3/standard/video-to-video/reference',
-    pricePerSecond: 0.07,
+    pricePerSecond: 0.126,
     maxDuration: '15',
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
@@ -140,7 +103,7 @@ export const VIDEO_MODELS: VideoModelDefinition[] = [
     id: 'kling-o3-pro-v2v',
     name: 'Kling O3 Pro V2V',
     endpoint: 'fal-ai/kling-video/o3/pro/video-to-video/reference',
-    pricePerSecond: 0.1,
+    pricePerSecond: 0.168,
     maxDuration: '15',
     supportedDurations: KLING_V3_DURATIONS,
     supportedResolutions: [],
@@ -155,7 +118,24 @@ export function videoModelById(id: unknown): VideoModelDefinition | null {
   return VIDEO_MODELS.find((m) => m.id === id) ?? null
 }
 
-/** 要求した秒数をモデルの対応秒数に収める（上限で切り、リストに無ければ最近傍）。'auto' は Seedance だけがそのまま通す */
+/** 外したモデル（2026-11-02: Seedance 2.0 は生成費用が高いため一旦外す。戻すかはサービスイン前に検討・docs/engineer-handover.md §14）。
+ *  保存済みのノードがこの id を持っていたら、使えるモデルに切り替えて一言出す（effectiveVideoSettings） */
+export const RETIRED_VIDEO_MODELS: ReadonlyArray<{ id: string; name: string }> = [
+  { id: 'seedance-2.0-fast', name: 'Seedance 2.0' },
+  { id: 'seedance-2.0-i2v', name: 'Seedance 2.0' },
+  { id: 'seedance-2.0-r2v', name: 'Seedance 2.0 Reference' },
+]
+export const retiredVideoModelOf = (id: unknown): { id: string; name: string } | null => RETIRED_VIDEO_MODELS.find((m) => m.id === id) ?? null
+
+/** 1 秒あたりの単価（USD）。LTX は解像度、Kling v3 Pro / o3 Pro（画像から）は音声の有無で変わる */
+export function videoPricePerSecond(m: VideoModelDefinition, opts?: { resolution?: unknown; audioEnabled?: unknown }): number {
+  const byRes = typeof opts?.resolution === 'string' ? m.pricePerSecondByResolution?.[opts.resolution] : undefined
+  if (byRes != null) return byRes
+  if ((opts?.audioEnabled === true || opts?.audioEnabled === 'true') && m.pricePerSecondWithAudio != null) return m.pricePerSecondWithAudio
+  return m.pricePerSecond
+}
+
+/** 要求した秒数をモデルの対応秒数に収める（上限で切り、リストに無ければ最近傍）。'auto' は対応リストにあるモデルだけそのまま通す */
 export function resolveSafeDuration(modelDef: VideoModelDefinition, duration: string | undefined): { safeDuration: VideoDuration; requestedDuration: number; isAutoDuration: boolean } {
   const isAutoDuration = duration === 'auto'
   const requestedDuration = isAutoDuration ? 0 : parseInt(duration || modelDef.supportedDurations[0], 10)
@@ -178,7 +158,7 @@ export function resolveSafeFps(reqFps: number | undefined, isAutoDuration: boole
 
 /** モード（参照動画 / 開始画像 / テキストのみ）に応じたエンドポイント */
 export function videoEndpointFor(modelDef: VideoModelDefinition, request: Pick<VideoGenerationRequest, 'mode' | 'imageUrl'>): { endpoint: string; isV2V: boolean; isI2V: boolean } {
-  const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v' || modelDef.paramStyle === 'seedance-r2v'
+  const isV2V = request.mode === 'video-to-video' || modelDef.paramStyle === 'kling-v2v'
   const isI2V = !isV2V && !!request.imageUrl
   const endpoint = isV2V ? modelDef.endpoint : (isI2V && modelDef.i2vEndpoint ? modelDef.i2vEndpoint : modelDef.endpoint)
   return { endpoint, isV2V, isI2V }
@@ -204,7 +184,7 @@ export function nearestAspectRatio(width: number | null | undefined, height: num
 
 /**
  * 比率の決め方（'auto' / 未指定のとき）。Kling は 'auto' を受けないので開始画像の寸法から最近傍（dims が無ければ null = 呼び出し側が画像を読む）、
- * Seedance は 'auto' を明示、LTX は省略（自動判定）。Kling 3.0 の image-to-video は比率を受けず開始画像の比率になるので省略
+ * LTX は省略（自動判定）。Kling 3.0 の image-to-video は比率を受けず開始画像の比率になるので省略
  */
 export function resolveAspectRatio(modelDef: VideoModelDefinition, request: Pick<VideoGenerationRequest, 'aspectRatio' | 'imageUrl'>, dims?: { width?: number | null; height?: number | null } | null): string | undefined | null {
   if (request.aspectRatio && request.aspectRatio !== 'auto') return request.aspectRatio
@@ -212,7 +192,6 @@ export function resolveAspectRatio(modelDef: VideoModelDefinition, request: Pick
     if (modelDef.startImageParam) return undefined   // Kling 3.0 i2v: 送らない
     return dims ? nearestAspectRatio(dims.width, dims.height) : null
   }
-  if (modelDef.paramStyle === 'seedance' || modelDef.paramStyle === 'seedance-r2v') return 'auto'
   return undefined
 }
 
@@ -277,34 +256,6 @@ export function buildVideoInput(
     return input
   }
 
-  if (modelDef.paramStyle === 'seedance') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      resolution: request.resolution || '720p',
-      duration: safeDuration,
-      generate_audio: request.audioEnabled ?? true,
-      aspect_ratio: aspectRatio,
-    }
-    if (request.imageUrl) input.image_url = request.imageUrl
-    if (request.endImageUrl && modelDef.endImageParam) input[modelDef.endImageParam] = request.endImageUrl
-    if (request.seed != null) input.seed = request.seed
-    return input
-  }
-
-  if (modelDef.paramStyle === 'seedance-r2v') {
-    const input: Record<string, unknown> = {
-      prompt: request.prompt,
-      resolution: request.resolution || '720p',
-      duration: safeDuration,
-      generate_audio: request.audioEnabled ?? true,
-      aspect_ratio: aspectRatio,
-    }
-    if (request.imageUrl) input.image_urls = [request.imageUrl]
-    if (request.videoUrl) input.video_urls = [request.videoUrl]
-    if (request.seed != null) input.seed = request.seed
-    return input
-  }
-
   // LTX: duration は整数
   const input: Record<string, unknown> = {
     prompt: request.prompt,
@@ -324,17 +275,21 @@ export function buildVideoInput(
 // 黙って別のモデルで送っていたのを、切り替えたことが分かるようにする（switchedFrom）。解像度・比率・長さもそのモデルで使える値にそろえる
 export interface VideoInputKind { video: boolean; image: boolean }
 
+/** 開始フレームの画像から作れるモデル（image-to-video のモード、または専用エンドポイントがある LTX）。一括の計画（lib/batch/plan.ts）と同じ判定 */
+export const canStartFromImage = (m: VideoModelDefinition): boolean => m.supportedModes.includes('image-to-video') || !!m.i2vEndpoint
+
 /** 入力の種類（参照動画あり / 開始フレームの画像あり）で選べるモデル */
 export function videoModelsForInput(input: VideoInputKind): VideoModelDefinition[] {
   if (input.video) return VIDEO_MODELS.filter((m) => m.supportedModes.includes('video-to-video'))
   return VIDEO_MODELS
     .filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
-    .filter((m) => (input.image ? m.supportedModes.includes('image-to-video') : !m.supportedModes.every((mode) => mode === 'image-to-video')))
+    .filter((m) => (input.image ? canStartFromImage(m) : !m.supportedModes.every((mode) => mode === 'image-to-video')))
 }
 
 export interface EffectiveVideoSettings {
   model: VideoModelDefinition | undefined
   switchedFrom: VideoModelDefinition | null   // 保存しているモデルが使えず切り替えたとき、その元のモデル
+  retiredFrom: string | null                  // 保存しているモデルを外したため切り替えたとき、その名前（Seedance 2.0 など）
   resolution: string
   aspectRatio: string
   duration: string
@@ -346,20 +301,24 @@ export function effectiveVideoSettings(saved: { model?: unknown; resolution?: un
   const savedId = typeof saved.model === 'string' ? saved.model : ''
   const model = list.find((m) => m.id === savedId) ?? list[0]
   const savedModel = VIDEO_MODELS.find((m) => m.id === savedId) ?? null
+  const retired = retiredVideoModelOf(savedId)
   const pick = (v: unknown, allowed: readonly string[]): string => (typeof v === 'string' && allowed.includes(v) ? v : allowed[0] ?? (typeof v === 'string' ? v : ''))
   return {
     model,
     switchedFrom: model && savedModel && model.id !== savedModel.id ? savedModel : null,
+    retiredFrom: model && retired ? retired.name : null,
     resolution: model ? pick(saved.resolution, model.supportedResolutions) : String(saved.resolution ?? ''),
     // 比率の auto は、画像から作れるモデルなら写真の比率として使える（ノードの欄と同じ）
-    aspectRatio: model ? pick(saved.aspectRatio, model.supportedModes.includes('image-to-video') && !model.supportedAspectRatios.includes('auto' as never) ? [...model.supportedAspectRatios, 'auto'] : model.supportedAspectRatios) : String(saved.aspectRatio ?? ''),
+    aspectRatio: model ? pick(saved.aspectRatio, canStartFromImage(model) && !model.supportedAspectRatios.includes('auto' as never) ? [...model.supportedAspectRatios, 'auto'] : model.supportedAspectRatios) : String(saved.aspectRatio ?? ''),
     duration: model ? pick(saved.duration, model.supportedDurations) : String(saved.duration ?? ''),
   }
 }
 
 /** 切り替えたときの一言（ノードと App で同じ文） */
 export function switchedModelNotice(s: EffectiveVideoSettings, input: VideoInputKind): string | null {
-  if (!s.switchedFrom || !s.model) return null
+  if (!s.model) return null
+  if (s.retiredFrom) return `${s.retiredFrom} は使えなくなったため、${s.model.name} で作ります（モデルの欄で選び直せます）`
+  if (!s.switchedFrom) return null
   const what = input.video ? '参照動画' : input.image ? '開始フレームの画像' : '今の入力'
   return `${s.switchedFrom.name} は${what}を使えないため、${s.model.name} で作ります（モデルの欄で選び直せます）`
 }

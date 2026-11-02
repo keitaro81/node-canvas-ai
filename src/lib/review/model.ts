@@ -211,7 +211,8 @@ export function fullFileName(variantKey: string, hash: string, format: ExportFor
 }
 
 export function itemInfoOfRow(item: Pick<BatchItemRow, 'sku' | 'original_filename' | 'sort_order'>): BatchItemInfo {
-  return { sku: item.sku, original: stripExtension(item.original_filename), index: item.sort_order }
+  const original = stripExtension(item.original_filename)
+  return { sku: item.sku, original, index: item.sort_order, name: original }   // ファイル名の「商品名」は写真の名前そのまま（2026-11-02 メモ 65）
 }
 
 /** レイアウト識別値の入力（バリアント）。切り抜き列はレイアウト設定を持たないので params は固定の印だけ。
@@ -261,6 +262,9 @@ const LAYOUT_IN_HANDLE = 'in-cutout-cutout'
 const LAYOUT_NODE_TYPE = 'productLayoutNode'
 const LAYOUT_NODE_W = 300
 const LAYOUT_NODE_GAP = 720
+const LAYOUT_OUT_HANDLE = 'out-image-image'
+const EXPORT_IMAGE_SLOTS = 10   // ExportNode の EXPORT_MAX_IMAGE_SLOTS と同じ（in-image-0 … in-image-9）
+const exportSlotOf = (h: string | null | undefined): number | null => { const m = /^in-image-(\d+)$/.exec(h ?? ''); return m ? Number(m[1]) : null }
 
 /** 一括実行の切り抜きノード（Batch Input に直結した Remove Background）。無ければ最初の Remove Background */
 export function cutoutSourceNodeId(canvas: CanvasLike | null | undefined): string | null {
@@ -273,8 +277,10 @@ export function newLayoutNodeId(): string {
   return `${LAYOUT_NODE_TYPE}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
-/** Product Layout ノードを追加し、切り抜きノードにつなぐ。位置は既存のレイアウトノードの下（無ければ切り抜きノードの右） */
-export function addLayoutNodeToCanvas(canvas: CanvasLike, params: LayoutParams, nodeId = newLayoutNodeId()): { canvas: CanvasFull; nodeId: string } {
+/** Product Layout ノードを追加し、切り抜きノードにつなぐ。位置は既存のレイアウトノードの下（無ければ切り抜きノードの右）。
+ *  同じ切り抜きを受けるバリアントが Export につながっていれば、その Export の空いている画像の入力にもつなぐ（2026-11-02 メモ 66。
+ *  プロファイルの読み込みは自分で Export につなぐので connectExport: false） */
+export function addLayoutNodeToCanvas(canvas: CanvasLike, params: LayoutParams, nodeId = newLayoutNodeId(), opts: { connectExport?: boolean } = {}): { canvas: CanvasFull; nodeId: string } {
   const nodes = Array.isArray(canvas.nodes) ? canvas.nodes : []
   const edges = Array.isArray(canvas.edges) ? canvas.edges : []
   const layouts = nodes.filter((n) => n?.data?.type === 'productLayout')
@@ -288,9 +294,18 @@ export function addLayoutNodeToCanvas(canvas: CanvasLike, params: LayoutParams, 
     position = { x: src.position.x + LAYOUT_NODE_W + 80, y: src.position.y }
   }
   const node: CanvasNode = { id: nodeId, type: LAYOUT_NODE_TYPE, position, data: { type: 'productLayout', label: 'Product Layout', params: { ...params }, status: 'idle' } }
-  const newEdges = srcId
+  const newEdges: CanvasEdge[] = srcId
     ? [...edges, { id: `e-${srcId}-${nodeId}`, source: srcId, sourceHandle: CUTOUT_OUT_HANDLE, target: nodeId, targetHandle: LAYOUT_IN_HANDLE, style: { stroke: '#14B8A6', strokeWidth: 2 }, animated: false, className: '' }]
-    : edges
+    : [...edges]
+  if (srcId && opts.connectExport !== false) {
+    const siblings = new Set(edges.filter((e) => e.source === srcId && e.targetHandle === LAYOUT_IN_HANDLE).map((e) => e.target))
+    const toExport = edges.find((e) => siblings.has(e.source) && e.sourceHandle === LAYOUT_OUT_HANDLE && exportSlotOf(e.targetHandle) !== null && nodes.find((n) => n.id === e.target)?.data?.type === 'export')
+    if (toExport) {
+      const used = new Set(edges.filter((e) => e.target === toExport.target).map((e) => exportSlotOf(e.targetHandle)))
+      const slot = Array.from({ length: EXPORT_IMAGE_SLOTS }, (_, i) => i).find((i) => !used.has(i))
+      if (slot !== undefined) newEdges.push({ id: `e-${nodeId}-${toExport.target}-${slot}`, source: nodeId, sourceHandle: LAYOUT_OUT_HANDLE, target: toExport.target, targetHandle: `in-image-${slot}`, style: { stroke: '#8B5CF6', strokeWidth: 2 }, animated: false, className: '' })
+    }
+  }
   return { canvas: { ...canvas, nodes: [...nodes, node], edges: newEdges }, nodeId }
 }
 
