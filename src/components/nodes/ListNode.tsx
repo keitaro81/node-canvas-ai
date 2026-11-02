@@ -2,7 +2,7 @@ import { Fragment, memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { PortLabel } from './PortLabel'
 import { dimIfNotTarget, useDragTarget } from './portDrag'
-import { List, Plus, Minus, X, ImageIcon, Type } from 'lucide-react'
+import { List, Plus, Minus, X, ImageIcon, Type, Film } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import type { ListNodeData } from '../../types/nodes'
@@ -35,6 +35,14 @@ const TEXT_HANDLE_STYLE = {
   borderRadius: 0,
 } as const
 
+const VIDEO_HANDLE_STYLE = {
+  width: 20,
+  height: 20,
+  background: 'radial-gradient(circle, #EC4899 3px, var(--bg-surface) 3px 5px, transparent 5px)',
+  border: 'none',
+  borderRadius: 0,
+} as const
+
 function getTextFromData(data: Record<string, unknown>): string | null {
   return (data.outputText as string) || ((data.params as Record<string, unknown> | undefined)?.prompt as string) || null
 }
@@ -50,8 +58,19 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
   const mode = nodeData.mode ?? 'unset'
 
   // スロットごとの接続状態を収集
-  const slotContents: ({ type: 'image'; url: string } | { type: 'text'; text: string } | null)[] =
+  const slotContents: ({ type: 'image'; url: string } | { type: 'text'; text: string } | { type: 'video'; url: string } | null)[] =
     Array(slotCount).fill(null)
+
+  storeEdges
+    .filter((e) => e.target === id && e.targetHandle?.startsWith('in-video-'))
+    .forEach((e) => {
+      const i = parseInt(e.targetHandle!.replace('in-video-', ''), 10)
+      if (i >= 0 && i < slotCount) {
+        const src = storeNodes.find((n) => n.id === e.source)
+        const url = (src?.data as { videoUrl?: unknown } | undefined)?.videoUrl
+        if (typeof url === 'string' && url) slotContents[i] = { type: 'video', url }
+      }
+    })
 
   storeEdges
     .filter((e) => e.target === id && e.targetHandle?.startsWith('in-image-'))
@@ -80,11 +99,11 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
     })
 
   /** モード変更: 既存スロット接続をすべてクリアしてからモード更新 */
-  function switchMode(newMode: 'image' | 'text') {
+  function switchMode(newMode: 'image' | 'text' | 'video') {
     if (newMode === mode) return
     const { setEdges, edges } = useCanvasStore.getState()
     setEdges(edges.filter(
-      (e) => !(e.target === id && (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-')))
+      (e) => !(e.target === id && (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-') || e.targetHandle?.startsWith('in-video-')))
     ))
     updateNode(id, { mode: newMode } as Partial<ListNodeData>)
   }
@@ -98,13 +117,15 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
     const { setEdges, edges } = useCanvasStore.getState()
     const lastImg = `in-image-${slotCount - 1}`
     const lastTxt = `in-text-${slotCount - 1}`
-    setEdges(edges.filter((e) => !(e.target === id && (e.targetHandle === lastImg || e.targetHandle === lastTxt))))
+    const lastVid = `in-video-${slotCount - 1}`
+    setEdges(edges.filter((e) => !(e.target === id && (e.targetHandle === lastImg || e.targetHandle === lastTxt || e.targetHandle === lastVid))))
     updateNode(id, { slotCount: slotCount - 1 } as Partial<ListNodeData>)
   }
 
-  // unset 時はどちらの種類のハンドルも描画（最初の接続でモード確定）
+  // unset 時はどの種類のハンドルも描画（最初の接続でモード確定）。並べて置く
   const showImageHandles = mode === 'image' || mode === 'unset'
   const showTextHandles = mode === 'text' || mode === 'unset'
+  const showVideoHandles = mode === 'video' || mode === 'unset'
 
   return (
     <div className="group">
@@ -124,7 +145,7 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
               id={`in-image-${i}`}
               type="target"
               position={Position.Left}
-              style={{ ...IMAGE_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -14 : -10, ...dimIfNotTarget(drag, drag.inputOk(`in-image-${i}`)) }}
+              style={{ ...IMAGE_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -22 : -10, ...dimIfNotTarget(drag, drag.inputOk(`in-image-${i}`)) }}
             />
             <PortLabel top={slotHandleTop(i)} at="input" text={`画像 ${i + 1}`} show={drag.inputOk(`in-image-${i}`)} />
           </Fragment>
@@ -135,9 +156,20 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
               id={`in-text-${i}`}
               type="target"
               position={Position.Left}
-              style={{ ...TEXT_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -10 : -10, ...dimIfNotTarget(drag, drag.inputOk(`in-text-${i}`)) }}
+              style={{ ...TEXT_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: mode === 'unset' ? -16 : -10, ...dimIfNotTarget(drag, drag.inputOk(`in-text-${i}`)) }}
             />
             <PortLabel top={slotHandleTop(i)} at="input" text={`テキスト ${i + 1}`} show={drag.inputOk(`in-text-${i}`)} />
+          </Fragment>
+        ))}
+        {showVideoHandles && Array.from({ length: slotCount }).map((_, i) => (
+          <Fragment key={`in-video-${i}`}>
+            <Handle
+              id={`in-video-${i}`}
+              type="target"
+              position={Position.Left}
+              style={{ ...VIDEO_HANDLE_STYLE, position: 'absolute', top: slotHandleTop(i), left: -10, ...dimIfNotTarget(drag, drag.inputOk(`in-video-${i}`)) }}
+            />
+            <PortLabel top={slotHandleTop(i)} at="input" text={`動画 ${i + 1}`} show={drag.inputOk(`in-video-${i}`)} />
           </Fragment>
         ))}
 
@@ -189,13 +221,26 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
             <Type size={11} />
             テキスト
           </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-1.5 h-7 rounded text-[11px] font-medium nodrag transition-colors"
+            style={
+              mode === 'video'
+                ? { background: 'rgba(236,72,153,0.18)', color: '#EC4899' }
+                : { background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }
+            }
+            onClick={() => switchMode('video')}
+            title="動画モード（Video Generation の参照動画として、動画ごとに 1 本ずつ作る）"
+          >
+            <Film size={11} />
+            動画
+          </button>
         </div>
 
         {/* Body: slots */}
         <div className="px-3 py-3 flex flex-col gap-2">
           {Array.from({ length: slotCount }).map((_, i) => {
             const content = slotContents[i]
-            const accentColor = mode === 'text' ? '#6366F1' : '#8B5CF6'
+            const accentColor = mode === 'text' ? '#6366F1' : mode === 'video' ? '#EC4899' : '#8B5CF6'
             return (
               <div
                 key={i}
@@ -219,6 +264,8 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
                     alt={`Item ${i + 1}`}
                     className="h-8 w-8 object-cover rounded flex-shrink-0"
                   />
+                ) : content?.type === 'video' ? (
+                  <video src={content.url} muted playsInline preload="metadata" className="h-8 w-8 object-cover rounded flex-shrink-0" />
                 ) : (
                   <div
                     className="h-8 w-8 rounded flex items-center justify-center flex-shrink-0"
@@ -226,7 +273,9 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
                   >
                     {mode === 'text'
                       ? <Type size={12} style={{ color: 'var(--text-tertiary)' }} />
-                      : <ImageIcon size={12} style={{ color: 'var(--text-tertiary)' }} />
+                      : mode === 'video'
+                        ? <Film size={12} style={{ color: 'var(--text-tertiary)' }} />
+                        : <ImageIcon size={12} style={{ color: 'var(--text-tertiary)' }} />
                     }
                   </div>
                 )}
@@ -235,7 +284,7 @@ function ListNodeInner({ id, data, selected }: NodeProps) {
                   className="text-[11px] flex-1 truncate"
                   style={{ color: content ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
                 >
-                  {content?.type === 'image'
+                  {content?.type === 'image' || content?.type === 'video'
                     ? '接続済み'
                     : content?.type === 'text'
                       ? (content.text || '接続済み（未入力）')

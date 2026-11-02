@@ -4,6 +4,9 @@ import { catalogNode, multiHandle, portsCompatible, type CatalogPort } from './c
 import type { DslWorkflow } from './dsl'
 import { inputNodesOf, materializeTurnPresets, planTasks, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
 import { TRY_ON_MODEL_HANDLE } from '../tryon/prompt'
+import { elementNumberOfHandle, withElementTag } from '../video/klingElement'
+import { isCutRoleId } from './catalog'
+import type { CutRole } from '../video/productVideo'
 import { wrapInAppGroup } from '../apps/groupCanvas'
 
 export interface CompiledCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; viewport: null; capsuleGroupId?: string | null }   // capsuleGroupId: 一括の構成は最初から App 化したグループに入れる（2026-11-02）
@@ -84,8 +87,18 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     colY.set(col, y + v.height + GAP)
     return { id: v.id, type: v.catalog.rfType, position: { x: X0 + col * COL_W, y }, data: v.data }
   })
-  // 始点と終点の向きが違う Video Generation には回転の定型文を「動き」「避けたいこと」に入れる（テンプレートと同じ・トグル廃止）
-  const nodes = materializeTurnPresets(placed, edges).nodes.map((n) => (n.data?.type === 'videoGen' ? { ...n, data: { ...n.data, params: { ...n.data.params, autoTurn: false } } } : n))
+  // 始点と終点の向きが違う Video Generation には回転の定型文を「動き」「避けたいこと」に入れる（テンプレートと同じ・トグル廃止）。
+  // 参照画像の向き（DSL の role）は組むこの時点でだけ使い、ノードには残さない（2026-11-02 メモ 42）
+  const roleHints: Record<string, CutRole> = {}
+  for (const k of order) { const v = byId.get(k)!; const r = wf.nodes.find((n) => n.id === k)?.params?.role; if (v.type === 'referenceImage' && isCutRoleId(r)) roleHints[v.id] = r }
+  const turned = materializeTurnPresets(placed, edges, roleHints).nodes
+  // 参照一式（Kling Element）をつないだ Video Generation は、「動き」の先頭に @ElementN を見える形で入れる（キャンバスでつないだときと同じ）
+  const nodes = turned.map((n) => {
+    if (n.data?.type !== 'videoGen') return n
+    let prompt = String(n.data.params?.prompt ?? '')
+    for (const e of edges) { const no = e.target === n.id ? elementNumberOfHandle(e.targetHandle) : null; if (no) prompt = withElementTag(prompt, no) }
+    return { ...n, data: { ...n.data, params: { ...n.data.params, prompt, autoTurn: false } } }
+  })
   const laidOut: CompiledCanvas = { nodes, edges, viewport: null }
   // 一括処理の入口があれば、最初からグループに入れて App 化した形にする（2026-11-02・再設計 §1）。入口が無い構成はそのまま（App 化は手動）
   const ins = inputNodesOf(laidOut)

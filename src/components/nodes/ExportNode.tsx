@@ -1,12 +1,12 @@
 import { memo, useCallback, useMemo, useState } from 'react'
 import type { NodeProps } from '@xyflow/react'
-import { Download, Loader2 } from 'lucide-react'
+import { ChevronDown, Download, Loader2 } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { signMediaRequest, toCanonicalRef } from '../../lib/api/storage'
 import type { NodeData, BatchItemInfo, CutoutRef, ExportFileResult, ExportFormat, ExportParams, ExportResult, ExportZipFolders } from '../../types/nodes'
-import { EXT_OF, normalizeExportParams, planExportEntries, unknownTokens, zipFileName } from '../../lib/export/naming'
+import { EXT_OF, applyNamePattern, cutoutNameFor, normalizeExportParams, planExportEntries, unknownTokens, zipFileName } from '../../lib/export/naming'
 import { bitmapHasTransparency, encodeWithCap, loadBitmap } from '../../lib/export/encode'
 import { buildZip, downloadBlob } from '../../lib/export/zip'
 import { renderCutoutPngForExport } from '../../lib/export/cutoutFile'
@@ -14,8 +14,9 @@ import { normalizeLayoutParams } from '../../lib/layout/computeLayout'
 import { PRODUCT_LAYOUT_INPUT_CUTOUT, cutoutRefFromNodeData } from '../../lib/layout/nodeIo'
 import { resolveFetchableUrl } from '../../lib/cutout/store'
 import { REMOVE_BACKGROUND_INPUT_HANDLE, imageUrlFromNodeData } from '../../lib/cutout/upstream'
-import { Field, Num, Sel, TextField } from './pp/controls'
-import { PP_ACCENT } from './pp/styles'
+import { Field, Num, Sel } from './pp/controls'
+import { NamePatternEditor } from './pp/NamePatternEditor'
+import { CTRL, INPUT_STYLE, PP_ACCENT, stopKeys } from './pp/styles'
 
 export const EXPORT_MAX_IMAGE_SLOTS = 10
 export const EXPORT_ITEM_HANDLE = 'in-item-item'
@@ -64,6 +65,7 @@ function findUpstreamItemInfo(startIds: string[], nodes: AppNode[], edges: { sou
 }
 
 const DEFAULT_ITEM: BatchItemInfo = { sku: 'item', original: 'image', index: 1 }
+const FORMAT_LABEL: Record<ExportFormat, string> = { jpeg: 'JPEG', png: 'PNG', webp: 'WebP' }
 
 async function fetchImage(url: string, workflowId: string | null): Promise<Blob> {
   const res = await fetch(url, { mode: 'cors', credentials: 'omit' }).catch(() => null)
@@ -95,6 +97,8 @@ function ExportNodeInner(props: NodeProps) {
   const lastExport = (nodeData.lastExport ?? undefined) as ExportResult | undefined
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
+  const [showAllFiles, setShowAllFiles] = useState(false)
+  const [qualityOpen, setQualityOpen] = useState(false)
 
   // 画像スロット（接続数 + 1 個の空きスロット。最大 10）
   const slotEdges = edges.filter((e) => e.target === id && e.targetHandle?.startsWith('in-image-'))
@@ -129,9 +133,11 @@ function ExportNodeInner(props: NodeProps) {
   const itemSource = connectedInfo ? 'connected' : upstreamInfo ? 'upstream' : 'none'
   const itemConnected = !!itemEdge   // つないであるが SKU がまだ無い（Cut Set Input に SKU 0 件など）: 「未接続」とは出さない（2026-11-01）
 
-  // 切り抜きの透過 PNG: 接続中の Product Layout が受けている Remove Background ごとに 1 件（先頭に並べる）
+  // 切り抜きの透過 PNG: 接続中の Product Layout が受けている Remove Background ごとに 1 件（先頭に並べる）。
+  // フォルダ名・{variant} は「cutout」（バリアント名に cutout があれば cutout_png にして混ぜない・2026-11-02 メモ 44）
   const cutoutInputs: SlotInput[] = useMemo(() => {
     if (!params.includeCutout) return []
+    const cutoutName = cutoutNameFor(inputs.map((i) => i.variant))
     const seen = new Set<string>()
     const out: SlotInput[] = []
     for (const e of slotEdges) {
@@ -143,21 +149,29 @@ function ExportNodeInner(props: NodeProps) {
       seen.add(rb.id)
       const ie = edges.find((x) => x.target === rb.id && x.targetHandle === REMOVE_BACKGROUND_INPUT_HANDLE)
       out.push({
-        slot: -1 - out.length, kind: 'cutout', url: null, variant: 'cutout', transparent: true, forcePng: true,
+        slot: -1 - out.length, kind: 'cutout', url: null, variant: cutoutName, transparent: true, forcePng: true,
         sourceLabel: (rb.data as NodeData).label,
         cutout: cutoutRefFromNodeData(rb.data as Record<string, unknown>),
         liveOriginalUrl: imageUrlFromNodeData(nodes.find((n) => n.id === ie?.source)?.data as Record<string, unknown> | undefined, ie?.sourceHandle),
       })
     }
     return out
-  }, [params.includeCutout, slotEdges, nodes, edges])
+  }, [params.includeCutout, inputs, slotEdges, nodes, edges])
   const allInputs = useMemo(() => [...cutoutInputs, ...inputs, ...videoInputs], [cutoutInputs, inputs, videoInputs])
+  // 切り抜きの元（Remove Background を受けた Product Layout）がつながっているときだけ「切り抜きの透過 PNG も入れる」を出す
+  const hasCutoutSource = useMemo(() => slotEdges.some((e) => (nodes.find((n) => n.id === e.source)?.data as NodeData | undefined)?.type === 'productLayout'
+    && edges.some((x) => x.target === e.source && x.targetHandle === PRODUCT_LAYOUT_INPUT_CUTOUT)), [slotEdges, nodes, edges])
 
   const videoOnly = inputs.length === 0 && videoInputs.length > 0   // 動画だけ: 形式・品質・最大サイズ・切り抜きは使わない（mp4 のまま）ので隠す（2026-11-01）
   const badTokens = useMemo(() => unknownTokens(params.namePattern), [params.namePattern])
   const now = useMemo(() => new Date(), [])
   const toPlanned = (list: SlotInput[]) => list.map((i) => ({ variant: i.variant, transparent: !!i.transparent, forcePng: i.forcePng, video: i.kind === 'video' }))
   const plan = useMemo(() => planExportEntries(toPlanned(allInputs), params, itemInfo, now, { skus: 1 }), [allInputs, params, itemInfo, now])
+  // 例の名前（2026-11-02 メモ 43: いつも見せる）。まだ何もつないでいなければ仮のバリアント名で
+  const exampleName = plan.entries[0]
+    ? `${plan.entries[0].base}.${plan.entries[0].ext}`
+    : `${applyNamePattern(params.namePattern, { ...itemInfo, variant: 'ec_white', now })}.${EXT_OF[params.format]}`
+  const zipName = zipFileName(itemInfo, now)
 
   const setParams = useCallback((patch: Partial<ExportParams>) => updateNode(id, { params: { ...params, ...patch } }), [id, params, updateNode])
 
@@ -251,68 +265,101 @@ function ExportNodeInner(props: NodeProps) {
       ]}
     >
       <div className="flex flex-col gap-2.5 nodrag">
-        <Field label="ファイル名の規則">
-          <TextField value={params.namePattern} onChange={(v) => setParams({ namePattern: v })} mono placeholder="{sku}_{variant}_{index:02}" />
-          <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">{'{sku} {original} {variant} {index} {index:02} {date}'}・固定の文字はそのまま書く（例: 商品動画_{'{sku}'}_{'{index:02}'}）{videoInputs.length > 0 ? '。動画の {variant} はつないだ動画ノードの名前（フォルダ名を変えるときはノード名を変える）' : ''}</div>
+        {/* ファイル名（2026-11-02 メモ 43）: 名前の型を選び、必要なら部品を並べる。{sku} などの記号は見せず、例の名前をいつも出す */}
+        <Field label="ファイル名">
+          <NamePatternEditor pattern={params.namePattern} onChange={(v) => setParams({ namePattern: v })} example={exampleName} exampleMore={Math.max(0, plan.entries.length - 1)} />
           {badTokens.length > 0 && (
-            <div className="rounded-md px-2 py-1 mt-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>{badTokens.join(' ')} は置き換えに使えないので、そのままファイル名に残ります。固定の文字は {'{ }'} なしで書いてください（例: 商品動画_{'{sku}'}_{'{index:02}'}）</div>
+            <div className="rounded-md px-2 py-1 mt-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>{badTokens.join(' ')} は置き換えに使えないため、その文字のままファイル名に入ります。部品の中から選び直してください</div>
           )}
+          {inputs.length === 0 && videoInputs.length === 0 ? (
+            <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">Product Layout の出力を「画像」に、Video Result / Video Merge の動画を「動画」につなぐと、書き出すファイルが決まります</div>
+          ) : plan.entries.length > 1 && (
+            <button type="button" className="text-[11px] mt-1 underline underline-offset-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] nodrag" onClick={() => setShowAllFiles((v) => !v)}>
+              {showAllFiles ? '一覧をたたむ' : `書き出すファイルをすべて見る（${plan.entries.length} 件）`}
+            </button>
+          )}
+          {showAllFiles && plan.entries.length > 1 && (
+            <div className="rounded-lg border border-[var(--border)] px-2 py-1.5 mt-1 text-[11px] font-mono leading-relaxed" style={{ background: 'var(--bg-canvas)' }}>
+              {plan.entries.map((e, i) => (
+                <div key={i} className="truncate text-[var(--text-primary)]" title={`${e.folder}${e.base}.${e.ext}`}>{e.folder}{e.base}.{e.ext}</div>
+              ))}
+            </div>
+          )}
+          {itemSource !== 'none' ? (
+            <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">商品名は写真のファイル名から取ります（例: {itemInfo.sku}）</div>
+          ) : itemConnected ? (
+            <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">商品名は写真のファイル名から取ります（写真を入れるまでは「{itemInfo.sku}」で表示）</div>
+          ) : null}
+          {videoInputs.length > 0 && <div className="text-[11px] mt-0.5 text-[var(--text-tertiary)]">動画の「バリアント」は、つないだ動画ノードの名前です（変えるときはノードの名前を変えてください）</div>}
         </Field>
         {itemSource === 'none' && !itemConnected && (
-          <Field label="商品名（{sku} とファイル名・ZIP 名に使う）">
-            <TextField value={params.productName} onChange={(v) => setParams({ productName: v })} placeholder={currentWorkflowName ? `空なら「${currentWorkflowName}」` : '空ならワークフロー名'} />
+          <Field label="商品名（ファイル名と ZIP の名前に使う）">
+            <input
+              type="text"
+              className={`${CTRL} w-full`}
+              style={INPUT_STYLE}
+              value={params.productName}
+              placeholder={currentWorkflowName ? `空なら「${currentWorkflowName}」` : '空ならワークフロー名'}
+              onKeyDown={(e) => { stopKeys(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              onChange={(e) => setParams({ productName: e.target.value })}
+            />
           </Field>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          {videoOnly ? (
-            <div className="col-span-2 text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>動画は mp4 のまま書き出します（形式・品質・最大ファイルサイズは画像をつないだときだけ使います）</div>
-          ) : (
-            <>
-              <Field label="形式">
-                <Sel<ExportFormat> value={params.format} options={[['jpeg', 'JPEG'], ['png', 'PNG'], ['webp', 'WebP']]} onChange={(v) => setParams({ format: v })} />
-              </Field>
-              <Field label={showQuality ? '品質（70〜100）' : '品質'}>
-                <Num value={params.jpegQuality} min={70} max={100} onChange={(v) => setParams({ jpegQuality: v ?? 90 })} />
-              </Field>
-              <Field label="最大ファイルサイズ KB">
-                <Num value={params.maxFileKb} min={10} max={100000} placeholder="指定なし" onChange={(v) => setParams({ maxFileKb: v })} />
-              </Field>
-            </>
-          )}
-          <Field label="ZIP">
-            <div className="flex items-center gap-2 h-8">
+        {/* まとめ方: ZIP・ZIP の名前・フォルダ分け・切り抜き PNG */}
+        <Field label="まとめ方">
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2 h-6 text-[12px] cursor-pointer select-none text-[var(--text-primary)]">
               <input type="checkbox" className="nodrag" checked={params.zip} onChange={(e) => setParams({ zip: e.target.checked })} />
-              <span className="text-[12px] text-[var(--text-primary)]">ZIP にまとめる</span>
-            </div>
-          </Field>
-          {params.zip && (
-            <Field label="ZIP 内のフォルダ分け" className="col-span-2">
-              <Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', 'SKU 別'], ['none', 'なし']]} onChange={(v) => setParams({ zipFolders: v })} />
-            </Field>
-          )}
-          {!videoOnly && (
-            <Field label="切り抜き" className="col-span-2">
-              <div className="flex items-center gap-2 h-8">
+              ZIP にまとめる
+            </label>
+            {params.zip && (
+              <>
+                <div className="text-[11px] truncate text-[var(--text-tertiary)]" title={zipName}>ZIP の名前: <span className="font-mono text-[var(--text-primary)]">{zipName}</span></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] shrink-0 text-[var(--text-secondary)]">フォルダ</span>
+                  <Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', '商品別'], ['none', 'なし']]} onChange={(v) => setParams({ zipFolders: v })} />
+                </div>
+              </>
+            )}
+            {!videoOnly && hasCutoutSource && (
+              <label className="flex items-center gap-2 h-6 text-[12px] cursor-pointer select-none text-[var(--text-primary)]">
                 <input type="checkbox" className="nodrag" checked={params.includeCutout} onChange={(e) => setParams({ includeCutout: e.target.checked })} />
-                <span className="text-[12px] text-[var(--text-primary)]">切り抜きの透過 PNG も書き出す（cutout/・元のサイズ）</span>
-              </div>
-            </Field>
-          )}
-        </div>
-
-        {/* ファイル名のプレビュー */}
-        <Field label={`書き出すファイル（${allInputs.length} 件）`}>
-          <div className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-mono leading-relaxed" style={{ background: 'var(--bg-canvas)' }}>
-            {inputs.length === 0 && videoInputs.length === 0 && <div className="text-[var(--text-tertiary)] font-sans">Product Layout の出力を「画像」に、Video Result / Video Merge の動画を「動画」に接続してください</div>}
-            {plan.entries.map((e, i) => (
-              <div key={i} className="truncate text-[var(--text-primary)]" title={`${e.folder}${e.base}.${e.ext}`}>{e.folder}{e.base}.{e.ext}</div>
-            ))}
-          </div>
-          <div className="text-[11px] mt-1 text-[var(--text-tertiary)]">
-            アイテム: {itemInfo.sku}（#{itemInfo.index}）{itemSource === 'connected' ? '' : itemSource === 'upstream' ? '・上流の Batch Input から取得' : itemConnected ? '・SKU がまだありません（アイテム情報は接続済み。入れるまでは既定値で表示・ZIP 名はワークフロー名）' : '・商品名（空ならワークフロー名）を使います'}
+                切り抜きの透過 PNG も入れる
+              </label>
+            )}
           </div>
         </Field>
+
+        {/* 画質と形式（たたむ）。動画だけのときは mp4 のまま */}
+        {videoOnly ? (
+          <div className="text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>動画は mp4 のまま書き出します（形式・品質・最大ファイルサイズは画像をつないだときだけ使います）</div>
+        ) : (
+          <div className="rounded-md" style={{ border: '1px solid var(--border)' }}>
+            <button type="button" className="w-full h-8 px-2 flex items-center justify-between gap-2 text-[11px] nodrag" onClick={() => setQualityOpen((v) => !v)} aria-expanded={qualityOpen}>
+              <span className="font-medium shrink-0 text-[var(--text-secondary)]">画質と形式</span>
+              <span className="flex items-center gap-1 min-w-0 text-[var(--text-tertiary)]">
+                <span className="truncate">{FORMAT_LABEL[params.format]}{showQuality ? `・品質 ${params.jpegQuality}` : ''}・{params.maxFileKb ? `上限 ${params.maxFileKb}KB` : '上限なし'}</span>
+                <ChevronDown size={12} className={`shrink-0 transition-transform duration-150 ${qualityOpen ? 'rotate-180' : ''}`} />
+              </span>
+            </button>
+            {qualityOpen && (
+              <div className="grid grid-cols-2 gap-2 px-2 pb-2">
+                <Field label="形式">
+                  <Sel<ExportFormat> value={params.format} options={[['jpeg', 'JPEG'], ['png', 'PNG'], ['webp', 'WebP']]} onChange={(v) => setParams({ format: v })} />
+                </Field>
+                {showQuality && (
+                  <Field label="品質（70〜100）">
+                    <Num value={params.jpegQuality} min={70} max={100} onChange={(v) => setParams({ jpegQuality: v ?? 90 })} />
+                  </Field>
+                )}
+                <Field label="最大ファイルサイズ KB" className={showQuality ? 'col-span-2' : ''}>
+                  <Num value={params.maxFileKb} min={10} max={100000} placeholder="指定なし" onChange={(v) => setParams({ maxFileKb: v })} />
+                </Field>
+              </div>
+            )}
+          </div>
+        )}
         {plan.warnings.map((w) => (
           <div key={w} className="rounded-md px-2 py-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>{w}</div>
         ))}

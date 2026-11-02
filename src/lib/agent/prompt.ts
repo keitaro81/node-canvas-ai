@@ -105,6 +105,7 @@ export function buildSystemPrompt(): string {
     '- 書き出しには export を置き、画像は export.image、動画は export.video、入口の item を export.item につなぐ。',
     '- 試着（tryOn）には libraryModel（モデル）を 1 つ置き、服のカットと同じ向きの出力（front / right / left / back）を tryOn の model につなぐ（モデルの中身はユーザーが後で選ぶ）。側面・背面を作るときは、同じ向きの服の写真（role 付きの referenceImage）を garment につなぎ、tryOn の role にその向きを入れる。',
     '- 回る商品動画は、向きのある 2 枚（tryOn の結果か role 付きの referenceImage）を videoGen の start と end につなぐ（回転の指示文は自動で動きの欄に入る）。複数のショットはショットごとに videoGen を置き、videoMerge で 1 本にする。',
+    '- 同じ服や人物を正面と別の角度から写した写真が 2 枚以上あり、videoGen のモデルが kling-v3-pro のときは、klingElement を 1 つ置いて正面を frontal、別の角度を ref1〜ref3 につなぎ、klingElement.element を各 videoGen の element1 につなぐ（動きの欄の先頭に @Element1 が自動で入る）。参照画像の role は「どの向きの写真を入れるか」の案内と回転の指示文にだけ使われ、ノードに向きは残らない。',
     '- Remove Background は、ユーザーが背景処理（切り抜き・白背景・透過）を求めたときだけ入れる。試着や動画の前段に自動で入れない（服の写真はそのまま tryOn.garment につなぐ）。AI 処理が 2 段になると写真 1 枚あたりの費用と時間が 2 倍になる。',
     '- ワークフロー名は日本語で分かりやすく。ノードの label は短い説明（例「試着 正面」）として構成一覧に添えるだけで、ノードの名前は種類名のまま使う。設定は必要なものだけ書く（既定値は省略）。',
     '',

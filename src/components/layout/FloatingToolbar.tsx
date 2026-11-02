@@ -35,6 +35,7 @@ import {
   UploadSimple,
   SquaresFour,
   FilmSlate,
+  Cards,
 } from '@phosphor-icons/react'
 import { useCanvasStore, undoCanvas, redoCanvas, type AppNode } from '../../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
@@ -76,6 +77,7 @@ const PALETTE = [
     items: [
       { type: 'videoGen' as NodeType,       label: 'Video Generation', description: 'AI動画を生成',         icon: <FilmStrip size={15} />, color: '#EC4899' },
       { type: 'referenceVideo' as NodeType, label: 'Reference Video',  description: '参照動画をアップロード', icon: <Video size={15} />,     color: '#EC4899' },
+      { type: 'klingElement' as NodeType,   label: 'Kling Element',    description: '同じ服・人物の正面と別角度の写真をまとめ、Kling v3 Pro の参照一式にする', icon: <Cards size={15} />, color: '#EC4899' },
       { type: 'videoMerge' as NodeType,     label: 'Video Merge',      description: '複数の動画を順に 1 本に結合（一括実行では SKU ごと）', icon: <FilmSlate size={15} />, color: '#EC4899' },
     ],
   },
@@ -116,6 +118,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   videoMerge: 'videoMergeNode',
   tryOn: 'tryOnNode',
   libraryModel: 'libraryModelNode',
+  klingElement: 'klingElementNode',
 }
 
 let nodeIdCounter = 1000

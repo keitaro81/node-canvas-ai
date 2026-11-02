@@ -146,3 +146,85 @@ export function unknownTokens(pattern: string): string[] {
   for (const m of pattern.matchAll(/\{([^{}]*)\}/g)) { const t = m[1]; if (!/^(sku|original|variant|index(?::0\d+)?|date)$/.test(t)) out.push(`{${t}}`) }
   return [...new Set(out)]
 }
+
+// ───────── 名前の付け方（2026-11-02 メモ 43: 記号を書かせず、型を選ぶ＋部品を並べる。保存は今までどおり記号の文字列） ─────────
+/** 名前の部品。text は固定の文字（区切りの「_」も文字の部品） */
+export type NamePart = { kind: 'sku' } | { kind: 'original' } | { kind: 'variant' } | { kind: 'index'; pad: number } | { kind: 'date' } | { kind: 'text'; text: string }
+
+/** よく使う名前の型（Lightroom の「名前の型」・Adobe Bridge の一括リネームを参考に） */
+export const NAME_PRESETS: Array<{ id: string; label: string; pattern: string }> = [
+  { id: 'sku_variant_index', label: '商品名_バリアント_連番', pattern: '{sku}_{variant}_{index:02}' },
+  { id: 'sku_index', label: '商品名_連番', pattern: '{sku}_{index:02}' },
+  { id: 'original', label: '元のファイル名', pattern: '{original}' },
+  { id: 'original_variant', label: '元のファイル名_バリアント', pattern: '{original}_{variant}' },
+]
+export const presetIdOf = (pattern: string): string => NAME_PRESETS.find((p) => p.pattern === pattern.trim())?.id ?? 'custom'
+
+/** 記号の文字列 → 部品（知らない {…} は固定の文字として残す） */
+export function parseNamePattern(pattern: string): NamePart[] {
+  const parts: NamePart[] = []
+  const re = /\{(sku|original|variant|index(?::0(\d+))?|date)\}/g
+  let last = 0
+  for (const m of pattern.matchAll(re)) {
+    if (m.index! > last) parts.push({ kind: 'text', text: pattern.slice(last, m.index) })
+    const t = m[1]
+    if (t === 'sku' || t === 'original' || t === 'variant' || t === 'date') parts.push({ kind: t })
+    else parts.push({ kind: 'index', pad: m[2] ? Number(m[2]) : 0 })
+    last = m.index! + m[0].length
+  }
+  if (last < pattern.length) parts.push({ kind: 'text', text: pattern.slice(last) })
+  return parts
+}
+
+/** 部品 → 記号の文字列（保存の形） */
+export function buildNamePattern(parts: NamePart[]): string {
+  return parts.map((p) => {
+    if (p.kind === 'text') return p.text
+    if (p.kind === 'index') return p.pad > 0 ? `{index:0${p.pad}}` : '{index}'
+    return `{${p.kind}}`
+  }).join('')
+}
+
+/** 部品の表示名 */
+export function namePartLabel(p: NamePart): string {
+  if (p.kind === 'sku') return '商品名'
+  if (p.kind === 'original') return '元のファイル名'
+  if (p.kind === 'variant') return 'バリアント'
+  if (p.kind === 'date') return '日付'
+  if (p.kind === 'index') return p.pad > 0 ? `連番 ${p.pad} 桁` : '連番'
+  return p.text
+}
+
+const SEPARATOR_END = /[_\-.\s]$/
+const isSeparatorOnly = (p: NamePart | undefined): boolean => p?.kind === 'text' && /^[_\-.\s]+$/.test(p.text)
+/** 隣り合う固定の文字をまとめる（記号の文字列にして読み直したときと同じ形にそろえる） */
+const mergeTexts = (parts: NamePart[]): NamePart[] => parts.reduce<NamePart[]>((acc, p) => {
+  const last = acc[acc.length - 1]
+  if (p.kind === 'text' && last?.kind === 'text') acc[acc.length - 1] = { kind: 'text', text: last.text + p.text }
+  else acc.push(p)
+  return acc
+}, [])
+
+/** 部品を足す（前の部品との間に区切りの「_」が無ければ挟む） */
+export function appendNamePart(parts: NamePart[], add: NamePart): NamePart[] {
+  const prev = parts[parts.length - 1]
+  const needSep = !!prev && !(prev.kind === 'text' && SEPARATOR_END.test(prev.text))
+  return mergeTexts([...parts, ...(needSep ? [{ kind: 'text', text: '_' } as NamePart] : []), add])
+}
+
+/** 部品を外す。区切りだけの文字（_ など）が前（先頭なら後ろ）にあれば一緒に外す */
+export function removeNamePart(parts: NamePart[], index: number): NamePart[] {
+  const target = parts[index]
+  if (!target) return parts
+  const drop = new Set([index])
+  if (target.kind !== 'text') {
+    if (index > 0 && isSeparatorOnly(parts[index - 1])) drop.add(index - 1)
+    else if (index === 0 && isSeparatorOnly(parts[1])) drop.add(1)
+  }
+  return mergeTexts(parts.filter((_, i) => !drop.has(i)))
+}
+
+/** 「cutout」は切り抜き PNG のフォルダ名・{variant} に使う予約名（2026-11-02 メモ 44）。バリアント名に使われていたら切り抜き PNG 側を cutout_png にする */
+export const CUTOUT_NAME = 'cutout'
+export const isReservedVariantName = (name: string): boolean => name.trim().toLowerCase() === CUTOUT_NAME
+export const cutoutNameFor = (variantNames: string[]): string => (variantNames.some(isReservedVariantName) ? `${CUTOUT_NAME}_png` : CUTOUT_NAME)

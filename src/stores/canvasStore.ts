@@ -1,3 +1,4 @@
+import { elementNumberOfHandle, withElementTag } from '../lib/video/klingElement'
 import { create } from 'zustand'
 import { temporal } from 'zundo'
 import {
@@ -111,12 +112,13 @@ interface CanvasState {
 const COMPATIBLE: Record<PortType, PortType[]> = {
   text:  ['text'],
   image: ['image'],
-  video: ['video', 'image'],
+  video: ['video'],   // 画像の入力は動画を使えない（コマを取り出す処理が無い）ので つながない（2026-11-02 メモ 41b）
   style: ['style', 'text'],
   list:  ['list'],
   cutout: ['cutout'],
   item:   ['item'],
   cuts:   ['cuts'],
+  element: ['element'],   // Kling の参照一式（Kling Element → Video Generation の参照一式ポート）
 }
 
 /** 切り抜き → 画像 は Image Generation の画像入力と Try-On の服入力だけ許す（切り抜き画像を合成・試着の入力にする）。他の画像入力は従来どおり不可 */
@@ -331,6 +333,7 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       cutout: '#14B8A6',
       item:   '#6B7280',
       cuts:   '#F472B6',
+      element: '#EC4899',
     }
 
     set((state) => {
@@ -365,18 +368,30 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       const targetNode = state.nodes.find((n) => n.id === connection.target)
       const isListSlot =
         targetNode?.type === 'listNode' &&
-        (connection.targetHandle?.startsWith('in-image-') || connection.targetHandle?.startsWith('in-text-'))
+        (connection.targetHandle?.startsWith('in-image-') || connection.targetHandle?.startsWith('in-text-') || connection.targetHandle?.startsWith('in-video-'))
       const listData = isListSlot ? (targetNode!.data as unknown as { mode: string; slotCount: number }) : null
       const shouldAutoSetMode = listData?.mode === 'unset'
 
       let nodes = state.nodes
       if (shouldAutoSetMode) {
-        const newMode = connection.targetHandle!.startsWith('in-image-') ? 'image' : 'text'
+        const newMode = connection.targetHandle!.startsWith('in-image-') ? 'image' : connection.targetHandle!.startsWith('in-video-') ? 'video' : 'text'
         nodes = state.nodes.map((n) =>
           n.id === connection.target
             ? { ...n, data: { ...n.data, mode: newMode } }
             : n
         )
+      }
+
+      // Video Generation の参照一式ポートにつないだら、「動き」の欄に @ElementN を見える形で入れる（消せる・2026-11-02 メモ 42）
+      const elementNo = targetNode?.type === 'videoGenerationNode' ? elementNumberOfHandle(connection.targetHandle) : null
+      if (elementNo) {
+        nodes = nodes.map((n) => {
+          if (n.id !== connection.target) return n
+          const d = n.data as unknown as { params?: Record<string, unknown> }
+          const params = d.params ?? {}
+          const prompt = typeof params.prompt === 'string' ? params.prompt : ''
+          return { ...n, data: { ...n.data, params: { ...params, prompt: withElementTag(prompt, elementNo) } } as unknown as NodeData }
+        })
       }
 
       return { edges: newEdges, nodes }

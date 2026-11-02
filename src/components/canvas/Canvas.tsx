@@ -55,6 +55,7 @@ import { BatchResultsNode } from '../nodes/BatchResultsNode'
 import { VideoMergeNode } from '../nodes/VideoMergeNode'
 import { TryOnNode, TRY_ON_GARMENT_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../nodes/TryOnNode'
 import { LibraryModelNode } from '../nodes/LibraryModelNode'
+import { KlingElementNode } from '../nodes/KlingElementNode'
 import { TRY_ON_MODEL_HANDLE, DEFAULT_TRY_ON_PARAMS } from '../../lib/tryon/prompt'
 import { ExportNode, EXPORT_ITEM_HANDLE, EXPORT_MAX_IMAGE_SLOTS } from '../nodes/ExportNode'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../../lib/batch/items'
@@ -90,6 +91,7 @@ const nodeTypes: NodeTypes = {
   videoMergeNode: VideoMergeNode,
   tryOnNode: TryOnNode,
   libraryModelNode: LibraryModelNode,
+  klingElementNode: KlingElementNode,
 }
 
 const NODE_TYPE_MAP: Record<NodeType, string> = {
@@ -117,6 +119,7 @@ const NODE_TYPE_MAP: Record<NodeType, string> = {
   videoMerge:      'videoMergeNode',
   tryOn:           'tryOnNode',
   libraryModel:    'libraryModelNode',
+  klingElement:    'klingElementNode',
 }
 
 const VIDEO_GEN_DEFAULT_DATA: VideoGenerationNodeData = {
@@ -241,6 +244,7 @@ interface ContextMenuState {
   sourceHandleId?: string | null
   sourcePortType?: PortType
   sourceIsInput?: boolean
+  sourceNodeType?: string   // 線を引き始めたノードの React Flow の種類（候補の相性判定）
   groupNodeId?: string      // グループノード右クリック時
   targetGroupId?: string    // 新規ノードを追加するグループID
 }
@@ -312,10 +316,11 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   videoMerge:     { video: 'in-video-1' },
   tryOn:          { image: TRY_ON_GARMENT_HANDLE, cutout: TRY_ON_GARMENT_HANDLE },
   promptEnhancer: {},
-  imageGen:       { text: 'in-text', image: 'in-image', list: 'in-list' },
-  videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video' },
+  imageGen:       { text: 'in-text', image: 'in-image', cutout: 'in-image', list: 'in-list' },
+  videoGen:       { text: 'in-text', image: 'in-image', video: 'in-video', list: 'in-list', element: 'in-element-1' },
   utility:        { text: 'in-text-in' },
-  list:           { image: 'in-image-0', text: 'in-text-0' },
+  list:           { image: 'in-image-0', text: 'in-text-0', video: 'in-video-0' },
+  klingElement:   { image: 'in-image-frontal' },
   cameraList:     {},
   removeBackground: { image: REMOVE_BACKGROUND_INPUT_HANDLE },
   productLayout:  { cutout: PRODUCT_LAYOUT_INPUT_CUTOUT, image: PRODUCT_LAYOUT_INPUT_BACKGROUND },
@@ -323,9 +328,12 @@ const NODE_DEFAULT_INPUT_HANDLE: Partial<Record<NodeType, Record<string, string>
   export:         { image: 'in-image-0', item: EXPORT_ITEM_HANDLE, video: 'in-video-v0' },
 }
 
-/** 線を伸ばして新しいノードを出すときの既定の入力ポート。Try-On は出し元で切り替える（Model ノード / 参照画像 → モデル、それ以外 → 服・2026-11-01 メモ 36） */
+/** Try-On のモデルにつなぐ出し元（Model ノード・参照画像・別の Try-On = 重ね着。2026-11-01 メモ 36・2026-11-02 メモ 41d）。それ以外は服 */
+const TRY_ON_MODEL_SOURCES = new Set(['libraryModelNode', 'referenceImageNode', 'tryOnNode'])
+
+/** 線を伸ばして新しいノードを出すときの既定の入力ポート。Try-On は出し元で切り替える（TRY_ON_MODEL_SOURCES → モデル、それ以外 → 服） */
 function defaultInputHandleFor(targetType: NodeType, sourcePortType: string, sourceNodeType: string | undefined): string | null {
-  if (targetType === 'tryOn' && (sourceNodeType === 'libraryModelNode' || sourceNodeType === 'referenceImageNode')) return TRY_ON_MODEL_HANDLE
+  if (targetType === 'tryOn' && TRY_ON_MODEL_SOURCES.has(sourceNodeType ?? '')) return TRY_ON_MODEL_HANDLE
   return NODE_DEFAULT_INPUT_HANDLE[targetType]?.[sourcePortType] ?? null
 }
 
@@ -346,17 +354,19 @@ const NODE_DEFAULT_OUTPUT_HANDLE: Partial<Record<NodeType, string>> = {
   videoMerge:     'out-video',
   tryOn:          TRY_ON_OUTPUT_HANDLE,
   libraryModel:   'out-image-front',
+  klingElement:   'out-element-element',
 }
 
 const PORT_COMPATIBLE: Record<string, string[]> = {
   text:  ['text'],
   image: ['image'],
-  video: ['video', 'image'],
+  video: ['video'],   // canvasStore.COMPATIBLE と同じ（動画 → 画像はつながない・メモ 41b）
   style: ['style', 'text'],
   list:  ['list'],
   cutout: ['cutout'],
   item:  ['item'],
   cuts:  ['cuts'],
+  element: ['element'],
 }
 
 function parsePortType(handleId: string | null): string {
@@ -767,6 +777,17 @@ export function Canvas() {
         const targetNodeId = nodeElement.getAttribute('data-id')
         if (targetNodeId && targetNodeId !== connectingNode.current) {
           const srcPortType = parsePortType(connectingHandle.current)
+          // 入力のポートから逆向きに引いて相手の本体に落とした → 相手の出力のポートからこの入力へつなぐ（2026-11-02 メモ 49b）。
+          // 合う出力が無ければ何もしない（入力どうしをつながない）
+          if (connectingHandle.current?.startsWith('in-')) {
+            const myType = useCanvasStore.getState().nodes.find((n) => n.id === connectingNode.current)?.type
+            const outs = Array.from(nodeElement.querySelectorAll<HTMLElement>('.react-flow__handle')).filter((el) => (el.getAttribute('data-handleid') ?? '').startsWith('out-') && el.style.display !== 'none')
+            const out = outs.find((el) => parsePortType(el.getAttribute('data-handleid')) === srcPortType)
+              ?? outs.find((el) => isCompatiblePorts(parsePortType(el.getAttribute('data-handleid')), srcPortType, myType))
+            if (out) onConnect({ source: targetNodeId, sourceHandle: out.getAttribute('data-handleid'), target: connectingNode.current!, targetHandle: connectingHandle.current })
+            connectingNode.current = null
+            return
+          }
           // target ハンドルは data-handleid が "in-" で始まる（data-handletype 属性は存在しない）
           const handles = Array.from(
             nodeElement.querySelectorAll<HTMLElement>('.react-flow__handle')
@@ -781,6 +802,16 @@ export function Canvas() {
           const connectedTo = new Set(curEdges.filter((e) => e.target === targetNodeId).map((e) => e.targetHandle ?? null))
           const firstFree = (list: HTMLElement[]): HTMLElement | null => list.find((el) => !connectedTo.has(el.getAttribute('data-handleid'))) ?? list[0] ?? null
           const targetNodeType = curNodes.find((n) => n.id === targetNodeId)?.type
+          // Try-On は出し元で決める（Model ノード・参照画像・Try-On → モデル、それ以外 → 服）。決めた側が埋まっていれば、空いているもう一方へ（2026-11-02 メモ 49a）
+          if (targetNodeType === 'tryOnNode' && (srcPortType === 'image' || srcPortType === 'cutout')) {
+            const srcType = curNodes.find((n) => n.id === connectingNode.current)?.type
+            const preferred = srcPortType === 'image' && TRY_ON_MODEL_SOURCES.has(srcType ?? '') ? TRY_ON_MODEL_HANDLE : TRY_ON_GARMENT_HANDLE
+            const other = preferred === TRY_ON_MODEL_HANDLE ? TRY_ON_GARMENT_HANDLE : TRY_ON_MODEL_HANDLE
+            const pick = !connectedTo.has(preferred) ? preferred : srcPortType === 'image' && !connectedTo.has(other) ? other : preferred
+            onConnect({ source: connectingNode.current!, sourceHandle: connectingHandle.current, target: targetNodeId, targetHandle: pick })
+            connectingNode.current = null
+            return
+          }
           const exactHandle = firstFree(handles.filter((el) => parsePortType(el.getAttribute('data-handleid')) === srcPortType))
           const fallbackHandle = exactHandle ? null : firstFree(handles.filter((el) => isCompatiblePorts(srcPortType, parsePortType(el.getAttribute('data-handleid')), targetNodeType)))
           const matchedHandle = exactHandle ?? fallbackHandle
@@ -814,11 +845,7 @@ export function Canvas() {
       } else if (!nodeElement && !isOnHandle) {
         const storeNodes = useCanvasStore.getState().nodes
         const sourceNode = storeNodes.find((n) => n.id === connectingNode.current)
-        // 生成ノードの出力からドラッグしてもコンテキストメニューは出さない
-        if (sourceNode?.type === 'videoGenerationNode' || sourceNode?.data.type === 'imageGen') {
-          connectingNode.current = null
-          return
-        }
+        // 生成ノード（Image Generation・Video Generation）の出力からも候補を出す（2026-11-02 メモ 41e。以前は結果ノードにだけつなぐ想定で出していなかった）
         const flowPos = rfInstance.current?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: clientX, y: clientY }
         const targetGroup = findGroupAtPosition(flowPos.x, flowPos.y, storeNodes)
         setContextMenu({
@@ -830,6 +857,7 @@ export function Canvas() {
           sourceHandleId: connectingHandle.current,
           sourcePortType: parsePortType(connectingHandle.current) as PortType,
           sourceIsInput: connectingHandle.current?.startsWith('in-') ?? false,
+          sourceNodeType: sourceNode?.type,
           targetGroupId: targetGroup?.id,
         })
       }
@@ -1564,6 +1592,7 @@ export function Canvas() {
           onClose={() => setContextMenu(null)}
           sourcePortType={contextMenu.sourcePortType}
           sourceIsInput={contextMenu.sourceIsInput}
+          sourceNodeType={contextMenu.sourceNodeType}
           groupNodeId={contextMenu.groupNodeId}
           onUngroup={(groupId) => {
             useCanvasStore.getState().ungroupNodes(groupId)

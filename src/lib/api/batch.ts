@@ -80,7 +80,6 @@ export function buildWorkflowSnapshot(nodes: Node[], edges: Edge[]): WorkflowSna
       if (d.type === 'imageDisplay' || d.type === 'referenceImage' || d.type === 'image') {
         const url = typeof d.output === 'string' ? d.output : typeof d.imageUrl === 'string' ? d.imageUrl : null
         if (url) data.output = toCanonicalRef(url) ?? url
-        if (typeof d.role === 'string' && d.role) data.role = d.role   // 参照画像: モデルタブから入れた向き
       }
       if (d.type === 'libraryModel') {
         // Model ノード: 向きごとのカット（固定の画像・canonical）

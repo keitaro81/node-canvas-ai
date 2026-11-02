@@ -228,6 +228,10 @@ describe('フェーズ C(a): 連鎖と生成結果の列', () => {
     expect(withCutout[0].warnings.some((w) => w.includes('cutout'))).toBe(false)
     const plan = planJobExport([item({ sort_order: 1 })], withLayouts, exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
     expect(plan[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['ec_white/ABC-1_ec_white_01.jpg', 'sns/ABC-1_sns_01.png', '合成/ABC-1_合成_01.jpg'])
+    // バリアント名が cutout（予約名）なら、切り抜き PNG 側を cutout_png にして同じフォルダに混ぜない（2026-11-02 メモ 44・ジョブ 7004b5c0 で 2 枚ずつ入った件）
+    const named = variantsFromSnapshot(snapshot, null).map((v, i) => (i === 0 ? { ...v, name: 'cutout' } : v))
+    const reserved = planJobExport([item({ sort_order: 1 })], exportColumnsOf(named, [], true, true), exportParamsFromSnapshot({}), new Date('2026-09-23T01:00:00Z'))
+    expect(reserved[0].entries.map((e) => `${e.folder}${e.base}.${e.ext}`)).toEqual(['cutout_png/ABC-1_cutout_png_01.png', 'cutout/ABC-1_cutout_01.jpg', 'sns/ABC-1_sns_01.png'])
   })
   it('前段の結果を元画像にした切り抜きは、識別値の元画像参照が 結果パス#版 になる（再実行で差し替わると描き直す）', () => {
     const dep = task({ id: 'dep', node_id: 'retouch', result_path: 't/j/i1/retouch-result.png', completed_at: '2026-10-01T00:00:00Z', result_meta: { kind: 'image' } })

@@ -288,6 +288,35 @@ function PromptEnhancerField({ nodeId, label }: { nodeId: string; label: string 
 // ────────────────────────────────────────────
 // フィールドレンダラー
 // ────────────────────────────────────────────
+/** 動画の欄（List の動画モード・2026-11-02 メモ 40）: Reference Video の動画を「動画を追加」ダイアログで差し替える */
+function VideoUploadField({ nodeId, label }: { nodeId: string; label: string }) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const updateNode = useCanvasStore((s) => s.updateNode)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const node = nodes.find((n) => n.id === nodeId)
+  const d = (node?.data ?? {}) as Record<string, unknown>
+  const url = (d.uploadedVideoPreview as string | null) || (d.videoUrl as string | null) || null
+  async function handlePick(items: PickedMedia[]) {
+    const picked = items[0]
+    if (!picked) return
+    setBusy(true)
+    try { updateNode(nodeId, { videoUrl: await signLibraryUrl(picked.url), uploadedVideoPreview: null } as never) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div>
+      {label && <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>}
+      <button type="button" className="relative w-full rounded-lg overflow-hidden flex items-center justify-center" style={{ border: '1px dashed var(--border)', background: 'var(--bg-canvas)', minHeight: 72 }} onClick={() => setPickerOpen(true)} title="動画を選ぶ（アップロード / ライブラリ）">
+        {busy ? <Loader2 size={16} className="animate-spin" style={{ color: '#EC4899' }} />
+          : url ? <video src={url} muted playsInline preload="metadata" className="w-full max-h-40 object-contain" />
+          : <span className="flex items-center gap-1.5 text-[12px]" style={{ color: '#EC4899' }}><Film size={14} />動画を選ぶ</span>}
+      </button>
+      <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="video" source="capsule" onPick={(items) => { void handlePick(items) }} />
+    </div>
+  )
+}
+
 function ImageUploadField({ nodeId, label }: { nodeId: string; label: string }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const updateNode = useCanvasStore((s) => s.updateNode)
@@ -833,6 +862,15 @@ function StageGenerateButton({
         const ld = listNode!.data as Record<string, unknown>
         const slotCount = Math.max(1, (ld.slotCount as number) ?? 1)
         const listNodeMode = (ld.mode as string) ?? 'image'
+        if (listNodeMode === 'video') {
+          return Math.max(1, edges
+            .filter((e) => e.target === listNode!.id && e.targetHandle?.startsWith('in-video-'))
+            .filter((e) => {
+              const i = parseInt(e.targetHandle!.replace('in-video-', ''), 10)
+              const src = nodes.find((n) => n.id === e.source)
+              return i >= 0 && i < slotCount && !!(src?.data as Record<string, unknown> | undefined)?.videoUrl
+            }).length)
+        }
         if (listNodeMode === 'text') {
           return Math.max(1, edges
             .filter((e) => e.target === listNode!.id && e.targetHandle?.startsWith('in-text-'))
@@ -1057,6 +1095,14 @@ function CameraListPanel({ nodeId }: { nodeId: string }) {
 // ────────────────────────────────────────────
 // ListNode スロットパネル（App モード内でのスロット表示・入力）
 // ────────────────────────────────────────────
+/** 差し替えできない動画（Video Generation の結果などをリストにつないだとき）は見せるだけ */
+function ListVideoPreview({ nodeId }: { nodeId: string }) {
+  const url = useCanvasStore((s) => (s.nodes.find((n) => n.id === nodeId)?.data as Record<string, unknown> | undefined)?.videoUrl as string | undefined)
+  return url
+    ? <video src={url} muted playsInline preload="metadata" className="w-full max-h-40 rounded-lg object-contain" style={{ background: 'var(--bg-canvas)' }} />
+    : <div className="text-[11px] rounded-lg px-2 py-2" style={{ border: '1px dashed var(--border)', color: 'var(--text-tertiary)' }}>動画がまだありません</div>
+}
+
 function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
@@ -1069,6 +1115,11 @@ function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
   const mode = (d.mode as string) ?? 'image'
 
   const slots = Array.from({ length: slotCount }, (_, i) => {
+    if (mode === 'video') {
+      const edge = edges.find((e) => e.target === listNodeId && e.targetHandle === `in-video-${i}`)
+      const videoNode = edge ? nodes.find((n) => n.id === edge.source) : null
+      return { index: i, type: 'video' as const, nodeId: videoNode?.id ?? null, nodeType: videoNode?.type ?? null }
+    }
     if (mode === 'text') {
       const edge = edges.find((e) => e.target === listNodeId && e.targetHandle === `in-text-${i}`)
       const textNode = edge ? nodes.find((n) => n.id === edge.source) : null
@@ -1080,8 +1131,8 @@ function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
     }
   })
 
-  const accentColor = mode === 'text' ? '#6366F1' : '#8B5CF6'
-  const sectionLabel = mode === 'text' ? 'リストプロンプト' : 'リスト画像'
+  const accentColor = mode === 'text' ? '#6366F1' : mode === 'video' ? '#EC4899' : '#8B5CF6'
+  const sectionLabel = mode === 'text' ? 'リストプロンプト' : mode === 'video' ? 'リスト動画' : 'リスト画像'
   const disconnectedLabel = '未接続（グラフで接続してください）'
 
   // モバイル + 画像モード: 参照画像と同じ 4列グリッド
@@ -1122,7 +1173,9 @@ function ListNodeSlotsPanel({ listNodeId }: { listNodeId: string }) {
             </span>
             <div className="flex-1">
               {nodeId ? (
-                type === 'image' ? (
+                type === 'video' ? (
+                  nodeType === 'referenceVideoNode' ? <VideoUploadField nodeId={nodeId} label="" /> : <ListVideoPreview nodeId={nodeId} />
+                ) : type === 'image' ? (
                   <ImageUploadField nodeId={nodeId} label="" />
                 ) : nodeType === 'promptEnhancerNode' ? (
                   <PromptEnhancerField nodeId={nodeId} label="" />
@@ -1175,7 +1228,7 @@ function CapsuleStagePanel({
   const listSlotNodeIds = listNodeId
     ? new Set(
         edges
-          .filter((e) => e.target === listNodeId && (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-')))
+          .filter((e) => e.target === listNodeId && (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-') || e.targetHandle?.startsWith('in-video-')))
           .map((e) => e.source)
       )
     : new Set<string>()

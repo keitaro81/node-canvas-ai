@@ -5,7 +5,8 @@ import type { ExportFormat, ExportParams, ExportZipFolders } from '../../../type
 import { EXT_OF, applyNamePattern, folderFor, normalizeExportParams } from '../../../lib/export/naming'
 import type { ExportOutcome, ExportProgress } from '../../../lib/review/exportJob'
 import { ZIP_WARN_BYTES } from '../../../lib/review/exportJob'
-import { Field, Num, Sel, TextField } from '../../nodes/pp/controls'
+import { Field, Num, Sel } from '../../nodes/pp/controls'
+import { NamePatternEditor } from '../../nodes/pp/NamePatternEditor'
 
 export interface ExportDialogState {
   phase: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
@@ -14,7 +15,7 @@ export interface ExportDialogState {
   error?: string
 }
 
-export interface ExportSummary { columnNames: string[]; fileCount: number; estimateBytes: number }
+export interface ExportSummary { columnNames: string[]; fileCount: number; estimateBytes: number; previewColumn?: string | null }   // previewColumn: 例の名前に使う列（切り抜き PNG 以外の先頭）
 
 interface Props {
   open: boolean
@@ -48,10 +49,10 @@ function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, 
     return () => window.removeEventListener('keydown', h)
   }, [state.phase, onClose])
   const preview = useMemo(() => {
-    const v = columnNames.find((n) => n !== 'cutout') ?? columnNames[0] ?? 'variant'
+    const v = summary.previewColumn ?? columnNames[0] ?? 'variant'
     const base = applyNamePattern(params.namePattern, { sku: sampleSku ?? 'SKU', original: 'original', index: 1, variant: v, now: new Date() })
     return `${folderFor(params.zipFolders, v, sampleSku ?? 'SKU')}${base}.${EXT_OF[params.format]}`
-  }, [params, columnNames, sampleSku])
+  }, [params, columnNames, summary.previewColumn, sampleSku])
   const running = state.phase === 'running'
   const total = summary.fileCount
   return createPortal(
@@ -69,20 +70,21 @@ function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, 
 
         {state.phase === 'idle' && (
           <div className="mt-3 flex flex-col gap-2.5">
-            <Field label="ファイル名の規則（{sku} {original} {variant} {index} {index:02} {date}）">
-              <TextField value={params.namePattern} onChange={(v) => setParams((p) => ({ ...p, namePattern: v }))} mono />
-              <div className="text-[11px] mt-1 font-mono truncate" style={{ color: 'var(--text-tertiary)' }} title={preview}>例: {preview}</div>
+            {/* ファイル名（2026-11-02 メモ 43）: Export ノードと同じく、名前の型を選ぶ＋部品を並べる */}
+            <Field label="ファイル名">
+              <NamePatternEditor pattern={params.namePattern} onChange={(v) => setParams((p) => ({ ...p, namePattern: v }))} example={preview} exampleMore={Math.max(0, total - 1)} />
+              <div className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>商品名は写真のファイル名から取ります{sampleSku ? `（例: ${sampleSku}）` : ''}</div>
             </Field>
             <div className="grid grid-cols-3 gap-2">
               <Field label="形式"><Sel<ExportFormat> value={params.format} options={[['jpeg', 'JPEG'], ['png', 'PNG'], ['webp', 'WebP']]} onChange={(v) => setParams((p) => ({ ...p, format: v }))} /></Field>
               <Field label="品質（JPEG / WebP）"><Num value={params.jpegQuality} min={70} max={100} onChange={(v) => { if (v !== null) setParams((p) => ({ ...p, jpegQuality: v })) }} /></Field>
               <Field label="最大 KB（任意）"><Num value={params.maxFileKb} min={50} max={100000} onChange={(v) => setParams((p) => ({ ...p, maxFileKb: v }))} placeholder="指定なし" /></Field>
             </div>
-            <Field label="ZIP 内のフォルダ分け"><Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', 'SKU 別'], ['none', 'なし']]} onChange={(v) => setParams((p) => ({ ...p, zipFolders: v }))} /></Field>
+            <Field label="ZIP 内のフォルダ分け"><Sel<ExportZipFolders> value={params.zipFolders} options={[['variant', 'バリアント別'], ['sku', '商品別'], ['none', 'なし']]} onChange={(v) => setParams((p) => ({ ...p, zipFolders: v }))} /></Field>
             {cutoutOptional && (
               <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: 'var(--text-primary)' }}>
                 <input type="checkbox" checked={params.includeCutout} onChange={(e) => setParams((p) => ({ ...p, includeCutout: e.target.checked }))} className="w-4 h-4" />
-                切り抜きの透過 PNG も含める（cutout/ フォルダ・元のサイズ）
+                切り抜きの透過 PNG も入れる（元のサイズ）
               </label>
             )}
             <div className="flex justify-end gap-2 mt-2">

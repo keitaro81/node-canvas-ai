@@ -9,8 +9,7 @@ import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../ai
 import { backgroundSourcesOf, promptForGenerator } from './background'
 import { buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoModelById } from '../ai/videoModels'
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
-import { CUT_ROLES, CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut, REFERENCE_PRIORITY } from '../video/productVideo'
-import { MAX_ELEMENT_REFS } from '../ai/videoShots'
+import { CUT_ROLES, CUT_ROLE_LABEL, END_CUT_CFG_SCALE, FRONTAL_ROLE, MERGE_VIDEOS_ENDPOINT, builtinEnglish, cutOf, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type ItemCut } from '../video/productVideo'
 import { textsNeedingTranslation } from '../video/translate'
 import { TRY_ON_ENDPOINT, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, buildTryOnInput, isCutRole, normalizeTryOnParams, tryOnPromptFromNote } from '../tryon/prompt'
 
@@ -75,6 +74,7 @@ const RF_TYPE_TO_KIND: Record<string, string> = {
   videoGenerationNode: 'videoGen', videoDisplayNode: 'videoDisplay', videoMergeNode: 'videoMerge', referenceVideoNode: 'referenceVideo',
   imageDisplayNode: 'imageDisplay', textPromptNode: 'textPrompt', referenceImageNode: 'referenceImage', batchInputNode: 'batchInput',
   removeBackgroundNode: 'removeBackground', productLayoutNode: 'productLayout', imageGenerationNode: 'imageGen', exportNode: 'export', tryOnNode: 'tryOn', libraryModelNode: 'libraryModel',
+  klingElementNode: 'klingElement',
 }
 export function nodeKindOf(n: SnapshotNode | null | undefined): string | undefined {
   const t = n?.data?.type
@@ -99,7 +99,7 @@ export function imageRoleOfSource(nodes: SnapshotNode[], edges: SnapshotEdge[], 
   const src = nodes.find((n) => n.id === sourceId)
   const k = nodeKindOf(src)
   if (k === 'libraryModel') return cutSetRoleOfHandle(sourceHandle)   // Model ノードの向きのポート
-  if (k === 'referenceImage') { const r = src?.data?.role; return isCutRole(r) ? r : null }   // 「画像を追加」のモデルタブから入れた向き
+  // 参照画像の向きは読まない（2026-11-02 メモ 42: Reference Image の「向き」とモデルタブの見えない向きを廃止。回転の指示文はテンプレート・チャットが組むときに欄へ書く）
   if (k === 'tryOn') return tryOnRoleOf(nodes, edges, sourceId, seen)
   if (k === 'imageDisplay') {
     const feed = edges.find((e) => e.target === sourceId && nodeKindOf(nodes.find((n) => n.id === e.source)) === 'tryOn')
@@ -117,7 +117,6 @@ const edgesOf = (s: WorkflowSnapshot | null | undefined): SnapshotEdge[] => (Arr
 
 // ───────────────────────── 旧 Product Video ノードの展開（§7） ─────────────────────────
 export const PRODUCT_VIDEO_DEFAULT_MODEL = 'kling-v3-pro'
-export const ELEMENT_TAG = '@Element1 wearing the garment.'
 
 /** 写しの入口（Batch Input）。一括実行の対象を決める */
 export function inputNodesOf(snapshot: WorkflowSnapshot | null | undefined): { batchInputId: string | null } {
@@ -186,12 +185,12 @@ const splitLines = (text: string): string[] => text.split('\n').map((l) => l.tri
 const trLines = (tr: (t: string) => string, text: string): string => splitLines(text).map(tr).join(' ')
 
 /** Video Generation のプロンプトと negative（§4.2）。指示は欄に見える文だけ（回転の定型文も欄に入れる。裏で足さない・2026-11-01 決定）。終点があるショットは cfg を強める */
-export function videoPromptOf(nodes: SnapshotNode[], edges: SnapshotEdge[], node: SnapshotNode, inputs: TaskInputs, translations: Record<string, string> | null | undefined, withElements: boolean): { prompt: string; negative: string; turned: boolean } {
+export function videoPromptOf(nodes: SnapshotNode[], edges: SnapshotEdge[], node: SnapshotNode, inputs: TaskInputs, translations: Record<string, string> | null | undefined): { prompt: string; negative: string; turned: boolean } {
   const tr = translator(translations)
   const p = (node.data?.params ?? {}) as Record<string, unknown>
   const base = textsInto(nodes, edges, node.id).map(tr).join('\n\n')
   const own = trLines(tr, str(p.prompt))
-  const prompt = `${base ? base + '\n' : ''}${withElements ? ELEMENT_TAG + ' ' : ''}${own}`.trim()
+  const prompt = `${base ? base + '\n' : ''}${own}`.trim()   // 参照一式の @ElementN も「動き」の欄に見える形で書く（裏で足さない・2026-11-02 メモ 42）
   const negative = tr(str(p.negativePrompt))
   return { prompt, negative, turned: !!inputs.end }   // 終点があるショットは指示への追従を強める（cfg・欄で変えられる）
 }
@@ -217,7 +216,7 @@ export function videoPromptSources(nodes: SnapshotNode[], edges: SnapshotEdge[],
 /** 保存済みのワークフローを開いたとき / 組んだ直後に、Video Generation の回転の定型文を欄に書き込む（2026-11-01・「回転の指示を自動で付ける」トグルの廃止）。
  *  トグル時代の既定（autoTurn 未設定 = 自動で付く）だったノードは、始点と終点の向きが分かっていれば autoTurn: false にし、向きが違って動きに定型文が無ければ定型文を「動き」と「避けたいこと」に入れる（生成される指示は同じ内容）。
  *  向きが分からないノードはそのまま（計画の旧互換で自動が効く）。autoTurn: false のノードは触らない。変更が無ければ nodes をそのまま返す */
-export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdge[]): { nodes: SnapshotNode[]; changed: boolean; written: number } {
+export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdge[], roleHints?: Record<string, CutRole>): { nodes: SnapshotNode[]; changed: boolean; written: number } {
   let changed = false
   let written = 0
   const out = nodes.map((n) => {
@@ -226,8 +225,9 @@ export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdg
     if (p.autoTurn === false) return n
     const startEdge = edges.find((e) => e.target === n.id && e.targetHandle === VIDEO_GEN_START_HANDLE)
     const endEdge = edges.find((e) => e.target === n.id && e.targetHandle === VIDEO_GEN_END_HANDLE)
-    const startRole = startEdge ? imageRoleOfSource(nodes, edges, startEdge.source, startEdge.sourceHandle) : null
-    const endRole = endEdge ? imageRoleOfSource(nodes, edges, endEdge.source, endEdge.sourceHandle) : null
+    // roleHints = チャットで組むときだけの参照画像の向き（ノードには残さない・2026-11-02 メモ 42）
+    const startRole = startEdge ? imageRoleOfSource(nodes, edges, startEdge.source, startEdge.sourceHandle) ?? roleHints?.[startEdge.source] ?? null : null
+    const endRole = endEdge ? imageRoleOfSource(nodes, edges, endEdge.source, endEdge.sourceHandle) ?? roleHints?.[endEdge.source] ?? null : null
     if (!startRole || !endRole) return n
     changed = true
     const prompt = str(p.prompt)
@@ -249,7 +249,7 @@ type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number;
  *   それらを順に受ける Video Merge。AI 段は 1 経路 2 段まで（結合は数えない）
  * - ジョブごと: Product Layout の背景入力につながる Image Generation（executionScope='job'）1 件（Step 8）。動画があるジョブでは作らない
  */
-export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; droppedForVideo: PlannedTask[] } {
+export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; droppedForVideo: PlannedTask[]; emptyPrompt: string[] } {
   const snap = snapshot
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -265,6 +265,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   const warn = (w: string) => { if (!warnings.includes(w)) warnings.push(w) }
   const excluded: Record<string, string> = {}   // ノード id → 対象外の理由（ノードの表示用。注意文は名前で探さない）
   const exclude = (nodeId: string, w: string) => { excluded[nodeId] = w; warn(w) }
+  const emptyPrompt: string[] = []   // 指示（プロンプト）が空で外した写真ごとの生成ノード（一括 App はこれがあると App にしない・2026-11-02）
 
   // 画像/動画の出どころ（結果ノードは透過して生成器へ）
   const producerOf = (sourceId: string, sourceHandle: string | null | undefined, want: 'image' | 'video'): Producer => {
@@ -278,11 +279,10 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
         return role && typeof url === 'string' && url ? { kind: 'fixed', ref: { kind: 'asset', url, role } } : { kind: 'other' }
       }
       if (k === 'referenceImage' || k === 'image') {
-        // 参照画像: 固定の画像（写しでは output・キャンバスの生データでは imageUrl）。モデルタブから入れた向きがあれば載せる（2026-11-01 メモ 23）
+        // 参照画像: 固定の画像（写しでは output・キャンバスの生データでは imageUrl）。向きは持たない（2026-11-02 メモ 42）
         const d = byId.get(sourceId)?.data
         const url = typeof d?.output === 'string' && d.output ? d.output : typeof d?.imageUrl === 'string' && d.imageUrl && !d.imageUrl.startsWith('blob:') ? d.imageUrl : null
-        const role = isCutRole(d?.role) ? d.role : null
-        return url ? { kind: 'fixed', ref: { kind: 'asset', url, ...(role ? { role } : {}) } } : { kind: 'other' }
+        return url ? { kind: 'fixed', ref: { kind: 'asset', url } } : { kind: 'other' }
       }
       if (k === 'removeBackground' || k === 'imageGen') return { kind: 'ai', nodeId: sourceId }
       if (k === 'tryOn') return { kind: 'ai', nodeId: sourceId, role: imageRoleOfSource(nodes, edges, sourceId, sourceHandle) }   // 試着の結果は向きを持つ（回転指示に使う）
@@ -443,7 +443,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       perItemIds.add(node.id)
       const p = (node.data?.params ?? {}) as Record<string, unknown>
       const prompt = promptForGenerator({ nodes, edges }, node.id)
-      if (!prompt) { exclude(node.id, `Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`); continue }
+      if (!prompt) { exclude(node.id, `Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`); emptyPrompt.push(node.id); continue }
       const model = editModelOf(p)
       const req = buildImageEditRequest(model, prompt, p)
       push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input: req.input, kind: 'imageEdit', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
@@ -457,11 +457,12 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       // 画像 → 動画: 専用エンドポイント（i2vEndpoint）があるか、エンドポイント自体が image-to-video のモデル。参照動画が要るモデルは対象外
       if (!modelDef.i2vEndpoint && !modelDef.supportedModes.includes('image-to-video')) { exclude(node.id, `Video Generation（${label}）のモデル ${modelDef.name} は画像から動画を作れないため一括実行の対象外です`); continue }
       const inputs: TaskInputs = { ...a.inputs }
-      const withElements = !!inputs.elements && modelDef.features.includes('elements')
+      const withElements = !!inputs.elements && modelDef.features.includes('elements')   // 旧ジョブ（Cut Set Input の一式）だけ。新しい計画は付けない
       if (inputs.elements && !withElements) { warn(`参照カット一式（elements）は Kling v3 Pro だけが使えます（${label} では無視します）`); delete inputs.elements }
+      if (edges.some((e) => e.target === node.id && (e.targetHandle ?? '').startsWith('in-element-'))) warn(`${label} の参照一式（Kling Element）は一括処理では使いません（キャンバスで個別に生成するときに使います）`)
       if (inputs.end && !modelDef.endImageParam) { warn(`終了フレームは ${modelDef.name} では使えません（${label} では無視します）`); delete inputs.end }
-      const { prompt, negative, turned } = videoPromptOf(nodes, edges, node, inputs, snap?.promptTranslations, withElements)
-      if (!prompt) { exclude(node.id, `Video Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつなぐか、動きの欄に書いてください）`); continue }
+      const { prompt, negative, turned } = videoPromptOf(nodes, edges, node, inputs, snap?.promptTranslations)
+      if (!prompt) { exclude(node.id, `Video Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつなぐか、動きの欄に書いてください）`); emptyPrompt.push(node.id); continue }
       const built = buildVideoTaskInput(modelDef, node, prompt, negative, turned)
       push({ nodeId: node.id, scope: 'item', endpoint: modelDef.i2vEndpoint ?? modelDef.endpoint, input: built.input, kind: 'videoShot', stage: a.stage, label, dualOutput: false, inputs, video: { ...built.meta, elements: withElements } })
     } else {
@@ -556,7 +557,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       warn(`Image Generation（${nodeLabelOf(node)}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
     }
   }
-  return { tasks, warnings, excluded, droppedForVideo }
+  return { tasks, warnings, excluded, droppedForVideo, emptyPrompt }
 }
 
 /** タスクの入力の参照（画像・モデル・開始・終了） */
@@ -625,24 +626,4 @@ export const taskMapOf = (tasks: PlannedTask[]): Map<string, PlannedTask> => new
 /** 動画を作る写しか（結果欄・ライブラリ・App の判定） */
 export function snapshotHasVideo(snapshot: WorkflowSnapshot | null | undefined): boolean {
   return planTasks(snapshot).tasks.some((t) => t.kind === 'videoShot')
-}
-/** Kling の参照一式（elements）の自動選択（2026-11-01）: そのショットと、同じ Video Merge につながる兄弟ショットの
- *  開始・終了フレームにある「向きつきの画像」（参照画像の向き・Model ノードの向き・Try-On の結果）を集め、正面 1 + 別角度（REFERENCE_PRIORITY 順）最大 3 を返す。
- *  正面が無ければ空（参照一式は付けない）。返すのは画像の出どころ（ノード id とポート）で、URL は呼び出し側がノードのデータから取る */
-export function autoElementSources(nodes: SnapshotNode[], edges: SnapshotEdge[], videoGenId: string): Array<{ role: CutRole; source: string; sourceHandle: string | null }> {
-  const kindOfId = (id: string) => nodeKindOf(nodes.find((n) => n.id === id))
-  const merges = edges.filter((e) => e.source === videoGenId && kindOfId(e.target) === 'videoMerge').map((e) => e.target)
-  const shots = [videoGenId, ...edges.filter((e) => merges.includes(e.target) && e.source !== videoGenId && kindOfId(e.source) === 'videoGen').map((e) => e.source)]
-  const byRole = new Map<CutRole, { role: CutRole; source: string; sourceHandle: string | null }>()
-  for (const shot of shots) {
-    for (const handle of [VIDEO_GEN_START_HANDLE, VIDEO_GEN_END_HANDLE]) {
-      const e = edges.find((x) => x.target === shot && x.targetHandle === handle)
-      if (!e) continue
-      const role = imageRoleOfSource(nodes, edges, e.source, e.sourceHandle)
-      if (role && !byRole.has(role)) byRole.set(role, { role, source: e.source, sourceHandle: e.sourceHandle ?? null })
-    }
-  }
-  const frontal = byRole.get(FRONTAL_ROLE)
-  if (!frontal) return []
-  return [frontal, ...REFERENCE_PRIORITY.filter((r) => r !== FRONTAL_ROLE).map((r) => byRole.get(r)).filter((x): x is NonNullable<typeof x> => !!x).slice(0, MAX_ELEMENT_REFS)]
 }

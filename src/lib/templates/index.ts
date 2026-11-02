@@ -5,7 +5,10 @@
 // - 試着（2b-4）: 服のカット（SKU ごと）→ Try-On × 向き → ターンテーブルの動画、商品写真 → Try-On → 着用画像の書き出し
 // - 2026-11-01: モデルは Model ノード（ライブラリのモデルを選ぶと向きごとの出力ポート）から Try-On につなぐ。回転の指示文は定型文として Video Generation の欄に入れる（トグル廃止）
 // - 2026-11-01 ユーザー指示: 組んだノードの名前は種類名のまま（「ショット 1」「試着 正面」のような名前は付けない。向きはノードの中の行で見える）
-import { DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, VIDEO_TEMPLATES, templateById, totalSeconds, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type VideoShotSpec } from '../video/productVideo'
+// - 2026-11-02 メモ 42: 参照画像の「向き」は廃止。どの写真を入れるかは案内（photoHint・見出し「Reference Image（正面）」）で出す。
+//   Kling の参照一式は Kling Element ノードにまとめて各ショットの「参照一式 1」につなぎ、ショットの「動き」の先頭に @Element1 を入れる（見える形）
+import { CUT_ROLE_LABEL, DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, REFERENCE_PRIORITY, VIDEO_TEMPLATES, templateById, totalSeconds, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type VideoShotSpec } from '../video/productVideo'
+import { KLING_ELEMENT_OUTPUT, KLING_ELEMENT_SLOTS, VIDEO_GEN_ELEMENT_HANDLES, withElementTag } from '../video/klingElement'
 import { PRODUCT_VIDEO_DEFAULT_MODEL, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, VIDEO_OUTPUT_HANDLE, cutSetRoleHandle, videoMergeSlotHandle, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
 import { DEFAULT_EXPORT_PARAMS } from '../export/naming'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../batch/items'
@@ -34,9 +37,24 @@ export interface WorkflowTemplate {
 }
 
 const edge = (source: string, sourceHandle: string, target: string, targetHandle: string): SnapshotEdge => ({ id: `e-${source}-${sourceHandle}-${target}-${targetHandle}`, source, sourceHandle, target, targetHandle })
-/** 向きつきの参照画像（作った後にユーザーが写真を入れる） */
+/** 参照画像（作った後にユーザーが写真を入れる）。向きは持たず、どの写真を入れるかの案内だけ付ける（「Reference Image（正面）」・メモ 42） */
 const refImageNode = (id: string, role: CutRole, position: { x: number; y: number }): SnapshotNode =>
-  ({ id, type: 'referenceImageNode', position, data: { type: 'referenceImage', label: 'Reference Image', imageUrl: null, uploadedImagePreview: null, status: 'idle', role } })
+  ({ id, type: 'referenceImageNode', position, data: { type: 'referenceImage', label: 'Reference Image', imageUrl: null, uploadedImagePreview: null, status: 'idle', photoHint: CUT_ROLE_LABEL[role] } })
+/** Kling Element（参照一式）: 正面 1 ＋ 別角度（REFERENCE_PRIORITY 順に最大 3）を出どころからつなぎ、各ショットの「参照一式 1」へ。ショットの動きの先頭に @Element1 */
+function wireKlingElement(nodes: SnapshotNode[], edges: SnapshotEdge[], sources: Partial<Record<CutRole, { id: string; handle: string }>>, shotIds: string[], position: { x: number; y: number }): void {
+  const frontal = sources.front
+  if (!frontal) return
+  const refs = REFERENCE_PRIORITY.filter((r) => r !== 'front').map((r) => sources[r]).filter((x): x is { id: string; handle: string } => !!x).slice(0, KLING_ELEMENT_SLOTS.length - 1)
+  if (!refs.length) return
+  nodes.push({ id: 'element', type: 'klingElementNode', position, data: { type: 'klingElement', label: 'Kling Element', params: {}, status: 'idle' } })
+  edges.push(edge(frontal.id, frontal.handle, 'element', KLING_ELEMENT_SLOTS[0].handle))
+  refs.forEach((r, i) => edges.push(edge(r.id, r.handle, 'element', KLING_ELEMENT_SLOTS[i + 1].handle)))
+  for (const sid of shotIds) {
+    edges.push(edge('element', KLING_ELEMENT_OUTPUT, sid, VIDEO_GEN_ELEMENT_HANDLES[0]))
+    const shot = nodes.find((n) => n.id === sid)
+    if (shot) shot.data = { ...shot.data, params: { ...shot.data.params, prompt: withElementTag(String(shot.data.params?.prompt ?? ''), 1) } }
+  }
+}
 /** ショット = Video Generation（Kling v3 Pro・写真の比率）。終了フレームのあるショットは回転の定型文を「動き」「避けたいこと」に入れる */
 const videoShotNode = (id: string, shot: VideoShotSpec, position: { x: number; y: number }): SnapshotNode => ({
   id, type: 'videoGenerationNode', position,
@@ -74,6 +92,7 @@ export function buildProductVideoTemplate(templateId: string): TemplateCanvas {
   nodes.push({ id: 'merge', type: 'videoMergeNode', position: { x: x + 1260, y }, data: { type: 'videoMerge', label: 'Video Merge', params: {}, status: 'idle', videoUrl: null } })
   nodes.push(exportNode({ x: x + 1640, y }))
   edges.push(edge('merge', VIDEO_OUTPUT_HANDLE, 'export', 'in-video-v0'))
+  wireKlingElement(nodes, edges, Object.fromEntries(rolesOf(tpl.shots).map((r) => [r, { id: `ref-${r}`, handle: REF_OUT }])), tpl.shots.map((_, i) => `shot-${i + 1}`), { x: x + 420, y: y + 340 })
   return { nodes, edges, viewport: null }
 }
 
@@ -112,6 +131,7 @@ export function buildTryOnTurntableTemplate(): TemplateCanvas {
   nodes.push({ id: 'merge', type: 'videoMergeNode', position: { x: x + 1680, y }, data: { type: 'videoMerge', label: 'Video Merge', params: {}, status: 'idle', videoUrl: null } })
   nodes.push(exportNode({ x: x + 2060, y }))
   edges.push(edge('merge', VIDEO_OUTPUT_HANDLE, 'export', 'in-video-v0'))
+  wireKlingElement(nodes, edges, Object.fromEntries(roles.map((r) => [r, { id: `tryon-${r}`, handle: TRY_ON_OUTPUT_HANDLE }])), tpl.shots.map((_, i) => `shot-${i + 1}`), { x: x + 840, y: y + 340 })
   return { nodes, edges, viewport: null }
 }
 

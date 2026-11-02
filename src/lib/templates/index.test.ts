@@ -1,20 +1,25 @@
 import { describe, it, expect } from 'vitest'
 import { WORKFLOW_TEMPLATES, buildPostProductionTemplate, buildProductVideoTemplate, buildTryOnImagesTemplate, buildTryOnTurntableTemplate, type TemplateCanvas } from './index'
-import { autoElementSources, planTasks, type WorkflowSnapshot } from '../batch/plan'
+import { planTasks, type WorkflowSnapshot } from '../batch/plan'
+import { videoGenElements } from '../video/klingElement'
 import { appKindOf, appScopeOf } from '../apps/appKind'
 
 describe('テンプレートから作成（商品動画）', () => {
-  it('ターンテーブル: 参照画像（向き）× 4 / Text Prompt / Video Generation × 4 / Video Merge / Export を読みやすい id で組み、ノード名は種類名のまま', () => {
+  it('ターンテーブル: 参照画像（案内つき）× 4 / Text Prompt / Video Generation × 4 / Video Merge / Export / Kling Element を読みやすい id で組み、ノード名は種類名のまま', () => {
     const c = buildProductVideoTemplate('turntable12')
-    expect(c.nodes.map((n) => n.id)).toEqual(['ref-front', 'ref-right', 'ref-back', 'ref-left', 'base-prompt', 'shot-1', 'shot-2', 'shot-3', 'shot-4', 'merge', 'export'])
-    expect(c.nodes.filter((n) => n.type === 'referenceImageNode').map((n) => `${n.data.label}:${n.data.role}`)).toEqual(['Reference Image:front', 'Reference Image:right', 'Reference Image:back', 'Reference Image:left'])
+    expect(c.nodes.map((n) => n.id)).toEqual(['ref-front', 'ref-right', 'ref-back', 'ref-left', 'base-prompt', 'shot-1', 'shot-2', 'shot-3', 'shot-4', 'merge', 'export', 'element'])
+    // 向きは持たず、入れる写真の案内だけ（見出し「Reference Image（正面）」・メモ 42）
+    expect(c.nodes.filter((n) => n.type === 'referenceImageNode').map((n) => `${n.data.label}:${n.data.photoHint}:${n.data.role ?? '-'}`)).toEqual(['Reference Image:正面:-', 'Reference Image:右側面:-', 'Reference Image:背面:-', 'Reference Image:左側面:-'])
     expect(c.nodes[5].data).toMatchObject({ label: 'Video Generation', model: 'kling-v3-pro', aspectRatio: 'auto', params: { autoTurn: false } })
     expect(String(c.nodes[5].data.params.prompt)).toContain('4 分の 1 回転')
-    expect(c.edges.filter((e) => e.target === 'shot-1').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['ref-front:out-image→in-image', 'ref-right:out-image→in-image-end', 'base-prompt:out-text-text-out→in-text'])
+    expect(String(c.nodes[5].data.params.prompt).startsWith('@Element1\n')).toBe(true)   // 参照一式を指す印は欄の先頭に見える形で
+    expect(c.edges.filter((e) => e.target === 'shot-1').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['ref-front:out-image→in-image', 'ref-right:out-image→in-image-end', 'base-prompt:out-text-text-out→in-text', 'element:out-element-element→in-element-1'])
     expect(c.edges.filter((e) => e.target === 'export').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['merge:out-video→in-video-v0'])
     expect(new Set(c.edges.map((e) => e.id)).size).toBe(c.edges.length)
-    // Kling の参照一式は兄弟ショットの向きから自動（正面 + 右・左・背面）
-    expect(autoElementSources(c.nodes, c.edges, 'shot-2').map((x) => x.role)).toEqual(['front', 'right', 'left', 'back'])
+    // Kling の参照一式は Kling Element に正面 + 右・左・背面をつなぎ、全ショットの参照一式 1 へ
+    expect(c.edges.filter((e) => e.target === 'element').map((e) => `${e.source}→${e.targetHandle}`)).toEqual(['ref-front→in-image-frontal', 'ref-right→in-image-ref1', 'ref-left→in-image-ref2', 'ref-back→in-image-ref3'])
+    const filledRefs = c.nodes.map((n) => (n.type === 'referenceImageNode' ? { ...n, data: { ...n.data, imageUrl: `https://x/${n.id}.jpg` } } : n))
+    expect(videoGenElements(filledRefs, c.edges, 'shot-2').elements).toEqual([{ frontalUrl: 'https://x/ref-front.jpg', referenceUrls: ['https://x/ref-right.jpg', 'https://x/ref-left.jpg', 'https://x/ref-back.jpg'] }])
     // 一括の入口が無いので一括の計画は無く、App にもならない（商品ごとに対話実行）
     expect(planTasks(c).tasks).toEqual([])
     expect(appKindOf(c)).toBeNull()
@@ -50,14 +55,14 @@ describe('テンプレートから作成（試着・2b-4）', () => {
   })
   it('試着 → ターンテーブル: 服の参照画像（向き）× 4 ＋ Model → Try-On × 4 → Video Generation × 4 → Video Merge → Export（ノード名は種類名）', () => {
     const c = buildTryOnTurntableTemplate()
-    expect(c.nodes.map((n) => n.id)).toEqual(['garment-front', 'garment-right', 'garment-back', 'garment-left', 'model', 'tryon-front', 'tryon-right', 'tryon-back', 'tryon-left', 'base-prompt', 'shot-1', 'shot-2', 'shot-3', 'shot-4', 'merge', 'export'])
+    expect(c.nodes.map((n) => n.id)).toEqual(['garment-front', 'garment-right', 'garment-back', 'garment-left', 'model', 'tryon-front', 'tryon-right', 'tryon-back', 'tryon-left', 'base-prompt', 'shot-1', 'shot-2', 'shot-3', 'shot-4', 'merge', 'export', 'element'])
     expect(c.nodes.filter((n) => n.data.type === 'tryOn').map((n) => `${n.data.label}:${n.data.params.role}`)).toEqual(['Try-On:front', 'Try-On:right', 'Try-On:back', 'Try-On:left'])
     expect(c.edges.filter((e) => e.target === 'tryon-right').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['garment-right:out-image→in-image-garment', 'model:out-image-right→in-image-model'])
-    expect(c.edges.filter((e) => e.target === 'shot-1').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['tryon-front:out-image-image-out→in-image', 'tryon-right:out-image-image-out→in-image-end', 'base-prompt:out-text-text-out→in-text'])
+    expect(c.edges.filter((e) => e.target === 'shot-1').map((e) => `${e.source}:${e.sourceHandle}→${e.targetHandle}`)).toEqual(['tryon-front:out-image-image-out→in-image', 'tryon-right:out-image-image-out→in-image-end', 'base-prompt:out-text-text-out→in-text', 'element:out-element-element→in-element-1'])
     expect(new Set(c.edges.map((e) => e.id)).size).toBe(c.edges.length)
-    // Try-On の結果は Model の向きを持ち、ショットの参照一式は試着結果から自動
+    // 参照一式は Kling Element に試着の結果（正面 + 右・左・背面）をつなぐ
     const filled = withModels(c)
-    expect(autoElementSources(filled.nodes!, filled.edges!, 'shot-1').map((x) => `${x.role}:${x.source}`)).toEqual(['front:tryon-front', 'right:tryon-right', 'left:tryon-left', 'back:tryon-back'])
+    expect(c.edges.filter((e) => e.target === 'element').map((e) => `${e.source}→${e.targetHandle}`)).toEqual(['tryon-front→in-image-frontal', 'tryon-right→in-image-ref1', 'tryon-left→in-image-ref2', 'tryon-back→in-image-ref3'])
     expect(planTasks(filled).tasks).toEqual([])   // 一括の入口が無い（対話実行で作る）
     expect(appKindOf(c)).toBeNull()
   })

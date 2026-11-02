@@ -274,6 +274,25 @@ svg.react-flow__connectionline {
   cursor: grabbing !important;
 }
 
+/* プルダウンの矢印（2026-11-02 メモ 47）: ブラウザ標準の矢印は右端に寄りすぎるので、すべての select を同じ矢印にそろえて右から 12px に置く。
+   アイコンを重ねる書き方はやめ、ここだけで描く。小さいプルダウンは .select-compact で詰める */
+:root { --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+.dark { --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23A1A1AA' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+select:not([multiple]) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  padding-right: 32px;
+}
+select.select-compact {
+  background-position: right 6px center;
+  background-size: 10px 10px;
+  padding-right: 20px;
+}
+
 /* ノード内のボタン・リンク・入力はポインターカーソルを維持 */
 .react-flow__node button,
 .react-flow__node a,
