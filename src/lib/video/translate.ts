@@ -5,7 +5,7 @@ import { builtinEnglish, hasJapanese } from './productVideo'
 
 // model id は入れ替わる（2026-10-17: claude-haiku-4.5 は 422 → claude-haiku-5.5。2026-11-01: openrouter/router でも haiku-5.5 / sonnet-4.5 が有効）。先頭から順に試し、id 不正なら次へ
 export const TRANSLATE_MODELS = ['anthropic/claude-haiku-5.5', 'anthropic/claude-sonnet-4.5', 'anthropic/claude-3-5-haiku']
-export const TRANSLATE_SYSTEM_PROMPT = 'You translate Japanese text into natural, concrete English for an AI video generation prompt about a fashion model wearing a garment. Write in the third person and present tense, describing the model (e.g. "The model stands facing the camera…"), never as an instruction to the reader. Output only the translation as one line, with no quotes, notes or alternatives. Keep any English words, numbers and @Element1 tokens exactly as they are. Do not add content that is not in the source.'
+export const TRANSLATE_SYSTEM_PROMPT = 'You translate Japanese text into natural, concrete English for an AI video generation prompt about a fashion model wearing a garment. Keep tokens that start with @ (such as @Element1) exactly as written. Write in the third person and present tense, describing the model (e.g. "The model stands facing the camera…"), never as an instruction to the reader. Output only the translation as one line, with no quotes, notes or alternatives. Keep any English words, numbers and @Element1 tokens exactly as they are. Do not add content that is not in the source.'
 
 /** LLM の出力を 1 行の文に整える（引用符・改行・前置きの除去） */
 export function sanitizeTranslation(s: unknown): string {

@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import { type NodeProps } from '@xyflow/react'
-import { Image, ChevronDown } from 'lucide-react'
+import { Image } from 'lucide-react'
 import { BaseNode } from './BaseNode'
 import type { NodeData } from '../../types/nodes'
 import { useCanvasStore } from '../../stores/canvasStore'
@@ -32,7 +32,6 @@ export const ImageNode = memo(function ImageNode(props: NodeProps) {
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
-        <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
       </div>
 
       {data.output ? (

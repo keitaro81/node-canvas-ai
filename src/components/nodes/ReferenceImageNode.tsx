@@ -9,12 +9,15 @@ import { signLibraryUrl, uploadToLibraryForNode } from '../../lib/api/library'
 import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import type { ReferenceImageNodeData } from '../../types/nodes'
-import { CUT_ROLES, type CutRole } from '../../lib/video/productVideo'
+import { CUT_ROLE_LABEL } from '../../lib/video/productVideo'
+import { isCutRole } from '../../lib/tryon/prompt'
 import { InpaintMaskModal } from '../modals/InpaintMaskModal'
 
 function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
   const drag = useDragTarget(id, 'referenceImageNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
   const nodeData = data as unknown as ReferenceImageNodeData
+  // どの写真を入れるかの案内（表示だけ・テンプレートが付ける。古いワークフローの向きは案内として見せるだけで、動きには使わない・2026-11-02 メモ 42）
+  const photoHint = nodeData.photoHint?.trim() || (isCutRole(nodeData.role) ? CUT_ROLE_LABEL[nodeData.role] : null)
   const updateNode = useCanvasStore((s) => s.updateNode)
   const currentWorkflowId = useWorkflowStore((s) => s.currentWorkflowId)
   const [isUploading, setIsUploading] = useState(false)
@@ -98,8 +101,8 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
     setIsUploading(true)
     try {
       const signedUrl = await signLibraryUrl(picked.url)
-      // モデルタブから入れたときは向きも持つ（Video Generation の回転指示・Try-On の向きに使う）
-      updateNode(id, { imageUrl: signedUrl, uploadedImagePreview: null, maskUrl: null, maskPreviewDataUrl: null, role: picked.role ?? null } as Parameters<typeof updateNode>[1])
+      // モデルタブから入れても向きは持たない（見えない向きの引き継ぎは廃止・2026-11-02 メモ 42。向きが要るときは Model ノード）
+      updateNode(id, { imageUrl: signedUrl, uploadedImagePreview: null, maskUrl: null, maskPreviewDataUrl: null, role: null } as Parameters<typeof updateNode>[1])
     } finally { setIsUploading(false) }
   }, [id, updateNode])
 
@@ -128,7 +131,7 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
         <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)]" style={{ minHeight: 36 }}>
           <div className="w-0.5 h-4 rounded-full shrink-0" style={{ background: '#8B5CF6' }} />
           <ImageIcon size={14} className="shrink-0" style={{ color: '#8B5CF6' }} />
-          <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}</span>
+          <span className="flex-1 text-[13px] font-semibold text-[var(--text-primary)] truncate">{nodeData.label}{photoHint ? `（${photoHint}）` : ''}</span>
           <button
             className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag"
             style={{ color: 'var(--text-tertiary)' }}
@@ -235,20 +238,12 @@ function ReferenceImageNodeInner({ id, data, selected }: NodeProps) {
               ) : (
                 <>
                   <ImageIcon size={24} color="var(--border-active)" />
-                  <span className="text-[12px]" style={{ color: '#8B5CF6' }}>クリックして追加</span>
+                  <span className="text-[12px]" style={{ color: '#8B5CF6' }}>{photoHint ? `${photoHint}の写真をクリックして追加` : 'クリックして追加'}</span>
                   <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>アップロード / ライブラリ・ドロップも可</span>
                 </>
               )}
             </button>
           )}
-          {/* 向き（2026-11-01）: 多角度の動画（開始・終了フレームの向き → 回転の指示文・Kling の参照一式）や試着の向きに使う */}
-          <label className="flex items-center justify-between gap-2 mt-2 text-[11px] nodrag" style={{ color: 'var(--text-secondary)' }}>
-            <span title="多角度の動画（Video Generation の開始・終了フレーム）や試着で、この画像の向きとして使います">向き</span>
-            <select className="h-7 px-2 rounded-md text-[11px] nodrag" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} value={nodeData.role ?? ''} onChange={(e) => updateNode(id, { role: (e.target.value || null) as CutRole | null } as Parameters<typeof updateNode>[1])}>
-              <option value="">なし</option>
-              {CUT_ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-            </select>
-          </label>
         </div>
         <MediaPickerDialog open={pickerOpen} onClose={() => setPickerOpen(false)} media="image" source="canvas" onPick={(items) => { void handlePick(items) }} />
 

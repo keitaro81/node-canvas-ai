@@ -10,7 +10,9 @@ import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
 import { BatchMark } from './BatchMark'
 import { CUT_ROLE_LABEL, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
-import { autoElementSources, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { VIDEO_GEN_ELEMENT_HANDLES, videoGenElements, type VideoGenElements } from '../../lib/video/klingElement'
+import { listItemsOf, type ListMode } from '../../lib/listItems'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
@@ -69,11 +71,15 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const hasConnectedImageNode = !!startEdge
 
-  // Kling の参照一式（elements）: このショットと、同じ Video Merge につながる兄弟ショットの開始・終了フレームにある向きつきの画像から自動で選ぶ
-  // （正面 1 + 別角度 最大 3。正面が無ければ付けない・2026-11-01。Cut Set Input のカット一式・従来の参照カット接続は廃止）
-  const elementUrlsKey = JSON.stringify(autoElementSources(rfNodes as unknown as SnapshotNode[], rfEdges as unknown as SnapshotEdge[], id).map((src) => { const n = rfNodes.find((x) => x.id === src.source); return n ? getImageUrlFromNodeData(n.data, src.sourceHandle) ?? '' : '' }))
-  const cutsElement = useMemo(() => { const urls = JSON.parse(elementUrlsKey) as string[]; return urls.length && urls[0] ? { frontalUrl: urls[0], referenceUrls: urls.slice(1).filter(Boolean) } : null }, [elementUrlsKey])
-  const hasImageInput = hasConnectedImageNode
+  // Kling の参照一式（2026-11-02 メモ 42 案 B）: 「参照一式」ポート 1〜3 につないだ Kling Element の写真を集める（向きによる見えない自動の選択は廃止）
+  const elementInfoKey = JSON.stringify(videoGenElements(rfNodes, rfEdges, id))
+  const elementInfo = useMemo(() => JSON.parse(elementInfoKey) as VideoGenElements, [elementInfoKey])
+  // List（2026-11-02 メモ 40）: 動画 → 参照動画、画像 → 開始フレーム、テキスト → 動きの指示として、項目ごとに 1 本ずつ作る
+  const listEdge = rfEdges.find((e) => e.target === id && e.targetHandle === 'in-list')
+  const hasList = !!listEdge
+  const listInfoKey = JSON.stringify(listItemsOf(rfNodes, rfEdges, listEdge?.source))
+  const listInfo = useMemo(() => JSON.parse(listInfoKey) as { mode: ListMode; items: string[] }, [listInfoKey])
+  const hasImageInput = hasConnectedImageNode || listInfo.mode === 'image'
   const shots: VideoShot[] = nodeData.shots ?? EMPTY_SHOTS
 
   // 終了フレーム（in-image-end）
@@ -92,7 +98,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     return (d.videoUrl as string | null) ?? null
   })()
 
-  const isV2VMode = !!connectedVideoUrl
+  const isV2VMode = !!connectedVideoUrl || listInfo.mode === 'video'
 
   const availableModels = isV2VMode
     ? v2vModels
@@ -144,9 +150,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     }
     const thisSnap = snap.nodes!.find((n) => n.id === id)!
     const refs: TaskInputs = { start: { kind: 'photo' }, ...(supportsEndImage && connectedEndImageUrl ? { end: { kind: 'photo' } } : {}) }   // 計画と同じプロンプトの組み立て（終点があれば追従を強める）
-    const withElements = !!supportsElements && !!cutsElement
     let translations: Record<string, string> | null = null
-    const toTranslate = textsNeedingTranslation(videoPromptSources(snap.nodes!, snap.edges!, id, refs))
+    if (hasList && listInfo.items.length === 0) {
+      upd(updateNode, id, { status: 'failed', progress: '', error: 'つないだ List に項目がありません（スロットに動画・画像・テキストをつないでください）' })
+      return
+    }
+    const toTranslate = textsNeedingTranslation([...videoPromptSources(snap.nodes!, snap.edges!, id, refs), ...(hasList && listInfo.mode === 'text' ? listInfo.items : [])])
     if (toTranslate.length) {
       upd(updateNode, id, { status: 'queued', progress: '日本語を英訳中...', error: null })
       try { translations = await translateTextsClient(toTranslate) }
@@ -155,9 +164,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
         return
       }
     }
-    const built = videoPromptOf(snap.nodes!, snap.edges!, thisSnap, refs, translations, withElements)
+    const built = videoPromptOf(snap.nodes!, snap.edges!, thisSnap, refs, translations)
     const prompt = built.prompt
-    if (!prompt && activeShots.length === 0) {
+    if (!prompt && activeShots.length === 0 && !(hasList && listInfo.mode === 'text')) {
       upd(updateNode, id, { status: 'failed', progress: '', error: 'プロンプトを入力してください（Text Prompt をつなぐか、動きの欄に書いてください。マルチショットのときは各ショットの指示でも可）' })
       return
     }
@@ -168,7 +177,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    const mode = connectedVideoUrl ? 'video-to-video' : startImageUrl ? 'image-to-video' : 'text-to-video'
+    const mode = connectedVideoUrl || listInfo.mode === 'video' ? 'video-to-video' : startImageUrl || listInfo.mode === 'image' ? 'image-to-video' : 'text-to-video'
+    // リストがあれば項目の数だけ作る（Count は使わない）
+    const runs = hasList ? listInfo.items.length : count
     const modelForMode = currentModel
 
     const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
@@ -194,7 +205,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     const displayIds: string[] = []
     const newEdges: Edge[] = []
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < runs; i++) {
       const displayId = `node-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`
       displayIds.push(displayId)
 
@@ -258,13 +269,23 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       ...(mode === 'video-to-video' && connectedVideoUrl ? { videoUrl: connectedVideoUrl, ...(connectedImageUrl ? { imageUrl: connectedImageUrl } : {}) } : {}),
       ...(mode === 'image-to-video' && startImageUrl ? { imageUrl: startImageUrl } : {}),
       ...(supportsEndImage && connectedEndImageUrl ? { endImageUrl: connectedEndImageUrl } : {}),
-      ...(supportsElements && cutsElement ? { elements: [cutsElement] } : {}),
+      ...(supportsElements && elementInfo.elements.length ? { elements: elementInfo.elements } : {}),
       ...(activeShots.length ? { shots: activeShots } : {}),
       ...(negativePrompt ? { negativePrompt } : {}),
       ...(cfgScale != null ? { cfgScale } : {}),
     }
 
-    // count 分を並列生成
+    // リストの項目ごとの依頼（動画 → 参照動画・画像 → 開始フレーム・テキスト → 動きの指示に足す）
+    const trItem = (t: string) => translations?.[t.trim()] ?? t
+    const requestFor = (i: number): VideoGenerationRequest => {
+      if (!hasList) return baseRequest
+      const item = listInfo.items[i]
+      if (listInfo.mode === 'video') return { ...baseRequest, mode: 'video-to-video', videoUrl: item }
+      if (listInfo.mode === 'image') return { ...baseRequest, mode: 'image-to-video', imageUrl: item }
+      return { ...baseRequest, prompt: [prompt, trItem(item)].filter(Boolean).join('\n') }
+    }
+
+    // count（またはリストの項目）分を並列生成
     await Promise.all(displayIds.map(async (displayId, i) => {
       const onProgress = (progress: VideoGenerationProgress) => {
         if (progress.status === 'IN_QUEUE') {
@@ -285,7 +306,8 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       }
 
       try {
-        const result = await falVideoProvider.generateVideo(baseRequest, onProgress, onRequestId)
+        const req = requestFor(i)
+        const result = await falVideoProvider.generateVideo(req, onProgress, onRequestId)
 
         if (result.status === 'completed' && result.videoUrl) {
           upd(updateNode, displayId, {
@@ -296,14 +318,14 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             error: null,
           })
           const videoInputParams = {
-            prompt,
+            prompt: req.prompt,
             model: modelForMode?.id ?? nodeData.model,
-            mode,
+            mode: req.mode,
             duration: nodeData.duration,
             resolution: nodeData.resolution,
             aspectRatio: nodeData.aspectRatio,
-            ...(mode === 'image-to-video' ? { imageUrl: startImageUrl } : {}),
-            ...(supportsElements && cutsElement ? { cuts: 1 + cutsElement.referenceUrls.length } : {}),
+            ...(req.mode === 'image-to-video' ? { imageUrl: req.imageUrl ?? startImageUrl } : {}),
+            ...(supportsElements && elementInfo.elements.length ? { cuts: elementInfo.elements.reduce((n, e) => n + 1 + e.referenceUrls.length, 0) } : {}),
             ...(activeShots.length ? { shots: activeShots.length } : {}),
           }
           // History とサムネイルを即座に保存（アップロード失敗やページ離脱でも確実に記録される）
@@ -388,7 +410,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
       ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
-  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, updateNode, activeShots, cutsElement, startImageUrl, supportsElements, supportsNegative])
+  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, updateNode, activeShots, elementInfo, startImageUrl, supportsElements, supportsNegative, hasList, listInfo])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -555,9 +577,15 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           { id: 'in-image', color: '#8B5CF6', title: '開始フレーム' },
           ...(supportsEndImage ? [{ id: 'in-image-end', color: '#A78BFA', title: '終了フレーム' }] : []),
           { id: 'in-video', color: '#EC4899', title: '参照動画' },
+          // 参照一式（Kling Element）: Kling v3 Pro のときだけ出す。番号がそのまま @ElementN（2026-11-02 メモ 42）
+          ...(supportsElements ? VIDEO_GEN_ELEMENT_HANDLES.map((h, k) => ({ id: h, color: '#F472B6', title: `参照一式 ${k + 1}` })) : []),
+          { id: 'in-list', color: '#8B5CF6', title: 'リスト（動画・画像・テキスト）' },
         ]
-        const names: Record<string, string> = { 'in-text': 'プロンプト', 'in-image': '開始フレーム', 'in-image-end': '終了フレーム', 'in-video': '参照動画' }
-        return list.map((h, i) => {
+        const names: Record<string, string> = { 'in-text': 'プロンプト', 'in-image': '開始フレーム', 'in-image-end': '終了フレーム', 'in-video': '参照動画', 'in-element-1': '参照一式 1', 'in-element-2': '参照一式 2', 'in-element-3': '参照一式 3', 'in-list': 'リスト' }
+        // 参照一式のポートは、対応していないモデルでも消さずに隠す（つないだ線が迷子にならないように）
+        const hiddenTop = `${Math.round(18 + 64)}%`
+        const hidden = supportsElements ? [] : VIDEO_GEN_ELEMENT_HANDLES.map((h) => <Handle key={h} id={h} type="target" position={Position.Left} style={{ top: hiddenTop, opacity: 0, pointerEvents: 'none', width: 20, height: 20 }} />)
+        return [...hidden, ...list.map((h, i) => {
           const top = `${Math.round(18 + (i * 64) / (list.length - 1))}%`
           return (
             <Fragment key={h.id}>
@@ -566,7 +594,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               <PortLabel top={top} at="input" text={names[h.id] ?? h.title} show={drag.inputOk(h.id)} />
             </Fragment>
           )
-        })
+        })]
       })()}
 
       {/* Body */}
@@ -597,7 +625,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', color: '#8B5CF6' }}
           >
             <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]" />
-            {hasConnectedImageNode ? '参照画像あり → Image to Video' : '参照カットの正面を開始フレームにして Image to Video'}
+            {hasConnectedImageNode ? '参照画像あり → Image to Video' : 'リストの画像を 1 枚ずつ開始フレームに → Image to Video'}
           </div>
         )}
         {!connectedVideoUrl && hasImageInput && !endEdge && supportsEndImage && (
@@ -620,11 +648,21 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* Kling の参照一式（自動）: 1 行だけ */}
-        {supportsElements && cutsElement && (
-          <div className="flex items-center gap-1.5 text-[11px] px-1" style={{ color: 'var(--text-tertiary)' }} title="同じ Video Merge につながるショットの向きつきの画像から、正面 1 + 別角度を Kling の参照（人物と服の見た目を揃える）に使います">
-            <Images size={11} />参照 {1 + cutsElement.referenceUrls.length} 枚（自動）
+        {/* Kling の参照一式（2026-11-02 メモ 42）: Kling v3 Pro のときは参照一式をつなげることを明示する */}
+        {supportsElements && (
+          <div className="flex items-start gap-1.5 text-[10px] leading-snug rounded-md px-2 py-1.5" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+            <Images size={11} className="mt-0.5 shrink-0" />
+            <span>
+              {elementInfo.connected.length === 0
+                ? '参照一式: 左の「参照一式」ポートに Kling Element をつなげます（最大 3 つ）。同じ服や人物を別の角度から写した写真を渡すと、動画の途中で見える面の形や柄が崩れにくくなります。プロンプトでは @Element1 のように指します'
+                : `参照一式: ${elementInfo.elements.map((e, k) => `@Element${k + 1}（正面＋別角度 ${e.referenceUrls.length}）`).join('・') || 'なし'}`}
+              {elementInfo.incomplete.length > 0 && <span style={{ color: '#F59E0B' }}>{` ／ 参照一式 ${elementInfo.incomplete.join('・')} は写真が足りないため使いません（正面と別角度 1 枚以上）`}</span>}
+              {elementInfo.gap && <span style={{ color: '#F59E0B' }}>{' ／ 参照一式は 1 から順につないでください'}</span>}
+            </span>
           </div>
+        )}
+        {!supportsElements && elementInfo.connected.length > 0 && (
+          <div className="text-[10px] leading-snug px-2 py-1 rounded" style={{ background: 'rgba(245,158,11,0.10)', color: '#F59E0B' }}>参照一式はこのモデルでは使えません（Kling v3 Pro のみ）</div>
         )}
 
         {/* 動き（プロンプト）・避けたいこと（設計 §4.2）: つないだテキストの後に付く。日本語は生成時に英訳 */}
@@ -680,7 +718,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <select
                   value={sh.duration}
                   onChange={(e) => upd(updateNode, id, { shots: shots.map((x, j) => (j === i ? { ...x, duration: Number(e.target.value) } : x)) })}
-                  className="h-7 rounded px-1 text-[11px] nodrag appearance-none"
+                  className="h-7 rounded px-1 text-[11px] nodrag select-compact"
                   style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
                   disabled={isGenerating}
                   title="このショットの秒数"
@@ -869,7 +907,13 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* Count stepper */}
+        {/* Count stepper（リストをつないだら項目の数だけ作る・メモ 40） */}
+        {hasList ? (
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-medium text-[var(--text-secondary)]">Count</label>
+            <span className="text-[11px] px-2 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.12)', color: '#8B5CF6' }} title={listInfo.mode === 'video' ? '動画ごとに参照動画として 1 本ずつ' : listInfo.mode === 'image' ? '画像ごとに開始フレームとして 1 本ずつ' : '文ごとに動きの指示として 1 本ずつ'}>List × {listInfo.items.length}（{listInfo.mode === 'video' ? '動画' : listInfo.mode === 'image' ? '画像' : listInfo.mode === 'text' ? 'テキスト' : '未設定'}）</span>
+          </div>
+        ) : (
         <div className="flex items-center justify-between">
           <label className="text-[11px] font-medium text-[var(--text-secondary)]">Count</label>
           <div className="flex items-center gap-1">
@@ -892,6 +936,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             </button>
           </div>
         </div>
+        )}
 
         {/* Generate button */}
         <button

@@ -1,4 +1,4 @@
-export type PortType = 'text' | 'image' | 'video' | 'style' | 'list' | 'cutout' | 'item' | 'cuts'
+export type PortType = 'text' | 'image' | 'video' | 'style' | 'list' | 'cutout' | 'item' | 'cuts' | 'element'   // element = Kling の参照一式（Kling Element → Video Generation・2026-11-02）
 
 import type { CutRole } from '../lib/video/productVideo'
 
@@ -27,6 +27,7 @@ export type NodeType =
   | 'videoMerge'
   | 'tryOn'
   | 'libraryModel'
+  | 'klingElement'
 
 // Capsule機能: フィールド単位の公開フラグ
 export type CapsuleVisibility = 'hidden' | 'visible' | 'editable'
@@ -70,6 +71,7 @@ export const PORT_COLORS: Record<PortType, string> = {
   cutout: '#14B8A6',
   item:   '#6B7280',
   cuts:   '#F472B6',
+  element: '#EC4899',
 }
 
 export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
@@ -97,6 +99,7 @@ export const NODE_ACCENT_COLORS: Record<NodeType, string> = {
   videoMerge:      '#EC4899',
   tryOn:           '#8B5CF6',
   libraryModel:    '#8B5CF6',
+  klingElement:    '#EC4899',
 }
 
 // ===== ビデオノード関連の型 =====
@@ -131,8 +134,8 @@ export interface VideoGenerationNodeData {
 export interface ListNodeData {
   label: string
   slotCount: number
-  /** 'unset' = 未接続で両方受け付け、最初の接続で自動確定 */
-  mode: 'image' | 'text' | 'unset'
+  /** 'unset' = 未接続でどれも受け付け、最初の接続で自動確定。video は 2026-11-02 メモ 40（Video Generation のリストで参照動画に使う） */
+  mode: 'image' | 'text' | 'video' | 'unset'
 }
 
 export interface CameraListNodeData {
@@ -147,8 +150,18 @@ export interface ReferenceImageNodeData {
   uploadedImagePreview: string | null
   maskUrl?: string | null
   maskPreviewDataUrl?: string | null
-  /** 「画像を追加」のモデルタブから入れたときの向き（Video Generation の回転指示・Try-On の向きに使う） */
+  /** 旧: 向き（2026-11-02 メモ 42 で廃止。読まない・書かない。古いワークフローの値は photoHint が無いときの表示にだけ使う） */
   role?: CutRole | null
+  /** どの写真を入れるかの案内（テンプレートが付ける・表示だけ。見出し「Reference Image（正面）」と空の枠の文に出す） */
+  photoHint?: string | null
+}
+
+/** Kling の参照一式（同じ服・人物を正面と別の角度から写した写真のまとまり）。入力 = 正面 1 + 別角度 1〜3（ポートでつなぐだけ）、出力 = 参照一式 */
+export interface KlingElementNodeData {
+  type: 'klingElement'
+  label: string
+  params: Record<string, unknown>
+  status: NodeStatus
 }
 
 export interface ReferenceVideoNodeData {

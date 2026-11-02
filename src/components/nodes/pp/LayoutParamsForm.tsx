@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { LayoutAlignH, LayoutAlignV, LayoutBackgroundFit, LayoutBackgroundKind, LayoutMarginUnit, LayoutParams, LayoutShadowKind } from '../../../types/nodes'
 import { LAYOUT_SIZE_PRESETS } from '../../../lib/layout/computeLayout'
+import { isReservedVariantName } from '../../../lib/export/naming'
 import { Field, Num, Sel, TextField } from './controls'
 import { CTRL, INPUT_STYLE, stopKeys } from './styles'
 
@@ -24,6 +25,9 @@ export function LayoutParamsForm({ params, onChange, showVariantName = true, mar
       {showVariantName && (
         <Field label="バリアント名">
           <TextField value={params.variantName} onChange={(v) => setParams({ variantName: v })} placeholder="ec_white" />
+          {isReservedVariantName(params.variantName) && (
+            <div className="rounded-md px-2 py-1 mt-1 text-[11px]" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.12)' }}>「cutout」は切り抜き PNG のフォルダ名に使うため、別の名前にしてください（このままだと切り抜き PNG は cutout_png に入ります）</div>
+          )}
         </Field>
       )}
 

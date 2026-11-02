@@ -233,7 +233,8 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   const summarizeExport = useCallback((p: ExportParams) => {
     if (!ctx || !exportScope) return { columnNames: [] as string[], fileCount: 0, estimateBytes: 0 }
     const targets = exportTargets(ctx, exportScope, selected)
-    return { columnNames: exportColumnsFor(ctx, p.includeCutout).map((c) => c.name), fileCount: exportFileCount(ctx, targets, p.includeCutout), estimateBytes: estimateExportBytes(ctx, exportScope, p, selected) }
+    const cols = exportColumnsFor(ctx, p.includeCutout)
+    return { columnNames: cols.map((c) => c.name), previewColumn: (cols.find((c) => !c.forcePng) ?? cols[0])?.name ?? null, fileCount: exportFileCount(ctx, targets, p.includeCutout), estimateBytes: estimateExportBytes(ctx, exportScope, p, selected) }
   }, [ctx, exportScope, selected])
   // 生成結果の列を表示中: 結果画像の大きさ（枠の比率）
   const resultSizes = useMemo(() => {

@@ -24,6 +24,9 @@ import { JobReviewPanel } from '../jobs/review/JobReviewPanel'
 import { AppBatchInput } from './AppBatchInput'
 import { clearAppPhotos } from '../../lib/batch/appPhotos'
 import { AppLayoutSettings } from './AppLayoutSettings'
+import { AppSettingsPanel } from './AppSettingsPanel'
+import { useAppSettings } from '../../hooks/useAppSettings'
+import { appSettingFieldsOf, appSettingsStorageKey, applyAppSettings } from '../../lib/apps/appSettings'
 
 const ACCENT = '#14B8A6'
 
@@ -63,6 +66,9 @@ export function BatchAppView() {
   const hasLayoutParts = useMemo(() => appCanvas.nodes.some((n) => n.data?.type === 'removeBackground' || n.data?.type === 'productLayout'), [appCanvas])
   // 計画（処理内容）と、一括 App として動かせない理由（入口が 2 つ以上・画像と動画の混在・動画が 2 本以上。2026-11-02）
   const plan = useMemo(() => appBatchPlanOf({ capsuleGroupId, nodes: liveCanvas.nodes, edges: liveCanvas.edges }, scope.groupId), [liveCanvas, capsuleGroupId, scope.groupId])
+  // 設定（メモ 46・使う人ごとに選ぶ）: 処理に使うモデル・画像・文をこの画面で選び直す。ブラウザに覚え、処理を始めるときに写しへ入れる
+  const settingFields = useMemo(() => (plan ? appSettingFieldsOf(appCanvas.nodes, appCanvas.edges, plan.tasks.map((t) => t.nodeId)) : []), [plan, appCanvas])
+  const [appSettings, setAppSettings] = useAppSettings(appSettingsStorageKey(workflowId, scope.entryId))
 
   useEffect(() => {
     let alive = true
@@ -84,11 +90,12 @@ export function BatchAppView() {
   const submit = useCallback((items: CreateItemInput[]) => {
     const { nodes: all, edges: allEdges } = useCanvasStore.getState()
     const { nodes: ns, edges } = appCanvasOf(all, allEdges, scope.groupId)
+    const withSettings = applyAppSettings(ns, appSettings, settingFields)   // 使う人が選んだモデル・画像・文（ワークフローは変えない）
     openSubmitDialogWith({
-      items, snapshot: pruneToEntry(buildWorkflowSnapshot(ns, edges), batchInput?.id ?? null), workflowId,   // この入口の枝だけ（メモ 24）
+      items, snapshot: pruneToEntry(buildWorkflowSnapshot(withSettings, edges), batchInput?.id ?? null), workflowId,   // この入口の枝だけ（メモ 24）
       onDone: (jobId) => { clearAppPhotos(`${workflowId ?? 'draft'}:${batchInput?.id ?? ''}`); setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
     })
-  }, [openSubmitDialogWith, workflowId, bump, batchInput?.id, scope.groupId])
+  }, [openSubmitDialogWith, workflowId, bump, batchInput?.id, scope.groupId, appSettings, settingFields])
 
   if (!batchInput || plan?.issue) {
     return (
@@ -114,6 +121,10 @@ export function BatchAppView() {
             入れた写真すべてに、App「{workflowName}」の処理（上の「処理内容」）を行います。
           </p>
           <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${batchInput.id}`} initialItems={(batchInput.data as unknown as NodeData).items as BatchItem[] | undefined} />
+          {settingFields.length > 0 && (<>
+            <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
+            <AppSettingsPanel fields={settingFields} settings={appSettings} onChange={setAppSettings} workflowId={workflowId} />
+          </>)}
           {hasLayoutParts && (<>
             <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
             <AppLayoutSettings groupId={scope.groupId} />

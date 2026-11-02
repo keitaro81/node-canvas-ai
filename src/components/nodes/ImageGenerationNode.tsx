@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { PortLabel } from './PortLabel'
 import { BatchMark } from './BatchMark'
 import { dimIfNotTarget, useDragTarget } from './portDrag'
-import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
+import { Sparkles, Loader2, X, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
 import { useCanvasStore, type AppNode } from '../../stores/canvasStore'
 import type { NodeData, CapsuleFieldDef, CapsuleVisibility, ListNodeData, CameraListNodeData, CutoutRef } from '../../types/nodes'
@@ -111,14 +111,9 @@ const MAX_REF_SLOTS = 10
 const REF_HANDLE_IDS = ['in-image', 'in-image-2', 'in-image-3', 'in-image-4', 'in-image-5', 'in-image-6', 'in-image-7', 'in-image-8', 'in-image-9', 'in-image-10'] as const
 function refHandleId(i: number): string { return REF_HANDLE_IDS[i] ?? 'in-image' }
 
-// ハンドルの絶対位置（ノード上端からのpx）
-// ボディのバッジ行下からスロットを並べる: header(36) + padding(12) + badge(22) + gap(8) = 78px
-const REF_SECTION_TOP = 78
+// 参照画像の枠（ノードの中の一覧）の大きさ。ポートの位置は枠に合わせず、上から等間隔（portTop・2026-11-02 メモ 39）
 const REF_SLOT_H = 28
 const REF_SLOT_GAP = 4
-function refHandleTop(i: number): number {
-  return REF_SECTION_TOP + i * (REF_SLOT_H + REF_SLOT_GAP) + REF_SLOT_H / 2
-}
 
 
 
@@ -368,6 +363,9 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     )
   ).length
   const refSlotCount = Math.min(connectedRefCount + 1, MAX_REF_SLOTS)
+  // 入力のポートは上から順に等間隔（プロンプト → 参照 1〜n → リスト。欄の位置には合わせない・2026-11-02 メモ 39）
+  const portCount = refSlotCount + 2
+  const portTop = (k: number) => `${Math.round(((k + 1) / (portCount + 1)) * 1000) / 10}%`
 
   // ListNode 専用の in-list ハンドルへの接続
   const listNodeEdge = storeEdges.find(
@@ -818,7 +816,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           type="target"
           position={Position.Left}
           style={{
-            top: '18%',
+            top: portTop(0),
             width: 20,
             height: 20,
             background: 'radial-gradient(circle, #6366F1 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -827,7 +825,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             ...dimIfNotTarget(drag, drag.inputOk('in-text')),
           }}
         />
-        <PortLabel top="18%" at="input" text="プロンプト" show={drag.inputOk('in-text')} />
+        <PortLabel top={portTop(0)} at="input" text="プロンプト" show={drag.inputOk('in-text')} />
         {/* 参照画像ハンドル: 常に MAX_REF_SLOTS 分描画し、refSlotCount 外は非表示にする
             （ハンドルを動的にアンマウントすると React Flow が #008 警告を出すため） */}
         {Array.from({ length: MAX_REF_SLOTS }, (_, i) => (
@@ -838,7 +836,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               position={Position.Left}
               style={{
                 position: 'absolute',
-                top: refHandleTop(i),
+                top: portTop(Math.min(i, refSlotCount - 1) + 1),
                 width: 20,
                 height: 20,
                 background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -848,7 +846,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 ...(i >= refSlotCount ? { opacity: 0, pointerEvents: 'none' } : {}),
               }}
             />
-            {i < refSlotCount && <PortLabel top={refHandleTop(i)} at="input" text={`参照 ${i + 1}`} show={drag.inputOk(refHandleId(i))} />}
+            {i < refSlotCount && <PortLabel top={portTop(i + 1)} at="input" text={`参照 ${i + 1}`} show={drag.inputOk(refHandleId(i))} />}
           </Fragment>
         ))}
         {/* ListNode 専用ハンドル */}
@@ -857,7 +855,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
           type="target"
           position={Position.Left}
           style={{
-            top: '85%',
+            top: portTop(refSlotCount + 1),
             width: 20,
             height: 20,
             background: 'radial-gradient(circle, #8B5CF6 3px, var(--bg-surface) 3px 5px, transparent 5px)',
@@ -866,11 +864,11 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             ...dimIfNotTarget(drag, drag.inputOk('in-list')),
           }}
         />
-        <PortLabel top="85%" at="input" text="リスト" show={drag.inputOk('in-list')} />
+        <PortLabel top={portTop(refSlotCount + 1)} at="input" text="リスト" show={drag.inputOk('in-list')} />
         {/* 後方互換: 旧ハンドルID（スロット0と同じ位置、非表示） */}
-        <Handle id="in-text-prompt"     type="target" position={Position.Left} style={{ top: '18%', ...hiddenHandleStyle }} />
-        <Handle id="in-image-1"         type="target" position={Position.Left} style={{ top: refHandleTop(0), ...hiddenHandleStyle }} />
-        <Handle id="in-image-reference" type="target" position={Position.Left} style={{ top: refHandleTop(0), ...hiddenHandleStyle }} />
+        <Handle id="in-text-prompt"     type="target" position={Position.Left} style={{ top: portTop(0), ...hiddenHandleStyle }} />
+        <Handle id="in-image-1"         type="target" position={Position.Left} style={{ top: portTop(1), ...hiddenHandleStyle }} />
+        <Handle id="in-image-reference" type="target" position={Position.Left} style={{ top: portTop(1), ...hiddenHandleStyle }} />
 
         {/* Body */}
         <div className="px-3 py-3 flex flex-col gap-2">
@@ -966,7 +964,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
               </div>
             </div>
           )}
@@ -993,7 +990,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>
-                  <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
                 </div>
               </div>
             </>
@@ -1013,7 +1009,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                 <option value="item">アイテムごと（画像 1 枚につき 1 回）</option>
                 <option value="job">ジョブごと（1 回だけ実行して全アイテムで共有）</option>
               </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
             </div>
             {perItemStage && (
               <p className="mt-1 text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
@@ -1043,7 +1038,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
               </div>
             ) : !hasImages && isRecraftModel ? (
               <div className="relative">
@@ -1058,7 +1052,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
               </div>
             ) : (
               <div className="relative">
@@ -1073,7 +1066,6 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
                     <option key={ratio} value={ratio}>{ratio}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
               </div>
             )}
           </div>

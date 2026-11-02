@@ -71,6 +71,25 @@ describe('DSL → キャンバス', () => {
   })
 })
 
+describe('チャットで組む: 参照画像の向きは組むときだけ・Kling Element（2026-11-02 メモ 42）', () => {
+  it('role は案内（photoHint）と回転の指示文にだけ使い、ノードに向きは残さない。参照一式をつないだショットは動きの先頭に @Element1', () => {
+    const r = compileWorkflow({
+      nodes: [{ id: 'rf', type: 'referenceImage', params: { role: 'front' } }, { id: 'rr', type: 'referenceImage', params: { role: 'right' } }, { id: 'tp', type: 'textPrompt', params: { prompt: 'p' } }, { id: 'el', type: 'klingElement' }, { id: 'v', type: 'videoGen', params: { prompt: 'ゆっくり' } }],
+      edges: [{ from: 'rf.image', to: 'v.start' }, { from: 'rr.image', to: 'v.end' }, { from: 'tp.text', to: 'v.text' }, { from: 'rf.image', to: 'el.frontal' }, { from: 'rr.image', to: 'el.ref1' }, { from: 'el.element', to: 'v.element1' }],
+    })
+    expect(r.errors).toEqual([])
+    const ri = r.canvas!.nodes.find((n) => n.id === 'rf')!
+    expect(ri.data.role).toBeUndefined()
+    expect(ri.data.photoHint).toBe('正面')
+    const v = r.canvas!.nodes.find((n) => n.id === 'v')!
+    const prompt = String(v.data.params.prompt)
+    expect(prompt.startsWith('@Element1\n')).toBe(true)
+    expect(prompt).toContain('4 分の 1 回転')   // 正面 → 右側面の回転の指示文（組むときの向きから）
+    expect(prompt).toContain('ゆっくり')
+    expect(r.canvas!.edges.find((e) => e.target === 'v' && e.targetHandle === 'in-element-1')?.source).toBe('el')
+  })
+})
+
 describe('LLM の応答の読み取りとプロンプト', () => {
   it('コードフェンス付きでも読め、形が違えば error', () => {
     expect(parseAgentReply('```json\n{"message":"ok","workflow":{"name":"n","nodes":[{"id":"a","type":"batchInput"}],"edges":[]}}\n```').reply).toEqual({ message: 'ok', workflow: { name: 'n', nodes: [{ id: 'a', type: 'batchInput' }], edges: [] } })

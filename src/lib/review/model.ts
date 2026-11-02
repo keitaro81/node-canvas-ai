@@ -1,4 +1,5 @@
 // ReviewGrid（仕様 5 章）の純関数: 写しからバリアント/切り抜き/書き出し設定を取り出す、識別値の入力、絞り込み、キーボード移動、書き出し計画。
+import { cutoutNameFor } from '../export/naming'
 import type { BatchItemInfo, CutoutParams, ExportFormat, ExportParams, LayoutParams } from '../../types/nodes'
 import type { BatchItemRow, BatchJobDetail, BatchTaskRow } from '../../types/batch'
 import { normalizeLayoutParams } from '../layout/computeLayout'
@@ -277,15 +278,16 @@ export interface ExportColumn {
   result?: ReviewResultColumn
 }
 /** 切り抜き列（透過 PNG・元のサイズ）。レイアウトが無いジョブの唯一の列、または「切り抜きも書き出す」で先頭に加える */
-export function cutoutExportColumn(): ExportColumn {
+export function cutoutExportColumn(name = 'cutout'): ExportColumn {
   const v = exportVariantsOf([])[0]
-  return { kind: 'variant', key: v.key, name: v.name, transparent: true, forcePng: true, variant: v }
+  return { kind: 'variant', key: v.key, name, transparent: true, forcePng: true, variant: { ...v, name } }
 }
 export function exportColumnsOf(variants: ReviewVariant[], results: ReviewResultColumn[], hasCutout: boolean, includeCutout = false): ExportColumn[] {
   const layout: ExportColumn[] = !hasCutout
     ? []
     : variants.length
-      ? [...(includeCutout ? [cutoutExportColumn()] : []), ...variants.map((v): ExportColumn => ({ kind: 'variant', key: v.key, name: v.name, transparent: v.params.backgroundKind === 'transparent', variant: v }))]
+      // バリアント名に cutout があれば、切り抜き PNG 側を cutout_png にして混ぜない（2026-11-02 メモ 44）
+      ? [...(includeCutout ? [cutoutExportColumn(cutoutNameFor(variants.map((v) => v.name)))] : []), ...variants.map((v): ExportColumn => ({ kind: 'variant', key: v.key, name: v.name, transparent: v.params.backgroundKind === 'transparent', variant: v }))]
       : [cutoutExportColumn()]
   const res: ExportColumn[] = results.map((r) => ({ kind: 'result', key: r.key, name: r.name, transparent: false, result: r }))
   return [...layout, ...res]

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { entryNodeOf, imageRoleOfSource, inputNodesOf, materializeTurnPresets, planTasks, planTasksForNode, pruneToEntry, promptTextsToTranslateForPlan, snapshotHasVideo, type WorkflowSnapshot, autoElementSources, videoPromptOf, videoPromptSources } from './plan'
+import { entryNodeOf, imageRoleOfSource, inputNodesOf, materializeTurnPresets, planTasks, planTasksForNode, pruneToEntry, promptTextsToTranslateForPlan, snapshotHasVideo, type WorkflowSnapshot, videoPromptOf, videoPromptSources } from './plan'
 import { NEG_JP_NO_BACK, TO_END_EN, turnInstruction, turnPreset } from '../video/productVideo'
 
 const RB_PARAMS = { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '1024x1024', alphaThreshold: 8, featherPx: 0 }
@@ -169,11 +169,11 @@ describe('2b-4: Try-On の向きを Video Generation の始点・終点に引き
     expect(v.input.prompt).toBe('p')   // 回転の指示は裏で足さない（欄の文だけ・2026-11-01 決定）。向きは __shot と表示に使う
     expect(v.input.cfg_scale).toBe(0.7)
   })
-  it('画像の出どころの向き: Model の向きのポート / 参照画像の向き / Try-On（選んだカット・Model から・別の Try-On から）/ Try-On の結果ノード。それ以外は null', () => {
+  it('画像の出どころの向き: Model の向きのポート / Try-On（選んだカット・Model から・別の Try-On から）/ Try-On の結果ノード。参照画像の向きは読まない（2026-11-02 メモ 42）。それ以外は null', () => {
     const nodes = [{ id: 'mdl', type: 'libraryModelNode', data: { type: 'libraryModel', cuts: {} } }, { id: 'ri2', type: 'referenceImageNode', data: { type: 'referenceImage', role: 'back' } }, tryOn('t1', 'back'), tryOn('t2', 'front', { model: null }), tryOn('t3', 'left', { model: null }), { id: 'disp', type: 'imageDisplayNode', data: { type: 'imageDisplay' } }, { id: 'ri', type: 'referenceImageNode', data: { type: 'referenceImage' } }]
     const edges = [e('mdl', 'out-image-right', 't2', 'in-image-model'), e('t2', 'out-image-image-out', 't3', 'in-image-model'), e('t1', 'out-image-image-out', 'disp', 'in-image-image-in')]
     expect(imageRoleOfSource(nodes, edges, 'mdl', 'out-image-left')).toBe('left')   // Model ノードの向きのポート
-    expect(imageRoleOfSource(nodes, edges, 'ri2', 'out-image')).toBe('back')   // 参照画像の向き
+    expect(imageRoleOfSource(nodes, edges, 'ri2', 'out-image')).toBeNull()   // 参照画像の向き（古いデータの role）は読まない
     expect(imageRoleOfSource(nodes, edges, 't1', 'out-image-image-out')).toBe('back')
     expect(imageRoleOfSource(nodes, edges, 't2', 'out-image-image-out')).toBe('right')
     expect(imageRoleOfSource(nodes, edges, 't3', 'out-image-image-out')).toBe('right')
@@ -186,7 +186,8 @@ describe('materializeTurnPresets（トグル廃止・読み込み時 / 組んだ
   it('autoTurn 未設定の VG: 向きが違えば定型文を動き・避けたいことに入れて autoTurn: false。同じ向きなら autoTurn だけ。向きが分からない / autoTurn: false はそのまま', () => {
     const nodes = [ref('rf', 'front'), ref('rr', 'right'), ref('rk', 'back'), vg('v1', { params: { prompt: 'Feet stay planted.', negativePrompt: 'blur' } }), vg('v2', { params: { prompt: '呼吸する' } }), vg('v3', { params: {} }), vg('v4', { params: { autoTurn: false, prompt: 'x' } })]
     const edges = [e('rf', 'out-image', 'v1', 'in-image'), e('rr', 'out-image', 'v1', 'in-image-end'), e('rk', 'out-image', 'v2', 'in-image'), e('rk', 'out-image', 'v2', 'in-image-end'), e('rf', 'out-image', 'v4', 'in-image'), e('rr', 'out-image', 'v4', 'in-image-end')]
-    const r = materializeTurnPresets(nodes, edges)
+    expect(materializeTurnPresets(nodes, edges).written).toBe(0)   // 参照画像の向き（古い role）は読まない（2026-11-02 メモ 42）
+    const r = materializeTurnPresets(nodes, edges, { rf: 'front', rr: 'right', rk: 'back' })   // チャットで組むときだけの向き
     expect(r.changed).toBe(true)
     expect(r.written).toBe(1)
     const [, , , v1, v2, v3, v4] = r.nodes
@@ -197,8 +198,8 @@ describe('materializeTurnPresets（トグル廃止・読み込み時 / 組んだ
     expect(materializeTurnPresets(r.nodes, edges).changed).toBe(false)
     // 書き込む前は欄の文だけ（裏で足さない）。書き込んだ後は定型文の対訳（行ごと）+ 補足 + 最短で終点へ
     const inputs = { start: { kind: 'photo' as const }, end: { kind: 'photo' as const } }
-    expect(videoPromptOf(nodes, edges, nodes[3], inputs, null, false).prompt).toBe('Feet stay planted.')
-    const after = videoPromptOf(r.nodes, edges, r.nodes[3], inputs, null, false)
+    expect(videoPromptOf(nodes, edges, nodes[3], inputs, null).prompt).toBe('Feet stay planted.')
+    const after = videoPromptOf(r.nodes, edges, r.nodes[3], inputs, null)
     expect(after.prompt).toContain(turnInstruction('front', 'right').motion)
     expect(after.prompt).toContain('Feet stay planted.')
     expect(after.prompt).toContain(TO_END_EN)
@@ -207,21 +208,6 @@ describe('materializeTurnPresets（トグル廃止・読み込み時 / 組んだ
   })
 })
 
-describe('Kling の参照一式（自動）: autoElementSources（2026-11-01）', () => {
-  const ref = (id: string, role: string | null) => ({ id, type: 'referenceImageNode', data: { type: 'referenceImage', imageUrl: `https://x/${id}.jpg`, role } })
-  it('同じ Video Merge につながる兄弟ショットの向きつき画像から、正面 1 + 別角度（右 → 左 → 背面 → 全身 → ディテール）最大 3。単発のショットは自分の始点・終点だけ、正面が無ければ空', () => {
-    const nodes = [ref('rf', 'front'), ref('rr', 'right'), ref('rk', 'back'), ref('rl', 'left'), ref('rd', 'detail'), ref('rn', null), vg('s1'), vg('s2'), vg('s3'), vg('solo'), merge('m')]
-    const edges = [
-      e('rf', 'out-image', 's1', 'in-image'), e('rr', 'out-image', 's1', 'in-image-end'),
-      e('rr', 'out-image', 's2', 'in-image'), e('rk', 'out-image', 's2', 'in-image-end'),
-      e('rl', 'out-image', 's3', 'in-image'), e('rd', 'out-image', 's3', 'in-image-end'),
-      e('s1', 'out-video', 'm', 'in-video-1'), e('s2', 'out-video', 'm', 'in-video-2'), e('s3', 'out-video', 'm', 'in-video-3'),
-      e('rr', 'out-image', 'solo', 'in-image'), e('rn', 'out-image', 'solo', 'in-image-end'),
-    ]
-    expect(autoElementSources(nodes, edges, 's2').map((x) => `${x.role}:${x.source}`)).toEqual(['front:rf', 'right:rr', 'left:rl', 'back:rk'])
-    expect(autoElementSources(nodes, edges, 'solo')).toEqual([])
-  })
-})
 
 describe('入口ごとの計画（メモ 24）・参照画像の固定画像（メモ 23）・固定の画像だけのノード', () => {
   const MODEL = 'https://x.supabase.co/storage/v1/object/sign/generated-images/library/u/front.jpg?token=t'
@@ -235,7 +221,7 @@ describe('入口ごとの計画（メモ 24）・参照画像の固定画像（�
     expect(planTasks(snap).tasks.map((t) => t.nodeId)).toEqual(['v1', 'm'])   // 混ぜると動画のジョブ扱いで試着は対象外
     const fromBi = planTasks(pruneToEntry(snap, 'bi'))
     expect(fromBi.tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['t1:imageEdit'])
-    expect(fromBi.tasks[0].inputs.model).toEqual({ kind: 'asset', url: MODEL, role: 'front' })   // 参照画像（モデルタブ）= 固定の画像・向きつき。生データの imageUrl でも読める
+    expect(fromBi.tasks[0].inputs.model).toEqual({ kind: 'asset', url: MODEL })   // 参照画像 = 固定の画像（向きは持たない・メモ 42）。生データの imageUrl でも読める
     expect(planTasks(pruneToEntry(snap, 'bi2')).tasks.map((t) => t.nodeId)).toEqual(['v1', 'm'])
     expect(entryNodeOf(snap, 't1')).toBe('bi')
     expect(entryNodeOf(snap, 'm')).toBe('bi2')
@@ -245,7 +231,7 @@ describe('入口ごとの計画（メモ 24）・参照画像の固定画像（�
     const single: WorkflowSnapshot = { nodes: [bi, riModel, tryOn('t1')], edges: edges.slice(0, 2) }
     expect(pruneToEntry(single, 'bi')).toBe(single)
   })
-  it('固定の画像（参照画像）だけを入力にした Remove Background / Image Generation / Video Generation は一括の対象にしない。写真と組み合わせれば対象（向きも載る）', () => {
+  it('固定の画像（参照画像）だけを入力にした Remove Background / Image Generation / Video Generation は一括の対象にしない。写真と組み合わせれば対象（参照画像の向きは載らない）', () => {
     const ri = { id: 'ri', type: 'referenceImageNode', data: { type: 'referenceImage', output: 'https://x/g.jpg', role: 'front' } }
     const gen = { id: 'gen', data: { type: 'imageGen', label: 'gen', params: { model: 'fal-ai/nano-banana-2' } } }
     const snap: WorkflowSnapshot = {
@@ -255,8 +241,8 @@ describe('入口ごとの計画（メモ 24）・参照画像の固定画像（�
     }
     const { tasks, excluded } = planTasks(snap)
     expect(tasks.map((t) => t.nodeId)).toEqual(['v2'])
-    expect(tasks[0].inputs).toEqual({ start: { kind: 'asset', url: 'https://x/g.jpg', role: 'front' }, end: { kind: 'photo' } })
-    expect(tasks[0].input.__shot).toMatchObject({ role: 'front', endRole: null })
+    expect(tasks[0].inputs).toEqual({ start: { kind: 'asset', url: 'https://x/g.jpg' }, end: { kind: 'photo' } })
+    expect(tasks[0].input.__shot).toMatchObject({ role: null, endRole: null })
     expect(Object.keys(excluded)).toContain('rb1')
   })
 })

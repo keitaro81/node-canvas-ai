@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download, LayoutGrid, Shirt, UserRound } from 'lucide-react'
+import { Type, Sparkles, StickyNote, Film, ImagePlus, Wand2, Ungroup, Video, List, Camera, Scissors, LayoutTemplate, Images, Download, LayoutGrid, Shirt, UserRound, Layers } from 'lucide-react'
 import type { NodeType, PortType } from '../../types/nodes'
+import { isCompatibleFor } from '../../stores/canvasStore'
 
 interface MenuItem {
   type: NodeType
@@ -15,7 +16,7 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   referenceImage: [],
   referenceVideo: [],
   promptEnhancer: [],
-  list:           ['image', 'text'],
+  list:           ['image', 'text', 'video'],
   cameraList:     [],
   removeBackground: ['image'],
   productLayout:  ['cutout', 'image'],
@@ -26,7 +27,8 @@ const NODE_ACCEPTS: Partial<Record<NodeType, string[]>> = {
   tryOn:          ['image', 'cutout'],
   libraryModel:   [],
   imageGen:       ['text', 'image', 'list'],
-  videoGen:       ['text', 'image', 'video'],
+  videoGen:       ['text', 'image', 'video', 'list', 'element'],
+  klingElement:   ['image'],
   note:           [],
   utility:        ['text'],
 }
@@ -49,6 +51,7 @@ const NODE_OUTPUTS: Partial<Record<NodeType, string[]>> = {
   referenceImage: ['image'],
   videoGen:       ['video'],
   referenceVideo: ['video'],
+  klingElement:   ['element'],
   note:           [],
   utility:        ['text'],
 }
@@ -75,6 +78,7 @@ const MENU_ITEMS: Array<{ category: string; items: MenuItem[] }> = [
     items: [
       { type: 'videoGen',       label: 'Video Generation', icon: <Film size={14} />,  color: '#EC4899' },
       { type: 'referenceVideo', label: 'Reference Video',  icon: <Video size={14} />, color: '#EC4899' },
+      { type: 'klingElement',   label: 'Kling Element',    icon: <Layers size={14} />, color: '#EC4899' },
       { type: 'videoMerge',     label: 'Video Merge',      icon: <Film size={14} />,  color: '#EC4899' },
     ],
   },
@@ -106,11 +110,15 @@ interface ContextMenuProps {
   onClose: () => void
   sourcePortType?: PortType
   sourceIsInput?: boolean
+  sourceNodeType?: string   // 線を引き始めたノードの React Flow の種類（入力から逆に引いたときの相性の判定に使う）
   groupNodeId?: string
   onUngroup?: (groupId: string) => void
 }
 
-export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, sourceIsInput, groupNodeId, onUngroup }: ContextMenuProps) {
+// 相性の判定に要る React Flow の種類（切り抜き → 画像 は Image Generation と Try-On だけ）
+const RF_TYPE_OF: Partial<Record<NodeType, string>> = { imageGen: 'imageGenerationNode', tryOn: 'tryOnNode' }
+
+export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, sourceIsInput, sourceNodeType, groupNodeId, onUngroup }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -135,13 +143,15 @@ export function ContextMenu({ x, y, onSelect, onClose, sourcePortType, sourceIsI
         ...group,
         items: group.items.filter((item) => {
           if (sourceIsInput) {
-            // 入力ハンドルからのドラッグ → そのポートタイプを出力するノードを表示
-            const outputs = NODE_OUTPUTS[item.type]
-            return outputs && outputs.includes(sourcePortType)
+            // 入力ハンドルからのドラッグ → その入力につなげる出力を持つノード（つなぐときの判定 isCompatibleFor と同じ規則）
+            const outputs = NODE_OUTPUTS[item.type] ?? []
+            return outputs.some((t) => isCompatibleFor(t as PortType, sourcePortType, sourceNodeType))
           }
-          // 出力ハンドルからのドラッグ → そのポートタイプを受け付けるノードを表示
-          const accepts = NODE_ACCEPTS[item.type]
-          return accepts && accepts.includes(sourcePortType)
+          // 画像から Product Layout を出すと「背景画像」につながり、商品の写真が背景に入るので候補にしない（背景は背景のポートへ直接・2026-11-02 メモ 41c）
+          if (item.type === 'productLayout' && sourcePortType === 'image') return false
+          // 出力ハンドルからのドラッグ → その出力を受けられる入力を持つノード（切り抜き → Image Generation も出す・メモ 41a）
+          const accepts = NODE_ACCEPTS[item.type] ?? []
+          return accepts.some((t) => isCompatibleFor(sourcePortType, t as PortType, RF_TYPE_OF[item.type]))
         }),
       })).filter((group) => group.items.length > 0)
     : MENU_ITEMS

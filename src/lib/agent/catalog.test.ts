@@ -16,14 +16,24 @@ describe('ノードのカタログ', () => {
     expect(port('videoGen', 'inputs', 'end')).toBe(VIDEO_GEN_END_HANDLE)
     expect(port('libraryModel', 'outputs', 'left')).toBe(cutSetRoleHandle('left'))
     expect(catalogNode('cutSetInput')).toBeUndefined()   // 2026-11-01 廃止
-    expect(catalogNode('referenceImage')!.build('x', { role: 'right' }).role).toBe('right')
-    expect(catalogNode('referenceImage')!.build('x', { role: 'none' }).role).toBeNull()
+    const ri = catalogNode('referenceImage')!.build('x', { role: 'right' })
+    expect(ri.role).toBeUndefined()   // 向きはノードに残さない（2026-11-02 メモ 42）
+    expect(ri.photoHint).toBe('右側面')   // 入れる写真の案内だけ
+    expect(catalogNode('referenceImage')!.build('x', { role: 'none' }).photoHint).toBeUndefined()   // 向き指定なしは案内も無し
+    expect(port('klingElement', 'inputs', 'frontal')).toBe('in-image-frontal')
+    expect(port('klingElement', 'outputs', 'element')).toBe('out-element-element')
+    expect(port('videoGen', 'inputs', 'element1')).toBe('in-element-1')
     expect(port('tryOn', 'inputs', 'model')).toBe(TRY_ON_MODEL_HANDLE)
     expect(port('tryOn', 'inputs', 'garment')).toBe(TRY_ON_GARMENT_HANDLE)
     expect(port('tryOn', 'outputs', 'image')).toBe(TRY_ON_OUTPUT_HANDLE)
     expect(port('libraryModel', 'outputs', 'right')).toBe(cutSetRoleHandle('right'))
     expect(catalogNode('videoGen')!.params.some((p) => p.key === 'autoTurn')).toBe(false)
     expect(port('export', 'inputs', 'item')).toBe('in-item-item')
+  })
+  it('Product Layout のバリアント名に cutout（切り抜き PNG の予約名）が来たら別名にする（2026-11-02 メモ 44）', () => {
+    const build = catalogNode('productLayout')!.build
+    expect((build('Product Layout', { variantName: 'Cutout' }).params as { variantName: string }).variantName).toBe('cutout_layout')
+    expect((build('Product Layout', { variantName: 'ec_white' }).params as { variantName: string }).variantName).toBe('ec_white')
   })
   it('種別は重複せず、build は data.type を返す', () => {
     expect(new Set(NODE_CATALOG.map((n) => n.type)).size).toBe(NODE_CATALOG.length)

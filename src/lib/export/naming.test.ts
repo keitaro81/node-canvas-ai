@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyNamePattern, dateToken, folderFor, normalizeExportParams, planExportEntries, qualitySteps, sanitizeFileName, unknownTokens, zipFileName, DEFAULT_EXPORT_PARAMS } from './naming'
+import { applyNamePattern, appendNamePart, buildNamePattern, cutoutNameFor, dateToken, folderFor, isReservedVariantName, normalizeExportParams, parseNamePattern, planExportEntries, presetIdOf, qualitySteps, removeNamePart, sanitizeFileName, unknownTokens, zipFileName, DEFAULT_EXPORT_PARAMS } from './naming'
 
 const now = new Date('2026-09-23T15:30:00Z') // JST 2026-09-24 00:30
 const item = { sku: 'AB-123', original: 'AB-123_front', index: 7 }
@@ -95,5 +95,35 @@ describe('ZIP 内のフォルダ分け: 対象が 1 つだけならフォルダ�
     expect(planExportEntries([{ variant: 'v', transparent: false }], p, item, now, { skus: 1 }).entries[0].folder).toBe('')
     expect(planExportEntries([{ variant: 'v', transparent: false }], p, item, now, { skus: 3 }).entries[0].folder).toBe('AB-1/')
     expect(planExportEntries([{ variant: 'v', transparent: false }], p, item, now).entries[0].folder).toBe('AB-1/')
+  })
+})
+
+describe('名前の付け方（型＋部品・2026-11-02 メモ 43）', () => {
+  it('記号の文字列と部品を行き来できる（知らない {…} は固定の文字のまま）', () => {
+    const parts = parseNamePattern('商品動画_{sku}_{index:02}{foo}')
+    expect(parts).toEqual([{ kind: 'text', text: '商品動画_' }, { kind: 'sku' }, { kind: 'text', text: '_' }, { kind: 'index', pad: 2 }, { kind: 'text', text: '{foo}' }])
+    expect(buildNamePattern(parts)).toBe('商品動画_{sku}_{index:02}{foo}')
+    expect(buildNamePattern(parseNamePattern('{original}_{variant}_{index}_{date}'))).toBe('{original}_{variant}_{index}_{date}')
+  })
+  it('型の一覧と同じなら型の id、違えば「自分で組む」', () => {
+    expect(presetIdOf('{sku}_{variant}_{index:02}')).toBe('sku_variant_index')
+    expect(presetIdOf(' {original} ')).toBe('original')
+    expect(presetIdOf('{sku}_{date}')).toBe('custom')
+  })
+  it('足すときは区切りの _ を挟み、外すときは区切りも一緒に外す', () => {
+    const base = parseNamePattern('{sku}_{variant}_{index:02}')
+    expect(buildNamePattern(appendNamePart(base, { kind: 'date' }))).toBe('{sku}_{variant}_{index:02}_{date}')
+    expect(buildNamePattern(appendNamePart(parseNamePattern('{sku}_'), { kind: 'date' }))).toBe('{sku}_{date}')
+    expect(buildNamePattern(appendNamePart(parseNamePattern('{sku}'), { kind: 'text', text: '文字' }))).toBe('{sku}_文字')
+    expect(buildNamePattern(appendNamePart([], { kind: 'sku' }))).toBe('{sku}')
+    expect(buildNamePattern(removeNamePart(base, 2))).toBe('{sku}_{index:02}')   // バリアント（と前の _）
+    expect(buildNamePattern(removeNamePart(base, 0))).toBe('{variant}_{index:02}')   // 先頭は後ろの _ と一緒に
+    expect(buildNamePattern(removeNamePart(parseNamePattern('商品動画{sku}'), 1))).toBe('商品動画')   // 区切りでない文字は残す
+  })
+  it('cutout は切り抜き PNG の予約名（バリアント名にあれば切り抜き側を cutout_png に）', () => {
+    expect(isReservedVariantName(' Cutout ')).toBe(true)
+    expect(isReservedVariantName('cutout2')).toBe(false)
+    expect(cutoutNameFor(['ec_white', 'insta'])).toBe('cutout')
+    expect(cutoutNameFor(['ec_white', 'cutout'])).toBe('cutout_png')
   })
 })

@@ -4,7 +4,7 @@ import { PortLabel } from './PortLabel'
 import { dimIfNotTarget, useDragTarget } from './portDrag'
 
 /** ポート名の既定（label が無いノード用） */
-const PORT_TYPE_LABEL: Record<PortType, string> = { text: 'テキスト', image: '画像', video: '動画', style: 'スタイル', list: 'リスト', cutout: '切り抜き', item: 'アイテム情報', cuts: 'カット一式' }
+const PORT_TYPE_LABEL: Record<PortType, string> = { text: 'テキスト', image: '画像', video: '動画', style: 'スタイル', list: 'リスト', cutout: '切り抜き', item: 'アイテム情報', element: '参照一式', cuts: 'カット一式' }
 import { X } from 'lucide-react'
 import type { NodeData, PortType } from '../../types/nodes'
 import { NODE_ACCENT_COLORS } from '../../types/nodes'

@@ -45,11 +45,11 @@ describe('appBatchPlanOf / appIssueOf（一括 App の結果は 1 種類・2026-
     expect(appIssueOf({ nodes: [g, bi('a', 'g'), bi('b', 'g')], edges: [] }, 'g')?.code).toBe('entries')
     expect(appIssueOf({ nodes: [bi('a'), bi('b')], edges: [] }, null)?.code).toBe('entries')   // キャンバス全体（救済）でも同じ
   })
-  it('画像だけなら枝分かれしてよい（Remove Background × 2 → 2 つの切り抜き）', () => {
-    const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb1', 'g'), rb('rb2', 'g')], edges: [photo('rb1'), photo('rb2')] }, 'g')!
+  it('画像だけなら枝分かれしてよい（切り抜き 1 つ → Product Layout × 2 のバリアント）', () => {
+    const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), pl('pl1', 'g'), pl('pl2', 'g')], edges: [photo('rb'), e('rb', 'out-cutout-cutout', 'pl1', 'in-cutout-cutout'), e('rb', 'out-cutout-cutout', 'pl2', 'in-cutout-cutout')] }, 'g')!
     expect(p.issue).toBeNull()
     expect(p.entryId).toBe('bi')
-    expect(p.tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['rb1:cutout', 'rb2:cutout'])
+    expect(p.tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['rb:cutout'])
   })
   it('画像と動画の両方ができる構成は mixed（動画につながらない切り抜き・Product Layout）', () => {
     const dropped = appIssueOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), tp('tp', 'g'), vg('v1', 'g')], edges: [photo('rb'), photo('v1', 'in-image'), text('v1')] }, 'g')
@@ -66,6 +66,25 @@ describe('appBatchPlanOf / appIssueOf（一括 App の結果は 1 種類・2026-
     const merged = appBatchPlanOf({ nodes: [...nodes, merge('m', 'g')], edges: [...edges, e('v1', 'out-video', 'm', 'in-video-1'), e('v2', 'out-video', 'm', 'in-video-2')] }, 'g')!
     expect(merged.issue).toBeNull()
     expect(merged.tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['v1:videoShot', 'v2:videoShot', 'm:videoMerge'])
+  })
+  it('指示が空の生成ノードがあれば prompt（Video Generation の動きが空・Text Prompt なし）。書けば次の判定へ進む', () => {
+    const empty = appIssueOf({ nodes: [g, bi('bi', 'g'), vg('v1', 'g'), vg('v2', 'g')], edges: [photo('v1', 'in-image'), photo('v2', 'in-image')] }, 'g')
+    expect(empty?.code).toBe('prompt')
+    expect(empty?.message).toContain('v1・v2 の指示が空です')
+    const filled = appIssueOf({ nodes: [g, bi('bi', 'g'), tp('tp', 'g'), vg('v1', 'g'), vg('v2', 'g')], edges: [photo('v1', 'in-image'), photo('v2', 'in-image'), text('v1'), text('v2')] }, 'g')
+    expect(filled?.code).toBe('videos')
+  })
+  it('切り抜きは 1 つまで: Remove Background が 2 つ写真につながると cutouts（メモ 48）', () => {
+    const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb1', 'g'), rb('rb2', 'g')], edges: [photo('rb1'), photo('rb2')] }, 'g')!
+    expect(p.issue?.code).toBe('cutouts')
+    expect(p.tasks.map((t) => t.nodeId)).toEqual(['rb1', 'rb2'])
+  })
+  it('一括に入らなかった AI ノードには理由（Product Layout の画像・写真につながっていない・メモ 50）', () => {
+    const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), pl('pl', 'g'), tp('tp', 'g'), vg('v1', 'g'), vg('v2', 'g')], edges: [photo('rb'), e('rb', 'out-cutout-cutout', 'pl', 'in-cutout-cutout'), e('pl', 'out-image-image', 'v1', 'in-image'), text('v1'), text('v2')] }, 'g')!
+    expect(p.issue).toBeNull()
+    expect(p.tasks.map((t) => t.nodeId)).toEqual(['rb'])
+    expect(p.excluded.v1).toContain('Product Layout の画像を一括では使えない')
+    expect(p.excluded.v2).toContain('Batch Input の写真につながっていない')
   })
   it('範囲はグループの中だけ: 外のノードと外へ出る辺は計画に入らない', () => {
     const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), tp('tp'), vg('v1')], edges: [photo('rb'), e('rb', 'out-cutout-cutout', 'v1', 'in-image'), text('v1')] }, 'g')!
