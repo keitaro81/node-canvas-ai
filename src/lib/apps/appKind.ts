@@ -49,6 +49,15 @@ export function appKindOf(canvas: unknown): AppKind | null {
   return appScopeOf(canvas).kind
 }
 
+/** App の範囲（グループの子ノードと、子どうしをつなぐ辺）。groupId が無い（救済のキャンバス全体）ときはそのまま返す。
+ *  App の画面（処理・結果の列・背景・Export の設定・レイアウト設定）はすべてこれを見る（2026-11-02 メモ 45） */
+export function appCanvasOf<N extends { id: string; parentId?: string }, E extends { source: string; target: string }>(nodes: N[], edges: E[], groupId: string | null): { nodes: N[]; edges: E[] } {
+  if (!groupId) return { nodes, edges }
+  const inGroup = nodes.filter((n) => n.parentId === groupId)
+  const ids = new Set(inGroup.map((n) => n.id))
+  return { nodes: inGroup, edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)) }
+}
+
 /**
  * グループ（null = キャンバス全体）を一括 App として動かすときの計画と問題。入口（Batch Input）が無ければ null（生成 App の判定は capsuleUtils 側）。
  * 範囲はグループの子ノードと、その中だけの辺。入口の枝だけに刈り込んでから計画する（BatchAppView の投入と同じ写し方）

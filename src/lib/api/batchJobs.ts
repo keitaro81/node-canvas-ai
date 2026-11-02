@@ -90,8 +90,11 @@ export async function fetchFinishedJobs(teamId: string, f: JobFilters, page: num
 }
 
 /** ワークフローから投入したジョブ（新しい順・最大 limit 件）。見えるものだけ（RLS: 作成者 / 共有ワークフローならチーム）。一括結果ノード用 */
-export async function fetchWorkflowJobs(workflowId: string, limit = 30): Promise<BatchJobRow[]> {
-  const { data, error } = await sb.from('batch_jobs').select(JOB_COLUMNS).eq('workflow_id', workflowId).order('created_at', { ascending: false }).limit(limit)
+/** ワークフローのジョブ（新しい順）。entryId を渡すと、写しにその入口（Batch Input）を含むジョブだけ（= その App から回した分・2026-11-02 メモ 45） */
+export async function fetchWorkflowJobs(workflowId: string, limit = 30, entryId?: string | null): Promise<BatchJobRow[]> {
+  let q = sb.from('batch_jobs').select(JOB_COLUMNS).eq('workflow_id', workflowId)
+  if (entryId) q = q.filter('workflow_snapshot->nodes', 'cs', JSON.stringify([{ id: entryId, data: { type: 'batchInput' } }]))
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(limit)
   if (error) throw new Error(error.message)
   return asJobs(data)
 }

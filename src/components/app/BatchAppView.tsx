@@ -13,7 +13,7 @@ import { useLiveCanvas } from '../../hooks/useLiveCanvas'
 import { fetchJob, fetchWorkflowJobs } from '../../lib/api/batchJobs'
 import { buildWorkflowSnapshot, type CreateItemInput } from '../../lib/api/batch'
 import { nodeLabelOf, pruneToEntry } from '../../lib/batch/plan'
-import { appBatchPlanOf, appScopeOf, type AppBatchPlan } from '../../lib/apps/appKind'
+import { appBatchPlanOf, appCanvasOf, appScopeOf, type AppBatchPlan } from '../../lib/apps/appKind'
 import { kindLabel } from '../../lib/batch/kindLabel'
 import { createReviewStoreHook } from '../../lib/review/reviewStore'
 import { normalizeBatchInputParams } from '../../lib/batch/items'
@@ -58,12 +58,15 @@ export function BatchAppView() {
   const store = useMemo(() => createReviewStoreHook(), [])
   useEffect(() => () => store.getState().close(), [store])
   const liveCanvas = useLiveCanvas()
+  // App の画面はすべて App 化したグループの中だけを見る（結果の列・背景・Export の設定・レイアウト設定。2026-11-02 メモ 45）
+  const appCanvas = useMemo(() => appCanvasOf(liveCanvas.nodes ?? [], liveCanvas.edges ?? [], scope.groupId), [liveCanvas, scope.groupId])
+  const hasLayoutParts = useMemo(() => appCanvas.nodes.some((n) => n.data?.type === 'removeBackground' || n.data?.type === 'productLayout'), [appCanvas])
   // 計画（処理内容）と、一括 App として動かせない理由（入口が 2 つ以上・画像と動画の混在・動画が 2 本以上。2026-11-02）
   const plan = useMemo(() => appBatchPlanOf({ capsuleGroupId, nodes: liveCanvas.nodes, edges: liveCanvas.edges }, scope.groupId), [liveCanvas, capsuleGroupId, scope.groupId])
 
   useEffect(() => {
     let alive = true
-    ;(workflowId ? fetchWorkflowJobs(workflowId) : Promise.resolve([] as BatchJobRow[]))
+    ;(workflowId ? fetchWorkflowJobs(workflowId, 30, scope.entryId) : Promise.resolve([] as BatchJobRow[]))   // この App の入口から回した分だけ（メモ 45）
       .then(async (rows) => {
         // 一覧（最新 30 件）に無い古いジョブを指定して開いたときは、そのジョブだけ足す
         if (jobParam && !rows.some((j) => j.id === jobParam)) {
@@ -75,14 +78,12 @@ export function BatchAppView() {
       })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
     return () => { alive = false }
-  }, [workflowId, jobsVersion, reloadTick, jobParam])
+  }, [workflowId, jobsVersion, reloadTick, jobParam, scope.entryId])
   const current = useMemo(() => (jobs ? jobs.find((j) => j.id === selectedId) ?? jobs[0] ?? null : null), [jobs, selectedId])
 
   const submit = useCallback((items: CreateItemInput[]) => {
     const { nodes: all, edges: allEdges } = useCanvasStore.getState()
-    const inGroup = scope.groupId ? new Set(all.filter((n) => n.parentId === scope.groupId).map((n) => n.id)) : null
-    const ns = inGroup ? all.filter((n) => inGroup.has(n.id)) : all
-    const edges = inGroup ? allEdges.filter((e) => inGroup.has(e.source) && inGroup.has(e.target)) : allEdges
+    const { nodes: ns, edges } = appCanvasOf(all, allEdges, scope.groupId)
     openSubmitDialogWith({
       items, snapshot: pruneToEntry(buildWorkflowSnapshot(ns, edges), batchInput?.id ?? null), workflowId,   // この入口の枝だけ（メモ 24）
       onDone: (jobId) => { clearAppPhotos(`${workflowId ?? 'draft'}:${batchInput?.id ?? ''}`); setResetKey((k) => k + 1); setSelectedId(jobId); setReloadTick((t) => t + 1); bump() },
@@ -113,8 +114,10 @@ export function BatchAppView() {
             入れた写真すべてに、App「{workflowName}」の処理（上の「処理内容」）を行います。
           </p>
           <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${batchInput.id}`} initialItems={(batchInput.data as unknown as NodeData).items as BatchItem[] | undefined} />
-          <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
-          <AppLayoutSettings />
+          {hasLayoutParts && (<>
+            <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
+            <AppLayoutSettings groupId={scope.groupId} />
+          </>)}
         </aside>
 
         {/* 右: 結果（履歴から選ぶ） */}
@@ -155,7 +158,7 @@ export function BatchAppView() {
               </div>
             )}
             {current && (
-              <JobReviewPanel key={current.id} jobId={current.id} store={store} mode="app" liveCanvas={liveCanvas} onDeleted={() => { setSelectedId(null); setReloadTick((t) => t + 1); bump() }} />
+              <JobReviewPanel key={current.id} jobId={current.id} store={store} mode="app" liveCanvas={appCanvas} onDeleted={() => { setSelectedId(null); setReloadTick((t) => t + 1); bump() }} />
             )}
           </div>
         </section>
