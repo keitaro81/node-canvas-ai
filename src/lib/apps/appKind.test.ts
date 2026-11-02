@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appBatchPlanOf, appIssueOf, appKindOf, appScopeOf } from './appKind'
+import { appBatchPlanOf, appCanvasOf, appIssueOf, appKindOf, appScopeOf } from './appKind'
 
 describe('appKindOf（App の判定）', () => {
   it('Batch Input があれば batch、App 化したグループがあれば generation、どちらも無ければ null（商品動画の App は 2026-11-01 に廃止）', () => {
@@ -72,5 +72,20 @@ describe('appBatchPlanOf / appIssueOf（一括 App の結果は 1 種類・2026-
     expect(p.issue).toBeNull()
     expect(p.tasks.map((t) => t.nodeId)).toEqual(['rb'])
     expect(p.nodes.map((n) => n.id)).toEqual(['bi', 'rb'])
+  })
+})
+
+describe('appCanvasOf（App の画面の範囲・2026-11-02 メモ 45）', () => {
+  const nodes = [{ id: 'g' }, { id: 'a', parentId: 'g' }, { id: 'b', parentId: 'g' }, { id: 'x' }, { id: 'y', parentId: 'h' }]
+  const edges = [{ source: 'a', target: 'b' }, { source: 'a', target: 'x' }, { source: 'x', target: 'b' }, { source: 'y', target: 'a' }]
+  it('グループの子と、子どうしの辺だけ。外のノード・外とつながる辺・ほかのグループは入らない', () => {
+    const r = appCanvasOf(nodes, edges, 'g')
+    expect(r.nodes.map((n) => n.id)).toEqual(['a', 'b'])
+    expect(r.edges).toEqual([{ source: 'a', target: 'b' }])
+  })
+  it('グループが無い（救済）ときはキャンバス全体', () => {
+    const r = appCanvasOf(nodes, edges, null)
+    expect(r.nodes).toBe(nodes)
+    expect(r.edges).toBe(edges)
   })
 })

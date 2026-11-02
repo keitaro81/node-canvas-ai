@@ -9,11 +9,14 @@ import { useWorkflowStore, selectCanEditNow, selectLockRequired } from '../../st
 import { LayoutParamsForm } from '../nodes/pp/LayoutParamsForm'
 import { DEFAULT_LAYOUT_PARAMS, normalizeLayoutParams } from '../../lib/layout/computeLayout'
 import { addLayoutNodeToCanvas, newLayoutNodeId, type CanvasLike } from '../../lib/review/model'
+import { appCanvasOf } from '../../lib/apps/appKind'
 import type { LayoutParams, NodeData } from '../../types/nodes'
 
 const ACCENT = '#14B8A6'
+const LAYOUT_W = 300, LAYOUT_H = 720, GROUP_PAD = 40   // 足した Product Layout がグループに収まる大きさ
 
-export function AppLayoutSettings() {
+/** groupId = App 化したグループ（その中の Product Layout だけを出し、追加もグループの中へ。2026-11-02 メモ 45）。無ければキャンバス全体（救済） */
+export function AppLayoutSettings({ groupId = null }: { groupId?: string | null }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const updateNode = useCanvasStore((s) => s.updateNode)
@@ -25,8 +28,9 @@ export function AppLayoutSettings() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
 
-  const layouts = useMemo(() => nodes.filter((n) => (n.data as unknown as NodeData).type === 'productLayout'), [nodes])
-  const hasCutout = useMemo(() => nodes.some((n) => (n.data as unknown as NodeData).type === 'removeBackground'), [nodes])
+  const scoped = useMemo(() => appCanvasOf(nodes, edges, groupId), [nodes, edges, groupId])
+  const layouts = useMemo(() => scoped.nodes.filter((n) => (n.data as unknown as NodeData).type === 'productLayout'), [scoped])
+  const hasCutout = useMemo(() => scoped.nodes.some((n) => (n.data as unknown as NodeData).type === 'removeBackground'), [scoped])
 
   const readOnlyReason = canEdit ? null
     : !canEditWorkflow ? 'レイアウトを変更できるのはワークフローの所有者と、編集を許可されたチームのメンバーだけです。ここでは設定の確認のみ。'
@@ -41,18 +45,31 @@ export function AppLayoutSettings() {
   const addVariant = () => {
     if (!canEdit) return
     const nodeId = newLayoutNodeId()
+    // 位置はグループの中の座標（子ノードはグループからの相対位置）。つなぐ切り抜きもグループの中の Remove Background
     const canvas: CanvasLike = {
-      nodes: nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as unknown as Record<string, unknown> })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),
+      nodes: scoped.nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as unknown as Record<string, unknown> })),
+      edges: scoped.edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),
     }
     const { canvas: next } = addLayoutNodeToCanvas(canvas, { ...DEFAULT_LAYOUT_PARAMS, variantName: `variant_${layouts.length + 1}` }, nodeId)
     const added = next.nodes.find((n) => n.id === nodeId)
     if (!added) return
     const addedEdges = next.edges.filter((e) => e.target === nodeId)
     pasteNodes(
-      [{ id: added.id, type: added.type, position: added.position ?? { x: 0, y: 0 }, data: added.data as unknown as NodeData } as AppNode],
+      [{ id: added.id, type: added.type, position: added.position ?? { x: 0, y: 0 }, data: added.data as unknown as NodeData, ...(groupId ? { parentId: groupId, extent: 'parent' as const } : {}) } as AppNode],
       addedEdges.map((e) => ({ id: e.id ?? `e-${e.source}-${nodeId}`, source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined, style: { stroke: ACCENT, strokeWidth: 2 } } as Edge)),
     )
+    // グループを広げて、足したノードが収まるようにする
+    if (groupId) {
+      const pos = added.position ?? { x: 0, y: 0 }
+      useCanvasStore.setState((state) => ({
+        nodes: state.nodes.map((n) => {
+          if (n.id !== groupId) return n
+          const w = (n.style?.width as number | undefined) ?? 400, h = (n.style?.height as number | undefined) ?? 300
+          const needW = pos.x + LAYOUT_W + GROUP_PAD, needH = pos.y + LAYOUT_H + GROUP_PAD
+          return needW > w || needH > h ? { ...n, style: { ...n.style, width: Math.max(w, needW), height: Math.max(h, needH) } } : n
+        }),
+      }))
+    }
     setOpenId(nodeId)
   }
 
