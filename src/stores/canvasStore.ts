@@ -333,7 +333,7 @@ export const useCanvasStore = create<CanvasState>()(temporal((set, get) => {
       cutout: '#14B8A6',
       item:   '#6B7280',
       cuts:   '#F472B6',
-      element: '#EC4899',
+      element: '#F472B6',
     }
 
     set((state) => {

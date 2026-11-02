@@ -334,13 +334,13 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
   // capsuleFields に未登録のフィールドを 'visible' で初期化する
   // （未登録のままだと capsuleUtils が Object.values で列挙できずAppモードに表示されない）
   useEffect(() => {
-    const defaultFields = ['model', 'editModel', 'aspectRatio', 'resolution']
+    const defaultFields = ['prompt', 'model', 'editModel', 'aspectRatio', 'resolution']
     const current = (useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as NodeData | undefined)
       ?.capsuleFields as Record<string, CapsuleFieldDef> | undefined ?? {}
     const missing = defaultFields.filter((f) => !(f in current))
     if (missing.length === 0) return
     const updated = { ...current }
-    missing.forEach((f) => { updated[f] = { id: f, capsuleVisibility: 'visible' } })
+    missing.forEach((f) => { updated[f] = f === 'prompt' ? { id: f, capsuleVisibility: 'visible', capsuleLabel: 'プロンプト', capsuleOrder: 0 } : { id: f, capsuleVisibility: 'visible' } })
     updateNode(id, { capsuleFields: updated } as Partial<NodeData>)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
@@ -443,7 +443,9 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       return
     }
 
-    const prompt = getConnectedPrompt()
+    // プロンプト = つないだ文（Text Prompt / Prompt Enhancer）＋ このノードの欄の文（Video Generation の「動き」と同じ決まり・2026-11-02 メモ 62）
+    const ownPrompt = String(((useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as NodeData | undefined)?.params as Record<string, unknown> | undefined)?.prompt ?? '').trim()
+    const prompt = [getConnectedPrompt(), ownPrompt].filter((t): t is string => !!t && !!t.trim()).join('\n\n') || null
 
     const { nodes: allNodes, edges: allEdges, addNode, setEdges } = useCanvasStore.getState()
     const thisNode = allNodes.find((n) => n.id === id)
@@ -495,7 +497,7 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
     if (!isTextListMode && !prompt?.trim()) {
       updateNode(id, {
         status: 'error',
-        params: { ...nodeData.params, error: 'プロンプトを入力してください' },
+        params: { ...nodeData.params, error: 'プロンプトを入力してください（欄に書くか、Text Prompt をつないでください）' },
       })
       return
     }
@@ -890,6 +892,24 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
             >
               {!hasImages ? 'T2I' : hasMask ? 'Inpaint' : editIsGptImage2 ? 'GPT2 Edit' : `${editModel === 'fal-ai/nano-banana-pro' ? 'NBPro' : 'NB2'} Edit`}
             </span>
+          </div>
+
+          {/* プロンプト（2026-11-02 メモ 62）: このノードだけでも書ける。つないだ Text Prompt があれば、その後に付く */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">プロンプト（日本語可）</label>
+              <CapsuleFieldToggle fieldId="prompt" visibility={getCapsuleVisibility('prompt')} onChange={handleCapsuleChange} />
+            </div>
+            <textarea
+              value={String((nodeData.params as Record<string, unknown> | undefined)?.prompt ?? '')}
+              onChange={(e) => updateNode(id, { params: { ...nodeData.params, prompt: e.target.value, error: undefined } } as Partial<NodeData>)}
+              rows={2}
+              placeholder="作りたい画像の指示。つないだ Text Prompt の後に付きます（例: 背景を白いスタジオに）"
+              className="w-full rounded-md px-2 py-1 text-[11px] resize-none nodrag nowheel focus:outline-none"
+              style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={isGenerating}
+            />
           </div>
 
           {/* 参照画像スロット（動的） */}

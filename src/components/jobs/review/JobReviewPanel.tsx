@@ -19,7 +19,7 @@ import type { BatchItemRow, BatchJobDetail, BatchOutputRow, BatchTaskRow } from 
 import type { ReviewBg, ReviewContext, ReviewStoreHook } from '../../../lib/review/reviewStore'
 import {
   ADDED_VARIANTS_KEY, CUTOUT_VARIANT_KEY, addLayoutNodeToCanvas, addedVariantsOf, cutoutNodesFromSnapshot, exportParamsFromSnapshot, filterItems, isResultKey, moveFocus,
-  removeLayoutNodeFromCanvas, resultColumnsOf, resultNodeIdOf, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, type CanvasLike, type Snapshot, layoutSaveTargetFor } from '../../../lib/review/model'
+  removeLayoutNodeFromCanvas, resultColumnsOf, resultNodeIdOf, thumbKey, updateLayoutNodeParams, variantsFromSnapshot, cutoutColumnShown, intermediateStepsOf, type CanvasLike, type Snapshot, layoutSaveTargetFor } from '../../../lib/review/model'
 import { estimateExportBytes, exportColumnsFor, exportFileCount, exportJobZip, exportTargets, type ExportScope } from '../../../lib/review/exportJob'
 import { JobStatusBadge, ProgressBar } from '../badges'
 import { JobActions } from '../JobActions'
@@ -248,13 +248,15 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
   // チェック中の写真（削除済みの id は数えない）
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected])
   // 列のタブ（切り抜き + バリアント + 生成結果）。切り抜きノードが無いジョブはレイアウト系の列を持たない。表示中の列が無くなったら先頭へ
+  // 切り抜きを AI が使った（途中の結果）でバリアントも無いときは、切り抜きの列を出さない（最終の出力だけ・2026-11-02 メモ 60）
+  const cutoutShown = useMemo(() => cutoutColumnShown(tasks, cutoutNode?.nodeId, variants.length), [tasks, cutoutNode, variants])
   const tabs = useMemo(() => [
-    ...(cutoutNode ? [
+    ...(cutoutNode && cutoutShown ? [
       { key: CUTOUT_VARIANT_KEY, name: '切り抜き', size: '元のサイズ' },
       ...variants.map((v) => ({ key: v.key, name: v.name, size: `${v.params.width}×${v.params.height}` })),
     ] : []),
     ...results.map((r) => ({ key: r.key, name: r.name, size: '生成結果' })),
-  ], [cutoutNode, variants, results])
+  ], [cutoutNode, cutoutShown, variants, results])
   useEffect(() => {
     if (tabs.length && !tabs.some((t) => t.key === activeKey)) setActiveKey(tabs[0].key)
   }, [tabs, activeKey, setActiveKey])
@@ -292,6 +294,13 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
     return () => { alive = false }
   }, [lbItem])
   const renderFull = useCallback((itemId: string, variantKey: string) => useReview.getState().renderFull(itemId, variantKey), [useReview])
+  // 途中の結果（拡大表示で見る・タブとダウンロードには出さない。2026-11-02 メモ 60）: 見ている最終の出力から前段へたどる
+  const lbSteps = useMemo(() => {
+    if (!lightbox || !lbItem) return []
+    const finalKey = tabs.some((t) => t.key === lightbox.variantKey) ? lightbox.variantKey : activeKey
+    const finalNodeId = isResultKey(finalKey) ? resultNodeIdOf(finalKey) : cutoutNode?.nodeId
+    return finalNodeId ? intermediateStepsOf(tasks, lbItem.id, finalNodeId, cutoutNode?.nodeId) : []
+  }, [lightbox, lbItem, tabs, activeKey, tasks, cutoutNode])
 
   // ── レイアウト設定（page のみ・fal は呼ばない）: 本人のワークフローならノードに書き戻す。それ以外はジョブにだけ保存 ──
   const applyPlan = useCallback(async (plan: LayoutChangePlan) => {
@@ -530,7 +539,8 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
           onClose={() => setLightbox(null)}
           onPrev={() => { const n = visibleItems[lbIdx - 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
           onNext={() => { const n = visibleItems[lbIdx + 1]; if (n) setLightbox({ itemId: n.id, variantKey: lightbox.variantKey }) }}
-          onVariant={(key) => setLightbox({ itemId: lbItem.id, variantKey: key })}
+          onVariant={(key) => { setLightbox({ itemId: lbItem.id, variantKey: key }); if (tabs.some((t) => t.key === key)) setActiveKey(key) }}
+          steps={lbSteps}
           checked={selected.has(lbItem.id)} onToggleCheck={() => toggleSelected(lbItem.id)}
           hasPrev={lbIdx > 0} hasNext={lbIdx >= 0 && lbIdx < visibleItems.length - 1}
         />

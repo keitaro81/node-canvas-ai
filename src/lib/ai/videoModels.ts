@@ -318,3 +318,48 @@ export function buildVideoInput(
   if (request.seed != null) input.seed = request.seed
   return input
 }
+
+// ───────── 入力の種類で選べるモデルと、実際に使う設定（2026-11-02 メモ 57） ─────────
+// Video Generation のノードと App の欄で同じ判定を使う。保存しているモデルがつないだ入力に使えないとき（例: LTX-2.3 Fast のまま参照動画をつないだ）、
+// 黙って別のモデルで送っていたのを、切り替えたことが分かるようにする（switchedFrom）。解像度・比率・長さもそのモデルで使える値にそろえる
+export interface VideoInputKind { video: boolean; image: boolean }
+
+/** 入力の種類（参照動画あり / 開始フレームの画像あり）で選べるモデル */
+export function videoModelsForInput(input: VideoInputKind): VideoModelDefinition[] {
+  if (input.video) return VIDEO_MODELS.filter((m) => m.supportedModes.includes('video-to-video'))
+  return VIDEO_MODELS
+    .filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
+    .filter((m) => (input.image ? m.supportedModes.includes('image-to-video') : !m.supportedModes.every((mode) => mode === 'image-to-video')))
+}
+
+export interface EffectiveVideoSettings {
+  model: VideoModelDefinition | undefined
+  switchedFrom: VideoModelDefinition | null   // 保存しているモデルが使えず切り替えたとき、その元のモデル
+  resolution: string
+  aspectRatio: string
+  duration: string
+}
+
+/** 保存している設定のうち、実際に使う値 */
+export function effectiveVideoSettings(saved: { model?: unknown; resolution?: unknown; aspectRatio?: unknown; duration?: unknown }, input: VideoInputKind): EffectiveVideoSettings {
+  const list = videoModelsForInput(input)
+  const savedId = typeof saved.model === 'string' ? saved.model : ''
+  const model = list.find((m) => m.id === savedId) ?? list[0]
+  const savedModel = VIDEO_MODELS.find((m) => m.id === savedId) ?? null
+  const pick = (v: unknown, allowed: readonly string[]): string => (typeof v === 'string' && allowed.includes(v) ? v : allowed[0] ?? (typeof v === 'string' ? v : ''))
+  return {
+    model,
+    switchedFrom: model && savedModel && model.id !== savedModel.id ? savedModel : null,
+    resolution: model ? pick(saved.resolution, model.supportedResolutions) : String(saved.resolution ?? ''),
+    // 比率の auto は、画像から作れるモデルなら写真の比率として使える（ノードの欄と同じ）
+    aspectRatio: model ? pick(saved.aspectRatio, model.supportedModes.includes('image-to-video') && !model.supportedAspectRatios.includes('auto' as never) ? [...model.supportedAspectRatios, 'auto'] : model.supportedAspectRatios) : String(saved.aspectRatio ?? ''),
+    duration: model ? pick(saved.duration, model.supportedDurations) : String(saved.duration ?? ''),
+  }
+}
+
+/** 切り替えたときの一言（ノードと App で同じ文） */
+export function switchedModelNotice(s: EffectiveVideoSettings, input: VideoInputKind): string | null {
+  if (!s.switchedFrom || !s.model) return null
+  const what = input.video ? '参照動画' : input.image ? '開始フレームの画像' : '今の入力'
+  return `${s.switchedFrom.name} は${what}を使えないため、${s.model.name} で作ります（モデルの欄で選び直せます）`
+}

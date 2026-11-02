@@ -60,9 +60,10 @@ export function promptForGenerator(canvas: BgCanvas | null | undefined, generato
       return typeof out === 'string' && out.trim() ? out.trim() : null
     })
     .filter((t): t is string => !!t)
-  if (texts.length) return texts.join('\n\n')
+  // ノードの欄の文は、つないだ文の後に付く（キャンバスの実行と同じ・2026-11-02 メモ 62）
   const own = (nodes.find((n) => n.id === generatorNodeId)?.data?.params as { prompt?: unknown } | undefined)?.prompt
-  return typeof own === 'string' ? own.trim() : ''
+  if (typeof own === 'string' && own.trim()) texts.push(own.trim())
+  return texts.join('\n\n')
 }
 
 /** 対話実行での背景画像 URL。生成器なら結果ノード（Image Display）の出力、固定画像なら S 自身の画像 */

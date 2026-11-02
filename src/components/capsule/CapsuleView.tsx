@@ -11,6 +11,8 @@ import { llmComplete } from '../../lib/ai/llmClient'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
 import { MergeAppView } from './MergeAppView'
+import { effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
+import { videoGenInputOf } from '../../lib/video/videoGenInput'
 import { mergeAppShapeOf } from '../../lib/apps/mergeApp'
 import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
@@ -489,6 +491,7 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
 
 function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldDef }) {
   const nodes = useCanvasStore((s) => s.nodes)
+  const edgesForInput = useCanvasStore((s) => s.edges)
   const updateNode = useCanvasStore((s) => s.updateNode)
   const hasImageInput = useCanvasStore((s) => {
     const n = s.nodes.find((node) => node.id === nodeId)
@@ -499,15 +502,13 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
          e.targetHandle === 'in-image-reference' || e.targetHandle === 'in-image-2')
     )
   })
-  const hasConnectedVideo = useCanvasStore((s) => {
-    const n = s.nodes.find((node) => node.id === nodeId)
-    if (n?.type !== 'videoGenerationNode') return false
-    return s.edges.some((e) => e.target === nodeId && e.targetHandle === 'in-video')
-  })
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   const d = node.data as Record<string, unknown>
   const params = (d.params as Record<string, unknown>) ?? {}
+  // 動画: つないだ入力の種類と、実際に使うモデル・設定（ノードと同じ判定）
+  const videoInput = videoGenInputOf(nodeId, nodes, edgesForInput)
+  const videoEff = effectiveVideoSettings(d, videoInput)
   const FIELD_LABELS: Record<string, string> = {
     model: 'Model', editModel: 'Edit Model', duration: 'Duration', aspectRatio: 'Aspect Ratio',
     resolution: 'Resolution', audioEnabled: 'Audio', seed: 'Seed',
@@ -542,6 +543,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
   }
 
   function getValue(): string {
+    if (isVideoGenNode && (field.id === 'duration' || field.id === 'resolution' || field.id === 'aspectRatio')) return videoEff[field.id]
     if (videoDirectFields.includes(field.id) && isVideoGenNode) {
       return String(d[field.id] ?? '')
     }
@@ -693,38 +695,39 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
     )
   }
 
-  // VideoGenerationNode: モデル選択
+  // VideoGenerationNode: モデル選択（ノードと同じ判定: つないだ入力で選べるモデルだけ・保存しているモデルが使えなければ切り替えて一言・2026-11-02 メモ 57）
   if (field.id === 'model' && isVideoGenNode) {
-    const hasConnectedImage = useCanvasStore.getState().edges.some((e) => e.target === nodeId && e.targetHandle === 'in-image')
-    const availableVideoModels = hasConnectedVideo
-      ? allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
-      : allVideoModels.filter((m) =>
-          !m.supportedModes.every((mode) => mode === 'video-to-video') &&
-          (hasConnectedImage
-            ? m.supportedModes.includes('image-to-video')
-            : !m.supportedModes.every((mode) => mode === 'image-to-video'))
-        )
+    const availableVideoModels = videoModelsForInput(videoInput)
+    const notice = switchedModelNotice(videoEff, videoInput)
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <select
           className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
           style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-          value={value}
-          onChange={(e) => updateField(e.target.value)}
+          value={videoEff.model?.id ?? value}
+          onChange={(e) => {
+            const m = allVideoModels.find((x) => x.id === e.target.value)
+            if (!m) return
+            // ノードの欄と同じく、そのモデルで使えない長さ・解像度・比率はそのモデルの値にそろえる
+            const next = effectiveVideoSettings({ ...d, model: m.id }, videoInput)
+            updateNode(nodeId, { model: m.id, duration: next.duration, resolution: next.resolution, aspectRatio: next.aspectRatio } as never)
+          }}
         >
           {availableVideoModels.map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
+        {notice && <div className="mt-1 text-[11px] leading-snug" style={{ color: '#F59E0B' }}>{notice}</div>}
       </div>
     )
   }
 
   // VideoGenerationNode: アスペクト比セレクト
   if (field.id === 'aspectRatio' && isVideoGenNode) {
-    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
-    const ratios = (currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']) as string[]
+    const currentVideoModel = videoEff.model
+    const base = (currentVideoModel?.supportedAspectRatios ?? ['16:9', '9:16', '1:1']) as string[]
+    const ratios = currentVideoModel?.supportedModes.includes('image-to-video') && !base.includes('auto') ? [...base, 'auto'] : base
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
@@ -744,7 +747,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   // VideoGenerationNode: duration セレクト
   if (field.id === 'duration' && isVideoGenNode) {
-    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    const currentVideoModel = videoEff.model
     const durations = currentVideoModel?.supportedDurations ?? ['5', '10']
     return (
       <div className="mb-3">
@@ -765,7 +768,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   // VideoGenerationNode: resolution セレクト
   if (field.id === 'resolution' && isVideoGenNode) {
-    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    const currentVideoModel = videoEff.model
     const resolutions = currentVideoModel?.supportedResolutions ?? []
     if (resolutions.length <= 1) return null
     return (
@@ -787,7 +790,7 @@ function FieldRenderer({ nodeId, field }: { nodeId: string; field: CapsuleFieldD
 
   // VideoGenerationNode: audioEnabled トグル
   if (field.id === 'audioEnabled' && isVideoGenNode) {
-    const currentVideoModel = allVideoModels.find((m) => m.id === String(d.model ?? ''))
+    const currentVideoModel = videoEff.model
     if (!currentVideoModel?.features.includes('audio')) return null
     const enabled = d.audioEnabled === true || d.audioEnabled === 'true'
     return (

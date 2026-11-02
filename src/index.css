@@ -201,6 +201,8 @@ svg.react-flow__connectionline {
 .handle-cutout { background: radial-gradient(circle, #14B8A6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 .handle-item   { background: radial-gradient(circle, #6B7280 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 .handle-cuts   { background: radial-gradient(circle, #F472B6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
+/* 参照一式（Kling Element・2026-11-02 メモ 56）: 指定が無く React Flow の既定の大きな丸になっていた。色は Video Generation の参照一式の入力とそろえる */
+.handle-element { background: radial-gradient(circle, #F472B6 3px, var(--bg-surface) 3px 5px, transparent 5px) !important; border: none !important; border-radius: 0 !important; }
 
 /* Styled scrollbar for node textareas */
 /* NOTE: scrollbar-width / scrollbar-color を外すことで Chrome on macOS が

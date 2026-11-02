@@ -443,7 +443,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       perItemIds.add(node.id)
       const p = (node.data?.params ?? {}) as Record<string, unknown>
       const prompt = promptForGenerator({ nodes, edges }, node.id)
-      if (!prompt) { exclude(node.id, `Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`); emptyPrompt.push(node.id); continue }
+      if (!prompt) { exclude(node.id, `Image Generation（${label}）はプロンプトが空のため対象外です（プロンプトの欄に書くか、Text Prompt をつないでください）`); emptyPrompt.push(node.id); continue }
       const model = editModelOf(p)
       const req = buildImageEditRequest(model, prompt, p)
       push({ nodeId: node.id, scope: 'item', endpoint: req.endpoint, input: req.input, kind: 'imageEdit', stage: a.stage, label, dualOutput: false, inputs: a.inputs })
@@ -546,7 +546,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     }
     const prompt = promptForGenerator(canvas, genId)
     if (!prompt) {
-      warn(`背景の Image Generation（${label}）はプロンプトが空のため対象外です（Text Prompt をつないでください）`)
+      warn(`背景の Image Generation（${label}）はプロンプトが空のため対象外です（プロンプトの欄に書くか、Text Prompt をつないでください）`)
       continue
     }
     const model = typeof p.model === 'string' && p.model ? p.model : 'fal-ai/nano-banana-2'

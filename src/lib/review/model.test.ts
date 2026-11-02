@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, cutoutParamsOf, estimateZipBytes, exportParamsFromSnapshot, filterItems, identityFor,
-  addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveFocus, newVariantKey, planJobExport,
-  removeLayoutNodeFromCanvas, resultKindOf, thumbFileName, updateLayoutNodeParams, variantsFromSnapshot,
-  layoutSaveTargetFor,
-  chainedSourceRef, exportColumnsOf, isResultKey, itemAiStageOf, resultColumnsOf, resultIdentityString, resultKeyOf, resultNodeIdOf, taskDependencyOf,
+  CUTOUT_VARIANT_KEY, cutoutNodesFromSnapshot, cutoutParamsOf, estimateZipBytes, exportParamsFromSnapshot, filterItems, identityFor, addLayoutNodeToCanvas, addedVariantsOf, cutoutSourceNodeId, exportVariantsOf, itemInfoOfRow, jobZipName, maskVersionOf, moveFocus, newVariantKey, planJobExport, removeLayoutNodeFromCanvas, resultKindOf, thumbFileName, updateLayoutNodeParams, variantsFromSnapshot, layoutSaveTargetFor, chainedSourceRef, exportColumnsOf, isResultKey, itemAiStageOf, resultColumnsOf, resultIdentityString, resultKeyOf, resultNodeIdOf, taskDependencyOf, consumedNodeIdsOf, cutoutColumnShown, intermediateStepsOf,
 } from './model'
 import { layoutIdentityString } from '../layout/identity'
 import type { BatchItemRow, BatchTaskRow } from '../../types/batch'
@@ -212,6 +208,21 @@ describe('フェーズ C(a): 連鎖と生成結果の列', () => {
     expect(isResultKey(CUTOUT_VARIANT_KEY)).toBe(false)
     expect(resultColumnsOf([t('x', 'i1', 'rb', {})])).toEqual([])   // 旧ジョブ（__kind 無し）
     expect(thumbFileName(resultKeyOf('node-1'), 'abcdef123456789', false)).toBe('thumb-result-node-1-abcdef123456.jpg')
+  })
+  it('結果の列は最終の出力だけ。途中の結果は拡大表示で早い順にたどれる（2026-11-02 メモ 60）', () => {
+    const t = (id: string, item: string | null, node: string, input: Record<string, unknown>) => ({ id, item_id: item, node_id: node, input })
+    const tasks = [
+      t('a', 'i1', 'rb', { __kind: 'cutout', __stage: 1, __depends_on: null }),
+      t('b', 'i1', 'tryon', { __kind: 'imageEdit', __stage: 1, __label: 'Try-On', __depends_on: null }),
+      t('c', 'i1', 'ny', { __kind: 'imageEdit', __stage: 2, __label: 'NY', __depends_on: 'tryon' }),
+      t('d', 'i1', 'compose', { __kind: 'imageEdit', __stage: 2, __label: '合成', __depends_on: ['rb'] }),
+    ]
+    expect(resultColumnsOf(tasks).map((c) => c.nodeId).sort()).toEqual(['compose', 'ny'])
+    expect(consumedNodeIdsOf(tasks)).toEqual(new Set(['tryon', 'rb']))
+    expect(cutoutColumnShown(tasks, 'rb', 0)).toBe(false)   // 切り抜きは合成の途中
+    expect(cutoutColumnShown(tasks, 'rb', 2)).toBe(true)    // バリアントがあれば出す
+    expect(intermediateStepsOf(tasks, 'i1', 'ny', 'rb')).toEqual([{ key: resultKeyOf('tryon'), name: 'Try-On', nodeId: 'tryon' }])
+    expect(intermediateStepsOf(tasks, 'i1', 'compose', 'rb')).toEqual([{ key: CUTOUT_VARIANT_KEY, name: '切り抜き', nodeId: 'rb' }])
   })
   it('書き出しの列: 切り抜きがあればレイアウト列（無ければ切り抜き PNG）、生成結果はノード名のフォルダ', () => {
     const results = resultColumnsOf([{ item_id: 'i1', node_id: 'compose', input: { __kind: 'imageEdit', __stage: 2, __label: '合成' } }], chain)

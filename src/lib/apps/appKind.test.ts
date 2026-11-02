@@ -79,12 +79,31 @@ describe('appBatchPlanOf / appIssueOf（一括 App の結果は 1 種類・2026-
     expect(p.issue?.code).toBe('cutouts')
     expect(p.tasks.map((t) => t.nodeId)).toEqual(['rb1', 'rb2'])
   })
-  it('一括に入らなかった AI ノードには理由（Product Layout の画像・写真につながっていない・メモ 50）', () => {
+  it('一括に入らなかった AI ノードには理由を付け、App にはしない（メモ 50・59: 理由はすべて）', () => {
     const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), pl('pl', 'g'), tp('tp', 'g'), vg('v1', 'g'), vg('v2', 'g')], edges: [photo('rb'), e('rb', 'out-cutout-cutout', 'pl', 'in-cutout-cutout'), e('pl', 'out-image-image', 'v1', 'in-image'), text('v1'), text('v2')] }, 'g')!
-    expect(p.issue).toBeNull()
+    expect(p.issue?.code).toBe('excluded')
+    expect(p.issue?.message).toContain('一括で使えないノードがあります。v1 は Product Layout の画像を一括では使えない')
+    expect(p.issue?.message).toContain('（ほか 1 件）')
     expect(p.tasks.map((t) => t.nodeId)).toEqual(['rb'])
     expect(p.excluded.v1).toContain('Product Layout の画像を一括では使えない')
     expect(p.excluded.v2).toContain('Batch Input の写真につながっていない')
+  })
+  it('最終の出力は 1 つ（メモ 61）: 途中の結果は数えず、Product Layout のバリアントは 1 つに数える', () => {
+    const ig = (id: string) => ({ id, type: 'imageGenerationNode', parentId: 'g', data: { type: 'imageGen', label: id, params: { prompt: 'x', executionScope: 'item' } } })
+    // 写真ごとの Image Generation が 2 つ並ぶ → 2 種類
+    const two = appIssueOf({ nodes: [g, bi('bi', 'g'), ig('a'), ig('b')], edges: [photo('a', 'in-image'), photo('b', 'in-image')] }, 'g')
+    expect(two?.code).toBe('outputs')
+    expect(two?.message).toContain('写真 1 枚から 2 種類（a・b）')
+    // 2 段（a の結果を b に）→ 最後は b だけ
+    expect(appIssueOf({ nodes: [g, bi('bi', 'g'), ig('a'), ig('b')], edges: [photo('a', 'in-image'), e('a', 'out-image-image-out', 'b', 'in-image')] }, 'g')).toBeNull()
+    // 切り抜き → Product Layout と、同じ切り抜き → Image Generation → 2 種類（レイアウトと生成）
+    const both = appIssueOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), pl('pl', 'g'), ig('c')], edges: [photo('rb'), e('rb', 'out-cutout-cutout', 'pl', 'in-cutout-cutout'), e('rb', 'out-cutout-cutout', 'c', 'in-image')] }, 'g')
+    expect(both?.code).toBe('outputs')
+    expect(both?.message).toContain('Product Layout・c')
+    // 2 つの枝が同じ Video Generation（始点・終点）に合流 → 最後は動画 1 本
+    const merged = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), ig('a'), ig('b'), tp('tp', 'g'), vg('v', 'g')], edges: [photo('a', 'in-image'), photo('b', 'in-image'), e('a', 'out-image-image-out', 'v', 'in-image'), e('b', 'out-image-image-out', 'v', 'in-image-end'), text('v')] }, 'g')!
+    expect(merged.issue).toBeNull()
+    expect(merged.tasks.map((t) => `${t.nodeId}:${t.kind}`)).toEqual(['a:imageEdit', 'b:imageEdit', 'v:videoShot'])
   })
   it('範囲はグループの中だけ: 外のノードと外へ出る辺は計画に入らない', () => {
     const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), rb('rb', 'g'), tp('tp'), vg('v1')], edges: [photo('rb'), e('rb', 'out-cutout-cutout', 'v1', 'in-image'), text('v1')] }, 'g')!

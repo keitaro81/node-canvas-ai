@@ -11,6 +11,8 @@ import { getImageUrlFromNodeData } from '../../lib/utils'
 import { BatchMark } from './BatchMark'
 import { CUT_ROLE_LABEL, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
 import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { falErrorInfo } from '../../lib/ai/falErrors'
+import { effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
 import { VIDEO_GEN_ELEMENT_HANDLES, videoGenElements, type VideoGenElements } from '../../lib/video/klingElement'
 import { listItemsOf, type ListMode } from '../../lib/listItems'
 import { textsNeedingTranslation } from '../../lib/video/translate'
@@ -29,15 +31,6 @@ import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 const upd = (updateNode: (id: string, data: any) => void, id: string, patch: Record<string, unknown>) =>
   updateNode(id, patch)
 
-function isContentPolicyError(error: unknown): boolean {
-  if (error instanceof Error) {
-    if ((error as { status?: number }).status === 422) return true
-    const lower = error.message.toLowerCase()
-    if (lower.includes('content_policy_violation') || lower.includes('likenesses of real people') ||
-        lower.includes('private information') || lower.includes('unprocessable')) return true
-  }
-  return false
-}
 
 function isNetworkTimeout(message: string): boolean {
   const lower = message.toLowerCase()
@@ -48,8 +41,6 @@ function isNetworkTimeout(message: string): boolean {
 
 const EMPTY_SHOTS: VideoShot[] = []
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
-const v2vModels = allVideoModels.filter((m) => m.supportedModes.includes('video-to-video'))
-const nonV2vModels = allVideoModels.filter((m) => !m.supportedModes.every((mode) => mode === 'video-to-video'))
 
 function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
   const updateNode = useCanvasStore((s) => s.updateNode)
@@ -100,18 +91,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
 
   const isV2VMode = !!connectedVideoUrl || listInfo.mode === 'video'
 
-  const availableModels = isV2VMode
-    ? v2vModels
-    : nonV2vModels.filter((m) =>
-        hasImageInput
-          ? m.supportedModes.includes('image-to-video')
-          : !m.supportedModes.every((mode) => mode === 'image-to-video')
-      )
-  const currentModel = (() => {
-    const found = availableModels.find((m) => m.id === nodeData.model)
-    if (found) return found
-    return availableModels[0]
-  })()
+  // 選べるモデルと実際に使う設定（App の欄と同じ判定・2026-11-02 メモ 57）。保存しているモデルが入力に使えなければ切り替え、そのことを出す
+  const inputKind = { video: isV2VMode, image: hasImageInput }
+  const availableModels = videoModelsForInput(inputKind)
+  const eff = effectiveVideoSettings(nodeData as unknown as Record<string, unknown>, inputKind)
+  const currentModel = eff.model
+  const modelNotice = switchedModelNotice(eff, inputKind)
 
   const supportsEndImage = !!currentModel?.endImageParam
   const supportsElements = !!currentModel?.features.includes('elements')
@@ -140,6 +125,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     if (!quota.allowed) {
       upd(updateNode, id, { status: 'failed', error: `動画生成の上限（${quota.limit}本）に達しました（${quota.used}/${quota.limit}本使用済み）` })
       return
+    }
+
+    // 実際に使うモデル・設定をノードに書き戻す（保存しているモデルがつないだ入力に使えないとき。App の欄にも同じものが出る・2026-11-02 メモ 57）
+    if (eff.model && (eff.switchedFrom || eff.resolution !== nodeData.resolution || eff.aspectRatio !== nodeData.aspectRatio || eff.duration !== nodeData.duration)) {
+      upd(updateNode, id, { model: eff.model.id, resolution: eff.resolution, aspectRatio: eff.aspectRatio, duration: eff.duration })
+      if (modelNotice) showToast(modelNotice, 'warning')
     }
 
     // プロンプト = つないだテキスト + @Element1（参照カットあり）+ 回転指示（始点・終点が役割カット）+ 動き。一括実行の計画と同じ規則（videoPromptOf）。日本語は生成前に英訳
@@ -259,9 +250,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     const baseRequest: VideoGenerationRequest = {
       prompt,
       model: modelForMode?.id ?? nodeData.model,
-      duration: nodeData.duration as VideoGenerationRequest['duration'],
-      resolution: nodeData.resolution as VideoGenerationRequest['resolution'],
-      aspectRatio: nodeData.aspectRatio as VideoGenerationRequest['aspectRatio'],
+      duration: eff.duration as VideoGenerationRequest['duration'],
+      resolution: eff.resolution as VideoGenerationRequest['resolution'],
+      aspectRatio: eff.aspectRatio as VideoGenerationRequest['aspectRatio'],
       fps: nodeData.fps as VideoGenerationRequest['fps'],
       audioEnabled: nodeData.audioEnabled,
       seed: nodeData.seed,
@@ -360,11 +351,9 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           const errMsg = result.error || '生成に失敗しました'
           if (isNetworkTimeout(errMsg)) {
             showToast('接続が切れました。リロードすると復元できます。', 'warning')
-          } else if (isContentPolicyError(new Error(errMsg))) {
-            const policyMsg = '入力内容がモデルのポリシーに違反しているため生成できませんでした'
-            showToast(policyMsg, 'error')
-            upd(updateNode, displayId, { status: 'failed', progress: '', error: policyMsg })
           } else {
+            // 理由は fal の 422 から作った文（どの入力か・直し方。2026-11-02 メモ 57）。ポリシー違反でも記録を残す（後から調べられるように）
+            if (result.errorKind === 'policy' || result.errorKind === 'input') showToast(errMsg, 'error')
             upd(updateNode, displayId, { status: 'failed', progress: '', error: errMsg })
             saveGeneration({
               nodeId: id,
@@ -378,13 +367,12 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
           }
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : '予期しないエラー'
+        const info = falErrorInfo(error)
+        const errorMessage = info.message || '予期しないエラー'
         if (isNetworkTimeout(errorMessage)) {
           showToast('接続が切れました。リロードすると復元できます。', 'warning')
-        } else if (isContentPolicyError(error)) {
-          showToast('入力内容がモデルのポリシーに違反しているため生成できませんでした', 'error')
-          upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
         } else {
+          if (info.kind !== 'other') showToast(errorMessage, 'error')
           upd(updateNode, displayId, { status: 'failed', progress: '', error: errorMessage })
           saveGeneration({
             nodeId: id,
@@ -410,7 +398,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
       // タイムアウト時は requestId を保持してリロード後のリカバリーに備える
       ...(timedOut ? {} : { requestId: null, requestEndpoint: null, activeDisplayNodeId: null }),
     })
-  }, [id, count, nodeData, currentModel, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, updateNode, activeShots, elementInfo, startImageUrl, supportsElements, supportsNegative, hasList, listInfo])
+  }, [id, count, nodeData, currentModel, eff, modelNotice, connectedImageUrl, connectedVideoUrl, connectedEndImageUrl, supportsEndImage, hasConnectedImageNode, updateNode, activeShots, elementInfo, startImageUrl, supportsElements, supportsNegative, hasList, listInfo])
 
   useEffect(() => {
     function onCapsuleGenerate(e: Event) {
@@ -782,19 +770,20 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               </option>
             ))}
           </select>
+          {modelNotice && <div className="mt-1 text-[10px] leading-snug px-2 py-1 rounded" style={{ background: 'rgba(245,158,11,0.10)', color: '#F59E0B' }}>{modelNotice}</div>}
         </div>
 
         {/* Duration */}
         {currentModel && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Duration: {activeShots.length ? `${shotsSeconds}s（ショットの合計）` : `${nodeData.duration}s`}</label>
+              <label className="block text-[11px] font-medium text-[var(--text-secondary)]">Duration: {activeShots.length ? `${shotsSeconds}s（ショットの合計）` : `${eff.duration}s`}</label>
               <CapsuleFieldToggle fieldId="duration" visibility={getCapsuleVisibility('duration')} onChange={handleCapsuleChange} />
             </div>
             <select
               className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
               style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-              value={nodeData.duration}
+              value={eff.duration}
               onChange={(e) => upd(updateNode, id, { duration: e.target.value })}
               disabled={isGenerating || activeShots.length > 0}
             >
@@ -815,7 +804,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             <select
               className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
               style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-              value={nodeData.resolution}
+              value={eff.resolution}
               onChange={(e) => upd(updateNode, id, { resolution: e.target.value })}
               disabled={isGenerating}
             >
@@ -856,7 +845,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             <select
               className="w-full rounded-md px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] focus:outline-none nodrag appearance-none"
               style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-              value={nodeData.aspectRatio}
+              value={eff.aspectRatio}
               onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
               disabled={isGenerating}
             >
