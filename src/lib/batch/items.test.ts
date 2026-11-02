@@ -37,7 +37,7 @@ describe('並び順と index', () => {
 describe('その他', () => {
   it('stripExtension / itemInfoOf / safeFileName / normalize', () => {
     expect(stripExtension('a/b/c.d.png')).toBe('c.d')
-    expect(itemInfoOf({ sku: 'S', originalName: 'S_1.jpg', index: 3 })).toEqual({ sku: 'S', original: 'S_1', index: 3 })
+    expect(itemInfoOf({ sku: 'S', originalName: 'S_1.jpg', index: 3 })).toEqual({ sku: 'S', original: 'S_1', index: 3, name: 'S_1' })
     expect(safeFileName('01_001-750 (4).jpg')).toBe('01_001-750__4_.jpg')
     expect(safeFileName('日本語.png')).toBe('___.png')
     expect(normalizeBatchInputParams({ skuPattern: '  ' }).skuPattern).toBe(DEFAULT_SKU_PATTERN)

@@ -69,6 +69,10 @@ export function BatchAppView() {
   // 設定（メモ 46・使う人ごとに選ぶ）: 処理に使うモデル・画像・文をこの画面で選び直す。ブラウザに覚え、処理を始めるときに写しへ入れる
   const settingFields = useMemo(() => (plan ? appSettingFieldsOf(appCanvas.nodes, appCanvas.edges, plan.tasks.map((t) => t.nodeId)) : []), [plan, appCanvas])
   const [appSettings, setAppSettings] = useAppSettings(appSettingsStorageKey(workflowId, scope.entryId))
+  // 「処理内容」は使う人が選んだ設定を重ねた計画で出す（実際に動く内容。モデルを変えたときの注意など・2026-11-02 メモ 67）。動かせるかの判定はキャンバスの計画のまま
+  const shownPlan = useMemo(() => (plan && Object.keys(appSettings).length
+    ? appBatchPlanOf({ capsuleGroupId, nodes: applyAppSettings(liveCanvas.nodes ?? [], appSettings, settingFields), edges: liveCanvas.edges }, scope.groupId) ?? plan
+    : plan), [plan, appSettings, settingFields, liveCanvas, capsuleGroupId, scope.groupId])
 
   useEffect(() => {
     let alive = true
@@ -109,7 +113,7 @@ export function BatchAppView() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" style={{ background: 'var(--bg-canvas)' }}>
-      {plan && <AppProcessing plan={plan} />}
+      {shownPlan && <AppProcessing plan={shownPlan} />}
       <div className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col overflow-auto' : 'flex-row'}`}>
         {/* 左: 写真を追加 */}
         <aside className={`${isMobile ? 'w-full' : 'w-[380px] shrink-0 overflow-auto border-r'} px-5 py-4`} style={{ borderColor: 'var(--border)', background: 'var(--bg-surface)' }}>

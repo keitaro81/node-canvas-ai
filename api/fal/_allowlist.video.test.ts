@@ -7,7 +7,8 @@ describe('allowlist（商品動画）', () => {
     expect(isAllowedTarget(new URL('https://queue.fal.run/fal-ai/ffmpeg-api/merge-videos'))).toBe(true)
     expect(isAllowedTarget(new URL('https://queue.fal.run/fal-ai/ffmpeg-api/requests/abc/status'))).toBe(true)
     expect(isAllowedTarget(new URL('https://queue.fal.run/fal-ai/ffmpeg-api/requests/abc'))).toBe(true)
-    expect(isAllowedTarget(new URL('https://queue.fal.run/bytedance/seedance-2.0/image-to-video'))).toBe(true)   // 一括実行の動画モデルは画像 → 動画の全モデル（2026-10-31）
+    expect(isAllowedTarget(new URL('https://queue.fal.run/bytedance/seedance-2.0/image-to-video'))).toBe(false)   // Seedance は外した（2026-11-02・費用）
+    expect(isAllowedTarget(new URL('https://queue.fal.run/fal-ai/kling-video/o3/standard/video-to-video/reference'))).toBe(true)
     expect(isAllowedTarget(new URL('https://queue.fal.run/bytedance/other-model'))).toBe(false)
   })
 })

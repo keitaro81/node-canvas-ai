@@ -75,13 +75,15 @@ export interface VideoModelDefinition {
   name: string;                    // 表示名
   endpoint: string;                // text-to-video エンドポイント
   i2vEndpoint?: string;            // image-to-video エンドポイント（省略時はendpointを使用）
-  pricePerSecond: number;          // USD/秒
+  pricePerSecond: number;          // USD/秒（基本。解像度・音声で変わるものは下の 2 つ・videoPricePerSecond）
+  pricePerSecondByResolution?: Record<string, number>;   // 解像度ごとの単価（LTX）
+  pricePerSecondWithAudio?: number;  // 音声ありの単価（Kling v3 Pro / o3 Pro）
   maxDuration: VideoDuration;      // 最大秒数
   supportedDurations: string[];    // 選択可能な秒数リスト
   supportedResolutions: VideoResolution[];
   supportedAspectRatios: VideoAspectRatio[];
   features: string[];              // 例: ['audio', '4k']
-  paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'kling-o3-i2v' | 'seedance' | 'seedance-r2v';    // API パラメータの組み立て方式
+  paramStyle: 'ltx' | 'kling' | 'kling-v2v' | 'kling-o3-i2v';    // API パラメータの組み立て方式（Seedance は 2026-11-02 に外した）
   supportedModes: ('text-to-video' | 'image-to-video' | 'video-to-video')[];
   supportedFps?: number[];           // 例: [24, 25, 48, 50]（省略時はfps設定不可）
   endImageParam?: string;            // 終了フレームのパラメータ名（補完モード対応モデルのみ）

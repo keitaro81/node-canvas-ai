@@ -98,6 +98,21 @@ describe('ZIP 内のフォルダ分け: 対象が 1 つだけならフォルダ�
   })
 })
 
+describe('一括の「商品名」は写真の名前そのまま（2026-11-02 メモ 65）', () => {
+  const now = new Date('2026-11-02T12:40:00Z')
+  const photo = { sku: '61141146370', original: '61141146370_D_17', index: 1, name: '61141146370_D_17' }
+  it('{sku}（商品名）は name を使い、商品別のフォルダは SKU でまとめる', () => {
+    expect(applyNamePattern('{sku}_{variant}_{index:02}', { ...photo, variant: 'EC', now })).toBe('61141146370_D_17_EC_01')
+    const p = { ...DEFAULT_EXPORT_PARAMS, format: 'png' as const, zipFolders: 'sku' as const }
+    expect(planExportEntries([{ variant: 'EC', transparent: false }], p, photo, now, { skus: 2 }).entries[0]).toMatchObject({ folder: '61141146370/', base: '61141146370_D_17_EC_01' })
+  })
+  it('name が無い（一括でない Export・前の形の写真の情報）は今までどおり sku', () => {
+    expect(applyNamePattern('{sku}_{variant}', { sku: '2026aw', original: 'image', index: 1, variant: 'EC', now })).toBe('2026aw_EC')
+    expect(zipFileName({ sku: '2026aw', original: 'image', index: 1 }, now)).toBe('2026aw_20261102.zip')
+    expect(zipFileName(photo, now)).toBe('61141146370_D_17_20261102.zip')
+  })
+})
+
 describe('名前の付け方（型＋部品・2026-11-02 メモ 43）', () => {
   it('記号の文字列と部品を行き来できる（知らない {…} は固定の文字のまま）', () => {
     const parts = parseNamePattern('商品動画_{sku}_{index:02}{foo}')

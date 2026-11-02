@@ -25,6 +25,7 @@ interface Props {
   cutoutOptional: boolean                // 切り抜き列を付け外しできる（切り抜きノードがあり、レイアウトもあるジョブ）
   summarize: (params: ExportParams) => ExportSummary   // 設定に応じた列名・ファイル数・概算サイズ
   sampleSku: string | null
+  sampleName?: string | null       // 例の写真の名前（ファイル名の「商品名」・2026-11-02 メモ 65）
   state: ExportDialogState
   onStart: (params: ExportParams) => void
   onCancel: () => void
@@ -39,7 +40,7 @@ export function ExportDialog(props: Props) {
   return <ExportDialogInner {...props} />
 }
 
-function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, summarize, sampleSku, state, onStart, onCancel, onClose }: Props) {
+function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, summarize, sampleSku, sampleName, state, onStart, onCancel, onClose }: Props) {
   const [params, setParams] = useState<ExportParams>(() => normalizeExportParams(initialParams))   // 開くたびにマウント
   const summary = useMemo(() => summarize(params), [summarize, params])
   const { columnNames, estimateBytes } = summary
@@ -50,9 +51,9 @@ function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, 
   }, [state.phase, onClose])
   const preview = useMemo(() => {
     const v = summary.previewColumn ?? columnNames[0] ?? 'variant'
-    const base = applyNamePattern(params.namePattern, { sku: sampleSku ?? 'SKU', original: 'original', index: 1, variant: v, now: new Date() })
+    const base = applyNamePattern(params.namePattern, { sku: sampleSku ?? 'SKU', original: sampleName ?? 'original', name: sampleName ?? sampleSku ?? 'SKU', index: 1, variant: v, now: new Date() })
     return `${folderFor(params.zipFolders, v, sampleSku ?? 'SKU')}${base}.${EXT_OF[params.format]}`
-  }, [params, columnNames, summary.previewColumn, sampleSku])
+  }, [params, columnNames, summary.previewColumn, sampleSku, sampleName])
   const running = state.phase === 'running'
   const total = summary.fileCount
   return createPortal(
@@ -73,7 +74,7 @@ function ExportDialogInner({ scope, initialParams, targetCount, cutoutOptional, 
             {/* ファイル名（2026-11-02 メモ 43）: Export ノードと同じく、名前の型を選ぶ＋部品を並べる */}
             <Field label="ファイル名">
               <NamePatternEditor pattern={params.namePattern} onChange={(v) => setParams((p) => ({ ...p, namePattern: v }))} example={preview} exampleMore={Math.max(0, total - 1)} />
-              <div className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>商品名は写真のファイル名から取ります{sampleSku ? `（例: ${sampleSku}）` : ''}</div>
+              <div className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>商品名は写真の名前をそのまま使います{sampleName ? `（例: ${sampleName}）` : ''}</div>
             </Field>
             <div className="grid grid-cols-3 gap-2">
               <Field label="形式"><Sel<ExportFormat> value={params.format} options={[['jpeg', 'JPEG'], ['png', 'PNG'], ['webp', 'WebP']]} onChange={(v) => setParams((p) => ({ ...p, format: v }))} /></Field>

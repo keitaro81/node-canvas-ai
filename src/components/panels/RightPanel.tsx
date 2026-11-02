@@ -269,7 +269,7 @@ function VideoGenProperties({ nodeId, data, updateNode }: {
           <SelectField
             label="Model"
             value={data.model}
-            options={VIDEO_MODELS.map((m) => ({ value: m.id, label: `${m.name} ($${m.pricePerSecond}/s)` }))}
+            options={VIDEO_MODELS.map((m) => ({ value: m.id, label: `${m.name} ($${m.pricePerSecond}/s${m.pricePerSecondByResolution || m.pricePerSecondWithAudio ? '〜' : ''})` }))}   // 解像度・音声で上がるモデルは「〜」
             onChange={(v) => {
               const newModel = VIDEO_MODELS.find((m) => m.id === v)
               if (!newModel) return

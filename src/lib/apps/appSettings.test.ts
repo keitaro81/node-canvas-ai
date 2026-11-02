@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appSettingFieldsOf, applyAppSettings, missingModelRoles, parseAppSettings, type AppSettings } from './appSettings'
+import { appSettingFieldsOf, applyAppSettings, missingModelRoles, nextNodeOverride, parseAppSettings, withNodeOverride, type AppSettings } from './appSettings'
 
 const node = (id: string, type: string, data: Record<string, unknown>, y = 0) => ({ id, type, position: { x: 0, y }, data })
 const e = (source: string, sourceHandle: string, target: string) => ({ source, sourceHandle, target })
@@ -62,5 +62,45 @@ describe('一括 App の設定（2026-11-02 メモ 46・使う人ごとに選ぶ
       b: { kind: 'model', modelId: 'm', modelName: null, cuts: { front: { itemId: 'i', url: 'https://x/f.jpg' } } },
       c: { kind: 'text', prompt: 'ok' },
     })
+  })
+})
+
+describe('処理するノードの「表示」の欄も設定に出す（2026-11-02 メモ 67）', () => {
+  const cf = (id: string, capsuleVisibility: string, capsuleOrder?: number) => ({ id, capsuleVisibility, ...(capsuleOrder !== undefined ? { capsuleOrder } : {}) })
+  const ig = node('ig', 'imageGenerationNode', {
+    type: 'imageGen', label: 'Image Generation',
+    params: { prompt: '', editModel: 'fal-ai/nano-banana-2', aspectRatio: '1:1', resolution: '1K' },
+    capsuleFields: { resolution: cf('resolution', 'visible', 3), prompt: cf('prompt', 'visible', 0), editModel: cf('editModel', 'visible', 1), aspectRatio: cf('aspectRatio', 'hidden', 2), seed: cf('seed', 'visible', 4) },
+  }, 0)
+  const tp = node('tp', 'textPromptNode', { type: 'textPrompt', label: 'Text Prompt', params: { prompt: '回転' } }, 500)
+  const ns = [node('bi', 'batchInputNode', { type: 'batchInput' }), tp, ig]
+  const es = [{ source: 'bi', sourceHandle: 'out-image-image', target: 'ig', targetHandle: 'in-image' }, { source: 'tp', sourceHandle: 'out-text-text-out', target: 'ig', targetHandle: 'in-text' }]
+
+  it('「表示」の欄だけを並び順で・つないだ Text Prompt の後に出す（処理しないノードの欄は出さない）', () => {
+    const fields = appSettingFieldsOf(ns, es, ['ig'])
+    expect(fields.map((f) => `${f.kind}:${f.nodeId}`)).toEqual(['text:tp', 'node:ig'])
+    expect(fields[1].fields?.map((f) => f.id)).toEqual(['prompt', 'editModel', 'resolution'])
+    expect(appSettingFieldsOf(ns, es, []).length).toBe(0)
+  })
+  it('変えた値だけを覚え（キャンバスと同じになれば外す）、写しに重ねる。空のプロンプトは写しではキャンバスの文', () => {
+    const base = ig.data as Record<string, unknown>
+    const a = nextNodeOverride(base, null, { params: { ...(base.params as object), resolution: '2K' } })
+    expect(a).toEqual({ top: {}, params: { resolution: '2K' } })
+    const b = nextNodeOverride(base, a, { params: { ...(withNodeOverride(base, a).params as object), prompt: '背景を白いスタジオに' } })
+    expect(b).toEqual({ top: {}, params: { resolution: '2K', prompt: '背景を白いスタジオに' } })
+    expect(nextNodeOverride(base, { top: {}, params: { resolution: '2K' } }, { params: { resolution: '1K' } })).toBeNull()
+    const fields = appSettingFieldsOf(ns, es, ['ig'])
+    const out = applyAppSettings(ns, { ig: { kind: 'node', ...b! } }, fields)
+    expect((out.find((n) => n.id === 'ig')!.data as { params: Record<string, unknown> }).params).toMatchObject({ prompt: '背景を白いスタジオに', resolution: '2K', editModel: 'fal-ai/nano-banana-2' })
+    const blank = { top: {}, params: { prompt: '  ' } }
+    expect((withNodeOverride({ params: { prompt: 'キャンバスの文' } }, blank).params as Record<string, unknown>).prompt).toBe('キャンバスの文')
+    expect((withNodeOverride({ params: { prompt: 'キャンバスの文' } }, blank, { display: true }).params as Record<string, unknown>).prompt).toBe('  ')
+    // Video Generation はノードの直下（モデル・長さ・音声）
+    expect(nextNodeOverride({ model: 'kling-v3-pro', duration: '5', audioEnabled: true }, null, { model: 'kling-2.5-turbo', duration: '5', audioEnabled: false })).toEqual({ top: { model: 'kling-2.5-turbo', audioEnabled: false }, params: {} })
+  })
+  it('覚えていた値は、上書きできる値だけ読む', () => {
+    expect(parseAppSettings({ ig: { kind: 'node', top: { model: 'kling-v3-pro', status: 'done', audioEnabled: true }, params: { prompt: 'p', error: 'x', resolution: 2 } } }))
+      .toEqual({ ig: { kind: 'node', top: { model: 'kling-v3-pro', audioEnabled: true }, params: { prompt: 'p' } } })
+    expect(parseAppSettings({ ig: { kind: 'node', top: {}, params: { error: 'x' } } })).toEqual({})
   })
 })

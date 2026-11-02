@@ -12,7 +12,7 @@ import { BatchMark } from './BatchMark'
 import { CUT_ROLE_LABEL, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
 import { VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { falErrorInfo } from '../../lib/ai/falErrors'
-import { effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
+import { canStartFromImage, effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
 import { VIDEO_GEN_ELEMENT_HANDLES, videoGenElements, type VideoGenElements } from '../../lib/video/klingElement'
 import { listItemsOf, type ListMode } from '../../lib/listItems'
 import { textsNeedingTranslation } from '../../lib/video/translate'
@@ -849,7 +849,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
               onChange={(e) => upd(updateNode, id, { aspectRatio: e.target.value })}
               disabled={isGenerating}
             >
-              {!currentModel.supportedAspectRatios.includes('auto') && currentModel.supportedModes.includes('image-to-video') && <option value="auto">auto（写真の比率）</option>}
+              {!currentModel.supportedAspectRatios.includes('auto') && canStartFromImage(currentModel) && <option value="auto">auto（写真の比率）</option>}
               {currentModel.supportedAspectRatios.map((ar) => (
                 <option key={ar} value={ar}>{ar === 'auto' ? 'auto（写真の比率）' : ar}</option>
               ))}

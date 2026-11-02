@@ -11,7 +11,7 @@ import { DEFAULT_EXPORT_PARAMS, normalizeExportParams, isReservedVariantName } f
 import { DEFAULT_BATCH_INPUT_PARAMS, normalizeBatchInputParams } from '../batch/items'
 import { DEFAULT_TRY_ON_PARAMS, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, normalizeTryOnParams } from '../tryon/prompt'
 import { MODEL_ROLES } from '../library/modelRoles'
-import { VIDEO_MODELS } from '../ai/videoModels'
+import { VIDEO_MODELS, canStartFromImage } from '../ai/videoModels'
 import { NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS } from '../ai/imageGenModels'
 
 export const EXPORT_ITEM_INPUT = 'in-item-item'          // ExportNode の EXPORT_ITEM_HANDLE と同じ（コンポーネントを lib から import しない）
@@ -41,7 +41,7 @@ export interface CatalogNode {
 }
 
 const IMAGE_GEN_MODELS = ['fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2', 'fal-ai/flux-2', 'fal-ai/recraft/v4/text-to-image'] as const
-const VIDEO_MODEL_IDS = VIDEO_MODELS.filter((m) => m.supportedModes.includes('image-to-video') || !!m.i2vEndpoint).map((m) => m.id)
+const VIDEO_MODEL_IDS = VIDEO_MODELS.filter(canStartFromImage).map((m) => m.id)
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d)
 const pick = <T extends string>(v: unknown, allowed: readonly T[], d: T): T => ((allowed as readonly string[]).includes(v as string) ? (v as T) : d)
 

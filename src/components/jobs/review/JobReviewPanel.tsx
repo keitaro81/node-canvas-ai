@@ -12,6 +12,7 @@ import { batchRerun, submitJobFully } from '../../../lib/api/batch'
 import { signBatchPath } from '../../../lib/cutout/store'
 import { isActiveJob, jobProgress } from '../../../lib/batch/jobsQuery'
 import { formatJst } from '../../../lib/batch/dates'
+import { stripExtension } from '../../../lib/batch/items'
 import { formatCost } from '../../../lib/batch/cost'
 import { downloadBlob } from '../../../lib/export/zip'
 import type { CutoutParams, ExportParams } from '../../../types/nodes'
@@ -551,6 +552,7 @@ export function JobReviewPanel({ jobId, store: useReview, mode, liveCanvas, onDe
         open={!!exportScope} scope={exportScope ?? 'all'} initialParams={exportParams}
         targetCount={exportTargetList.length} cutoutOptional={!!cutoutNode && variants.length > 0} summarize={summarizeExport}
         sampleSku={items[0]?.sku ?? null}
+        sampleName={items[0] ? stripExtension(items[0].original_filename) : null}
         state={exportState} onStart={(params) => void startExport(params)} onCancel={() => { exportCancel.current = true }}
         onClose={() => { if (exportState.phase !== 'running') { setExportScope(null); setExportState({ phase: 'idle' }) } }}
       />

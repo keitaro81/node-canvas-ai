@@ -1,4 +1,5 @@
-// 一括 App の「設定」（2026-11-02 メモ 46・使う人ごとに選ぶ）: App 化したグループの中で処理に使うモデル・画像・文を、使う人がここで選び直す。
+// 一括 App の「設定」（2026-11-02 メモ 46・使う人ごとに選ぶ）: App 化したグループの中で処理に使うモデル・画像・文と、
+// 処理するノードの「表示」にした欄（メモ 67: Image Generation のプロンプト・モデル・比率・解像度、Video Generation のモデル・長さなど）を、使う人がここで選び直す。
 // 変えた内容はこのブラウザに覚え、処理を始めるときにワークフローの写しへ入れる（キャンバスのワークフローは変えない・lib/apps/appSettings.ts）
 import { useState, type ReactNode } from 'react'
 import { ArrowCounterClockwise, ImageSquare, SlidersHorizontal, UserCircle } from '@phosphor-icons/react'
@@ -10,7 +11,8 @@ import { libraryCanonicalUrl } from '../../lib/api/library'
 import { MODEL_ROLES } from '../../lib/library/modelRoles'
 import { CUT_ROLE_LABEL } from '../../lib/video/productVideo'
 import { cutSetRoleHandle } from '../../lib/batch/plan'
-import { missingModelRoles, type AppSetting, type AppSettingField, type ModelCuts } from '../../lib/apps/appSettings'
+import { missingModelRoles, nextNodeOverride, withNodeOverride, type AppSetting, type AppSettingField, type ModelCuts } from '../../lib/apps/appSettings'
+import { FieldRenderer } from '../capsule/CapsuleView'
 
 const ACCENT = '#14B8A6'
 
@@ -126,6 +128,29 @@ function TextRow({ field, setting, onSet, onReset }: RowProps) {
   )
 }
 
+/** 処理するノードの「表示」の欄（生成 App と同じ欄の部品）。値はキャンバスのノードに上書きを重ねたもの、変えると上書きだけが変わる */
+function NodeRow({ field, setting, onSet, onReset }: RowProps) {
+  const node = useCanvasStore((s) => s.nodes.find((n) => n.id === field.nodeId))
+  if (!node) return null
+  const base = node.data as unknown as Record<string, unknown>
+  const ov = setting?.kind === 'node' ? setting : null
+  const data = withNodeOverride(base, ov, { display: true })
+  const update = (patch: Record<string, unknown>) => {
+    const next = nextNodeOverride(base, ov, patch)
+    if (next) onSet({ kind: 'node', ...next })
+    else onReset()
+  }
+  const emptyPrompt = !!ov && typeof ov.params.prompt === 'string' && !ov.params.prompt.trim()
+  return (
+    <SettingCard field={field} overridden={!!ov} onReset={onReset}>
+      <div className="flex flex-col -mb-3">
+        {(field.fields ?? []).map((f) => <FieldRenderer key={f.id} nodeId={field.nodeId} field={f} source={{ data, update }} />)}
+      </div>
+      {emptyPrompt && <div className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>プロンプトが空のときはキャンバスの文で処理します</div>}
+    </SettingCard>
+  )
+}
+
 /** 設定欄。fields が空なら出さない */
 export function AppSettingsPanel({ fields, settings, onChange, workflowId }: { fields: AppSettingField[]; settings: Record<string, AppSetting>; onChange: (next: Record<string, AppSetting>) => void; workflowId: string | null }) {
   if (!fields.length) return null
@@ -138,11 +163,11 @@ export function AppSettingsPanel({ fields, settings, onChange, workflowId }: { f
         <div className="text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>設定</div>
       </div>
       <p className="text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>
-        この App の処理で使うモデル・画像・文です。ここで変えた内容はこのブラウザに覚えて次の処理から使い、キャンバスのワークフローは変わりません（何を使ったかは履歴に残ります）。
+        この App の処理で使うモデル・画像・文と、処理の設定です。ここで変えた内容はこのブラウザに覚えて次の処理から使い、キャンバスのワークフローは変わりません（何を使ったかは履歴に残ります）。
       </p>
       {fields.map((f) => {
         const props: RowProps = { field: f, setting: settings[f.nodeId], onSet: (s) => set(f.nodeId, s), onReset: () => reset(f.nodeId), workflowId }
-        return f.kind === 'model' ? <ModelRow key={f.nodeId} {...props} /> : f.kind === 'image' ? <ImageRow key={f.nodeId} {...props} /> : <TextRow key={f.nodeId} {...props} />
+        return f.kind === 'model' ? <ModelRow key={f.nodeId} {...props} /> : f.kind === 'image' ? <ImageRow key={f.nodeId} {...props} /> : f.kind === 'node' ? <NodeRow key={f.nodeId} {...props} /> : <TextRow key={f.nodeId} {...props} />
       })}
     </div>
   )
