@@ -249,7 +249,7 @@ type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number;
  *   それらを順に受ける Video Merge。AI 段は 1 経路 2 段まで（結合は数えない）
  * - ジョブごと: Product Layout の背景入力につながる Image Generation（executionScope='job'）1 件（Step 8）。動画があるジョブでは作らない
  */
-export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string> } {
+export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; droppedForVideo: PlannedTask[] } {
   const snap = snapshot
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -490,13 +490,16 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
     if (!changed) break
   }
 
-  // 動画があるジョブは動画だけを作る（2026-10-31 決定）: 動画につながらない画像のタスクは対象外
+  // 動画があるジョブは動画だけを作る（2026-10-31 決定）: 動画につながらない画像のタスクは対象外。
+  // 外した画像のタスクは droppedForVideo に残す（App の判定「画像と動画の両方ができる構成」に使う・2026-11-02）
+  let droppedForVideo: PlannedTask[] = []
   const hasVideo = tasks.some((t) => t.kind === 'videoShot')
   if (hasVideo) {
     const feeding = new Set<string>()
     const visit = (id: string) => { if (feeding.has(id)) return; feeding.add(id); const t = tasks.find((x) => x.nodeId === id); if (t) for (const d of depsOf(t.inputs)) visit(d) }
     for (const t of tasks) if (t.kind === 'videoShot' || t.kind === 'videoMerge') visit(t.nodeId)
     const dropped = tasks.filter((t) => !feeding.has(t.nodeId))
+    droppedForVideo = dropped
     if (dropped.length) { warn(`この構成では動画だけを処理します（${dropped.map((t) => t.label).join('・')} の画像は作りません）`); for (const t of dropped) excluded[t.nodeId] = 'この構成では動画だけを処理します（画像は作りません）' }
     for (let i = tasks.length - 1; i >= 0; i--) if (!feeding.has(tasks[i].nodeId)) tasks.splice(i, 1)
     if (nodes.some((n) => nodeKindOf(n) === 'productLayout')) warn('この構成では Product Layout の画像は作りません（動画だけを処理します）')
@@ -553,7 +556,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       warn(`Image Generation（${nodeLabelOf(node)}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
     }
   }
-  return { tasks, warnings, excluded }
+  return { tasks, warnings, excluded, droppedForVideo }
 }
 
 /** タスクの入力の参照（画像・モデル・開始・終了） */

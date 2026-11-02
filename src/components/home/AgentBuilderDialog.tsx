@@ -95,7 +95,7 @@ export function AgentBuilderDialog({ open, onClose, onCreate, actionLabel = 'こ
                     <div className="text-[12px] font-medium" style={{ color: 'var(--text-primary)' }}>{m.result.compiled.name}</div>
                     {m.result.compiled.canvas ? (
                       <ol className="mt-1 list-decimal pl-4 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                        {m.result.compiled.canvas.nodes.map((n) => <li key={n.id}>{catalogNode(String(n.data?.type ?? ''))?.label ?? String(n.data?.label ?? n.id)}{m.result?.compiled?.hints?.[n.id] ? <span style={{ color: 'var(--text-tertiary)' }}> — {m.result?.compiled?.hints?.[n.id]}</span> : null}</li>)}
+                        {m.result.compiled.canvas.nodes.filter((n) => n.type !== 'groupNode').map((n) => <li key={n.id}>{catalogNode(String(n.data?.type ?? ''))?.label ?? String(n.data?.label ?? n.id)}{m.result?.compiled?.hints?.[n.id] ? <span style={{ color: 'var(--text-tertiary)' }}> — {m.result?.compiled?.hints?.[n.id]}</span> : null}</li>)}
                       </ol>
                     ) : null}
                     {m.result.compiled.canvas && <div className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>接続 {m.result.compiled.canvas.edges.length} 本</div>}

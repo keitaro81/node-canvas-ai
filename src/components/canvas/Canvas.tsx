@@ -26,6 +26,7 @@ import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
 import { TemplatePickerDialog } from '../home/TemplatePickerDialog'
 import { AgentBuilderDialog } from '../home/AgentBuilderDialog'
 import type { CompiledCanvas } from '../../lib/agent/compile'
+import { appIssueOf } from '../../lib/apps/appKind'
 import { ContextMenu } from './ContextMenu'
 import { TextNode } from '../nodes/TextNode'
 import { ImageNode } from '../nodes/ImageNode'
@@ -271,6 +272,8 @@ function findGroupAtPosition(x: number, y: number, nodes: AppNode[]): AppNode | 
 function checkAndDisableCapsuleIfNeeded(groupId: string) {
   const { nodes, edges, capsuleGroupId, setCapsuleGroupId } = useCanvasStore.getState()
   if (capsuleGroupId !== groupId) return
+  // 一括 App（グループに Batch Input がある）は並列でもよい（枝ごとの結果）。問題はグループの注意と App の画面に出す（appIssueOf・2026-11-02）
+  if (nodes.some((n) => n.parentId === groupId && (n.data as { type?: string }).type === 'batchInput')) return
   if (hasParallelGenerationNodes(groupId, nodes, edges)) {
     setCapsuleGroupId(null)
     showToast('並列生成ノードが検出されたため、App モードが解除されました', 'warning')
@@ -1208,10 +1211,11 @@ export function Canvas() {
   const [starterDismissedFor, setStarterDismissedFor] = useState<string | null>(null)
   const dismissStarter = useCallback(() => setStarterDismissedFor(currentWorkflowId), [currentWorkflowId])
   const showStarter = isOwned && appMode === 'graph' && !isLoadingWorkflow && !!currentWorkflowId && nodes.length === 0 && emptyAtOpen && starterDismissedFor !== currentWorkflowId
-  const insertCanvas = useCallback((canvas: { nodes: unknown[]; edges: unknown[] }) => {
+  const insertCanvas = useCallback((canvas: { nodes: unknown[]; edges: unknown[]; capsuleGroupId?: string | null }) => {
     const store = useCanvasStore.getState()
     store.setNodes(JSON.parse(JSON.stringify(canvas.nodes)) as AppNode[])
     store.setEdges(JSON.parse(JSON.stringify(canvas.edges)) as Edge[])
+    store.setCapsuleGroupId(canvas.capsuleGroupId ?? null)   // テンプレート・チャットの一括の構成は最初から App 化したグループ（2026-11-02）
     setStarterOpen(null)
     void useWorkflowStore.getState().saveCurrentWorkflow()
     setTimeout(() => rfInstance.current?.fitView({ padding: 0.2, duration: 400 }), 80)
@@ -1465,10 +1469,14 @@ export function Canvas() {
                   if (isCapsuleTarget) {
                     setCapsuleGroupId(null)
                   } else {
-                    if (hasParallelGenerationNodes(singleGroup.id, nodes, edges)) {
+                    const isBatch = nodes.some((n) => n.parentId === singleGroup.id && (n.data as { type?: string }).type === 'batchInput')
+                    if (!isBatch && hasParallelGenerationNodes(singleGroup.id, nodes, edges)) {
                       showToast('並列生成はAppモードでサポートされていません。直列接続のワークフローにしてください。', 'warning')
                       return
                     }
+                    // 一括 App: 結果は 1 種類（入口 1 つ・画像と動画を混ぜない・動画は 1 本）。問題があれば App 化しない（2026-11-02）
+                    const issue = appIssueOf({ capsuleGroupId, nodes: nodes.map((n) => ({ id: n.id, type: n.type, parentId: n.parentId, data: n.data as unknown as Record<string, unknown> })), edges }, singleGroup.id)
+                    if (issue) { showToast(issue.message, 'warning'); return }
                     setCapsuleGroupId(singleGroup.id)
                   }
                 }}

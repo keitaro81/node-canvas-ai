@@ -8,9 +8,9 @@ import { falVideoProvider } from '../../lib/ai/provider-registry'
 import { useCanvasStore } from '../../stores/canvasStore'
 import type { AppNode } from '../../stores/canvasStore'
 import { getImageUrlFromNodeData } from '../../lib/utils'
-import { useLiveCanvas } from '../../hooks/useLiveCanvas'
+import { BatchMark } from './BatchMark'
 import { CUT_ROLE_LABEL, type CutRole, hasTurnPreset, turnPreset, withTurnMotion, withTurnNegative } from '../../lib/video/productVideo'
-import { autoElementSources, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, inputNodesOf, planTasksForNode, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
+import { autoElementSources, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cfgScaleOf, imageRoleOfSource, videoPromptOf, videoPromptSources, type SnapshotEdge, type SnapshotNode, type TaskInputs, type WorkflowSnapshot } from '../../lib/batch/plan'
 import { textsNeedingTranslation } from '../../lib/video/translate'
 import { translateTextsClient } from '../../lib/video/translateClient'
 import type { VideoGenerationNodeData, VideoDisplayNodeData, CapsuleFieldDef, CapsuleVisibility, NodeData } from '../../types/nodes'
@@ -128,17 +128,6 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
     setParam({ prompt: withTurnMotion(vp.prompt ?? '', t.motion), negativePrompt: withTurnNegative(vp.negativePrompt ?? '', t.negativeJp), autoTurn: false })
   }
 
-  // 一括実行の対象か（Batch Input / Cut Set Input があるキャンバスでだけ表示。計画はサーバーと同じ純関数）
-  const live = useLiveCanvas()
-  const batchInfo = useMemo(() => {
-    const snap = live as unknown as WorkflowSnapshot
-    const ins = inputNodesOf(snap)
-    if (!ins.batchInputId) return null
-    const { tasks, excluded } = planTasksForNode(snap, id)   // 自分の入口の枝だけで計画（メモ 24）
-    const t = tasks.find((x) => x.nodeId === id)
-    if (t) return { ok: true as const, stage: t.stage, reason: null }
-    return { ok: false as const, stage: 0, reason: excluded[id] ?? null }
-  }, [live, id])
 
   const handleGenerate = useCallback(async () => {
     const quota = await checkQuota('video')
@@ -667,11 +656,7 @@ function VideoGenerationNodeInner({ id, data, selected }: NodeProps) {
             />
           </div>
         )}
-        {batchInfo && (
-          <div className="text-[10px] leading-snug px-2 py-1 rounded" style={{ background: batchInfo.ok ? 'rgba(34,197,94,0.10)' : 'rgba(245,158,11,0.10)', color: batchInfo.ok ? '#22C55E' : '#F59E0B' }}>
-            {batchInfo.ok ? `一括実行: 対象（${batchInfo.stage} 段目・写真ごとに 1 本）` : `一括実行: 対象外（${batchInfo.reason ?? 'Batch Input / Cut Set Input の写真・カットに接続されていません'}）`}
-          </div>
-        )}
+        <BatchMark nodeId={id} />
 
         {/* マルチショット（Kling 3.0 multi_prompt）: ショットごとの指示と秒数。空なら通常の 1 プロンプト */}
         {supportsShots && !connectedVideoUrl && (

@@ -16,12 +16,12 @@ export function useLiveCanvas(debounceMs = 400): CanvasLike {
   const latest = useRef({ nodes, edges })
   latest.current = { nodes, edges }
   const signature = useMemo(() => JSON.stringify({
-    n: nodes.map((n) => { const d = n.data as unknown as Record<string, unknown>; return [n.id, n.type, d.type, d.params ?? null, typeof d.output === 'string' ? d.output : null, typeof d.imageUrl === 'string' ? d.imageUrl : null, d.model ?? null, d.cuts ?? null, d.role ?? null] }),
+    n: nodes.map((n) => { const d = n.data as unknown as Record<string, unknown>; return [n.id, n.type, n.parentId ?? null, d.type, d.params ?? null, typeof d.output === 'string' ? d.output : null, typeof d.imageUrl === 'string' ? d.imageUrl : null, d.model ?? null, d.cuts ?? null, d.role ?? null] }),
     e: edges.map((e) => [e.source, e.sourceHandle ?? null, e.target, e.targetHandle ?? null]),
   }), [nodes, edges])
   const settled = useDebounced(signature, debounceMs)
   return useMemo<CanvasLike>(() => ({
-    nodes: latest.current.nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as unknown as Record<string, unknown> })),
+    nodes: latest.current.nodes.map((n) => ({ id: n.id, type: n.type, parentId: n.parentId, position: n.position, data: n.data as unknown as Record<string, unknown> })),
     edges: latest.current.edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null })),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [settled])

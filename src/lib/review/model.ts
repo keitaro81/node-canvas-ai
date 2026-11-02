@@ -203,7 +203,7 @@ export const CUTOUT_PREVIEW_PARAMS: LayoutParams = normalizeLayoutParams({ varia
 // ───────────────────────── 投入元ワークフロー（canvas_data）との連動 ─────────────────────────
 // バリアント = ワークフローの Product Layout ノード。Jobs 画面での追加・削除・変更はノードを書き換える（本人のワークフローのみ）。
 
-export interface CanvasNode { id: string; type?: string; position?: { x: number; y: number }; data?: Record<string, unknown>; [k: string]: unknown }
+export interface CanvasNode { id: string; type?: string; parentId?: string; position?: { x: number; y: number }; data?: Record<string, unknown>; [k: string]: unknown }
 export interface CanvasEdge { id?: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null; [k: string]: unknown }
 export interface CanvasLike { nodes?: CanvasNode[]; edges?: CanvasEdge[]; [k: string]: unknown }
 export type CanvasFull = CanvasLike & { nodes: CanvasNode[]; edges: CanvasEdge[] }

@@ -2,6 +2,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { GPT_IMAGE_2_MODELS, NB_ASPECT_RATIOS, NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS, RECRAFT_MODELS } from '../../lib/ai/imageGenModels'
 import { Handle, Position, type NodeProps, type Edge } from '@xyflow/react'
 import { PortLabel } from './PortLabel'
+import { BatchMark } from './BatchMark'
 import { dimIfNotTarget, useDragTarget } from './portDrag'
 import { Sparkles, Loader2, X, ChevronDown, Minus, Plus } from 'lucide-react'
 import { fal } from '../../lib/ai/fal-client'
@@ -1155,6 +1156,8 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
               </div>
             )}
           </div>
+
+          <BatchMark nodeId={id} />
 
           {/* Generate button */}
           <button
