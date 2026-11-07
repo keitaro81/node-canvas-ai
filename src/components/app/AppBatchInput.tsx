@@ -22,11 +22,12 @@ interface Props {
   nodeId: string                 // Batch Input ノード（アップロード先のフォルダ名）
   skuPattern: string             // ノードの SKU 規則（ここでは変更しない）
   canSubmit: boolean             // 一括実行できるか（ワークフロー未保存などで false）
+  blockedReason?: string         // canSubmit が false の理由（未指定ならワークフロー未保存）
   onSubmit: (items: CreateItemInput[]) => void
 }
 
 /** 投入完了後に一覧を空にするには、親が key を変えて作り直す */
-export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit, storageKey, initialItems }: Props) {
+export function AppBatchInput({ nodeId, skuPattern, canSubmit, blockedReason, onSubmit, storageKey, initialItems }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [items, setItems] = useState<BatchItem[]>(() => initialAppPhotos(storageKey, initialItems))   // このブラウザの記憶 → 以前のノードの一覧（一度だけ）→ 空
   useEffect(() => { saveAppPhotos(storageKey, items) }, [items, storageKey])
@@ -193,7 +194,7 @@ export function AppBatchInput({ nodeId, skuPattern, canSubmit, onSubmit, storage
         className="h-9 w-full rounded-lg text-[12px] font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
         style={{ background: ACCENT }}
         disabled={!canSubmit || readyItems.length === 0 || uploading}
-        title={!canSubmit ? 'この App ではまだ処理を始められません（ワークフローが未保存です）' : uploading ? 'アップロードが終わるまで待ってください' : readyItems.length === 0 ? '準備完了の写真がありません' : '準備完了の写真すべてを処理します'}
+        title={!canSubmit ? (blockedReason ?? 'この App ではまだ処理を始められません（ワークフローが未保存です）') : uploading ? 'アップロードが終わるまで待ってください' : readyItems.length === 0 ? '準備完了の写真がありません' : '準備完了の写真すべてを処理します'}
         onClick={submit}
       >
         {readyItems.length} 枚を処理する

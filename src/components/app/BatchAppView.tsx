@@ -67,12 +67,15 @@ export function BatchAppView() {
   // 計画（処理内容）と、一括 App として動かせない理由（入口が 2 つ以上・画像と動画の混在・動画が 2 本以上。2026-11-02）
   const plan = useMemo(() => appBatchPlanOf({ capsuleGroupId, nodes: liveCanvas.nodes, edges: liveCanvas.edges }, scope.groupId), [liveCanvas, capsuleGroupId, scope.groupId])
   // 設定（メモ 46・使う人ごとに選ぶ）: 処理に使うモデル・画像・文をこの画面で選び直す。ブラウザに覚え、処理を始めるときに写しへ入れる
-  const settingFields = useMemo(() => (plan ? appSettingFieldsOf(appCanvas.nodes, appCanvas.edges, plan.tasks.map((t) => t.nodeId)) : []), [plan, appCanvas])
+  // モデル未選択の Try-On（pendingModel）も入れて、Model のカードを「設定」に出す（選べば計画に入る・2026-11-07 メモ 68）
+  const settingFields = useMemo(() => (plan ? appSettingFieldsOf(appCanvas.nodes, appCanvas.edges, [...plan.tasks.map((t) => t.nodeId), ...plan.pendingModel]) : []), [plan, appCanvas])
   const [appSettings, setAppSettings] = useAppSettings(appSettingsStorageKey(workflowId, scope.entryId))
   // 「処理内容」は使う人が選んだ設定を重ねた計画で出す（実際に動く内容。モデルを変えたときの注意など・2026-11-02 メモ 67）。動かせるかの判定はキャンバスの計画のまま
   const shownPlan = useMemo(() => (plan && Object.keys(appSettings).length
     ? appBatchPlanOf({ capsuleGroupId, nodes: applyAppSettings(liveCanvas.nodes ?? [], appSettings, settingFields), edges: liveCanvas.edges }, scope.groupId) ?? plan
     : plan), [plan, appSettings, settingFields, liveCanvas, capsuleGroupId, scope.groupId])
+  // モデルが選ばれるまで処理を始められない（キャンバスの Model ノードか、この画面の「設定」で選ぶ・メモ 68）
+  const modelPending = ((shownPlan ?? plan)?.pendingModel.length ?? 0) > 0
 
   useEffect(() => {
     let alive = true
@@ -124,7 +127,12 @@ export function BatchAppView() {
           <p className="text-[11px] mb-3" style={{ color: 'var(--text-tertiary)' }}>
             入れた写真すべてに、App「{workflowName}」の処理（上の「処理内容」）を行います。
           </p>
-          <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${batchInput.id}`} initialItems={(batchInput.data as unknown as NodeData).items as BatchItem[] | undefined} />
+          {modelPending && (
+            <div className="rounded-lg px-3 py-2 mb-3 text-[11px] leading-snug" style={{ color: '#F59E0B', background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)' }}>
+              モデルが選ばれていません。下の「設定」の Model で選ぶと処理できます（キャンバスの Model ノードで選んでも構いません）
+            </div>
+          )}
+          <AppBatchInput key={resetKey} nodeId={batchInput.id} skuPattern={skuPattern} canSubmit={!!workflowId && !modelPending} blockedReason={modelPending ? 'モデルを選ぶと処理できます（下の「設定」の Model）' : undefined} onSubmit={submit} storageKey={`${workflowId ?? 'draft'}:${batchInput.id}`} initialItems={(batchInput.data as unknown as NodeData).items as BatchItem[] | undefined} />
           {settingFields.length > 0 && (<>
             <div className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />
             <AppSettingsPanel fields={settingFields} settings={appSettings} onChange={setAppSettings} workflowId={workflowId} />

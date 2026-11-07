@@ -137,6 +137,19 @@ describe('planTasks: Try-On（2b-3・写真ごとの試着）', () => {
     expect(warnings).toEqual([])
     expect(tasks[0]).toMatchObject({ kind: 'imageEdit', inputs: { image: { kind: 'asset', url: GARMENT }, model: { kind: 'photo' } } })
   })
+  it('Model ノードをつないであるがモデル未選択の Try-On は「まだ処理できません」で外し、後段と一緒に pendingModel に入る。選べば計画に入る（2026-11-07 メモ 68）', () => {
+    const lm = (cuts: Record<string, unknown>) => ({ id: 'lm', type: 'libraryModelNode', data: { type: 'libraryModel', label: 'Model', modelId: null, cuts } })
+    const ig = { id: 'ig', type: 'imageGenerationNode', data: { type: 'imageGen', label: 'ig', params: { prompt: 'NY', executionScope: 'item' } } }
+    const edges = [e('bi', 'out-image-image', 't1', 'in-image-garment'), e('lm', 'out-image-front', 't1', 'in-image-model'), e('t1', 'out-image-image-out', 'ig', 'in-image')]
+    const r = planTasks({ nodes: [bi, lm({}), tryOn('t1', { model: null }), ig], edges })
+    expect(r.tasks).toEqual([])
+    expect(r.excluded.t1).toContain('モデルが選ばれていないため、まだ処理できません')
+    expect(r.excluded.ig).toContain('前段（t1）')
+    expect(r.pendingModel).toEqual(['t1', 'ig'])
+    const ok = planTasks({ nodes: [bi, lm({ front: { url: MODEL, itemId: 'm' } }), tryOn('t1', { model: null }), ig], edges })
+    expect(ok.tasks.map((t) => t.nodeId)).toEqual(['t1', 'ig'])
+    expect(ok.pendingModel).toEqual([])
+  })
   it('モデルが無い / 服がつながっていない Try-On は注意を出して対象外。両方が固定の画像なら対話実行だけ（注意なし）', () => {
     const noModel = planTasks({ nodes: [bi, tryOn('t1', { model: null })], edges: [e('bi', 'out-image-image', 't1', 'in-image-garment')] })
     expect(noModel.tasks).toEqual([])
