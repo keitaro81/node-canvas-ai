@@ -88,6 +88,20 @@ describe('appBatchPlanOf / appIssueOf（一括 App の結果は 1 種類・2026-
     expect(p.excluded.v1).toContain('Product Layout の画像を一括では使えない')
     expect(p.excluded.v2).toContain('Batch Input の写真につながっていない')
   })
+  it('モデル未選択の Model ノードをつないだ Try-On は App を止めず pendingModel に入れる。モデルを選べば計画に入る（2026-11-07 メモ 68）', () => {
+    const lm = (cuts: Record<string, unknown>) => ({ id: 'lm', type: 'libraryModelNode', parentId: 'g', data: { type: 'libraryModel', label: 'Model', modelId: null, cuts } })
+    const to = { id: 't1', type: 'tryOnNode', parentId: 'g', data: { type: 'tryOn', label: 't1', params: { resolution: '2K', note: '' }, model: null } }
+    const edges = [photo('t1', 'in-image-garment'), e('lm', 'out-image-front', 't1', 'in-image-model')]
+    const p = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), lm({}), to], edges }, 'g')!
+    expect(p.issue).toBeNull()
+    expect(p.tasks).toEqual([])
+    expect(p.pendingModel).toEqual(['t1'])
+    expect(p.excluded.t1).toContain('モデルが選ばれていない')
+    const ok = appBatchPlanOf({ nodes: [g, bi('bi', 'g'), lm({ front: { url: 'https://x.supabase.co/storage/v1/object/public/generated-images/library/u/m.jpg', itemId: 'm' } }), to], edges }, 'g')!
+    expect(ok.issue).toBeNull()
+    expect(ok.tasks.map((t) => t.nodeId)).toEqual(['t1'])
+    expect(ok.pendingModel).toEqual([])
+  })
   it('最終の出力は 1 つ（メモ 61）: 途中の結果は数えず、Product Layout のバリアントは 1 つに数える', () => {
     const ig = (id: string) => ({ id, type: 'imageGenerationNode', parentId: 'g', data: { type: 'imageGen', label: id, params: { prompt: 'x', executionScope: 'item' } } })
     // 写真ごとの Image Generation が 2 つ並ぶ → 2 種類

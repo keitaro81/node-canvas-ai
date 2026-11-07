@@ -241,7 +241,7 @@ export function materializeTurnPresets(nodes: SnapshotNode[], edges: SnapshotEdg
 
 // ───────────────────────── 計画 ─────────────────────────
 type Producer = { kind: 'input'; ref: InputRef } | { kind: 'fixed'; ref: InputRef } | { kind: 'ai'; nodeId: string; role?: CutRole | null } | { kind: 'other' }
-type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number; stage: number; notes: string[] } | { ok: false; reason: 'not_connected' | 'upstream' | 'no_inputs' | 'no_garment' | 'no_model'; upstream?: string }
+type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number; stage: number; notes: string[] } | { ok: false; reason: 'not_connected' | 'upstream' | 'no_inputs' | 'no_garment' | 'no_model' | 'model_unselected'; upstream?: string }
 
 /**
  * 写しから AI 処理ノードを抽出する（仕様 4-2・フェーズ C・§5）。
@@ -249,7 +249,7 @@ type Analysis = { ok: true; inputs: TaskInputs; deps: string[]; aiDepth: number;
  *   それらを順に受ける Video Merge。AI 段は 1 経路 2 段まで（結合は数えない）
  * - ジョブごと: Product Layout の背景入力につながる Image Generation（executionScope='job'）1 件（Step 8）。動画があるジョブでは作らない
  */
-export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; droppedForVideo: PlannedTask[]; emptyPrompt: string[] } {
+export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; droppedForVideo: PlannedTask[]; emptyPrompt: string[]; pendingModel: string[] } {
   const snap = snapshot
   const nodes = nodesOf(snap), edges = edgesOf(snap)
   const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -266,6 +266,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
   const excluded: Record<string, string> = {}   // ノード id → 対象外の理由（ノードの表示用。注意文は名前で探さない）
   const exclude = (nodeId: string, w: string) => { excluded[nodeId] = w; warn(w) }
   const emptyPrompt: string[] = []   // 指示（プロンプト）が空で外した写真ごとの生成ノード（一括 App はこれがあると App にしない・2026-11-02）
+  const pendingModel: string[] = []  // Model ノードはつないであるがモデルが未選択の Try-On（とその後段）。App は止めず、App の「設定」で選べば動く（2026-11-07 メモ 68）
 
   // 画像/動画の出どころ（結果ノードは透過して生成器へ）
   const producerOf = (sourceId: string, sourceHandle: string | null | undefined, want: 'image' | 'video'): Producer => {
@@ -369,7 +370,11 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       const perItem = (r: InputRef | null) => !!r && r.kind !== 'asset'
       if (!perItem(garment) && !perItem(model)) return null
       if (!garment) return { ok: false, reason: 'no_garment' }
-      if (!model) return { ok: false, reason: 'no_model' }
+      if (!model) {
+        // Model ノードをつないであるがモデルが未選択 → App の「設定」で選べば動く（止めない・メモ 68）
+        const me = edges.find((x) => x.target === nodeId && x.targetHandle === TRY_ON_MODEL_HANDLE)
+        return { ok: false, reason: me && kindOf(me.source) === 'libraryModel' ? 'model_unselected' : 'no_model' }
+      }
       const f = fold([garment, model], notes)
       if (!f.ok) return { ok: false, reason: 'upstream', upstream: f.upstream }
       return { ok: true, inputs: { image: garment, model }, deps: f.deps, aiDepth: f.aiDepth + 1, stage: f.stage + 1, notes }
@@ -426,6 +431,7 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       if (k === 'removeBackground' && a.reason === 'not_connected') exclude(node.id, `Remove Background（${label}）は Batch Input に接続されていないため一括実行の対象外です`)
       else if (k === 'videoMerge' && a.reason === 'no_inputs') exclude(node.id, `Video Merge（${label}）につながる Video Generation が無いため一括実行の対象外です`)
       else if (k === 'tryOn' && a.reason === 'no_garment') exclude(node.id, `Try-On（${label}）は服の画像がつながっていないため一括実行の対象外です`)
+      else if (k === 'tryOn' && a.reason === 'model_unselected') { exclude(node.id, `Try-On（${label}）はモデルが選ばれていないため、まだ処理できません（App の「設定」の Model か、キャンバスの Model ノードでモデルを選んでください）`); pendingModel.push(node.id) }
       else if (k === 'tryOn' && a.reason === 'no_model') exclude(node.id, `Try-On（${label}）はモデルの画像が無いため一括実行の対象外です（Model ノードをつなぐか、参照画像のモデルタブから入れてください）`)
       else excludedUpstream(node.id, a)
       continue
@@ -562,7 +568,19 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       warn(`Image Generation（${nodeLabelOf(node)}）は Product Layout の背景入力につながっていないため一括実行の対象外です`)
     }
   }
-  return { tasks, warnings, excluded, droppedForVideo, emptyPrompt }
+  // モデル未選択の Try-On の後段（前段が対象外のため外れたノード）も「モデルを選べば動く」側に数える（結果ノードなど AI でないノードは通り抜ける）
+  const taskIds = new Set(tasks.map((t) => t.nodeId))
+  const reach = new Set(pendingModel)
+  for (;;) {
+    let grew = false
+    for (const e of edges) {
+      if (!reach.has(e.source) || reach.has(e.target)) continue
+      if (excluded[e.target]) { pendingModel.push(e.target); reach.add(e.target); grew = true }
+      else if (!taskIds.has(e.target)) { reach.add(e.target); grew = true }
+    }
+    if (!grew) break
+  }
+  return { tasks, warnings, excluded, droppedForVideo, emptyPrompt, pendingModel }
 }
 
 /** タスクの入力の参照（画像・モデル・開始・終了） */

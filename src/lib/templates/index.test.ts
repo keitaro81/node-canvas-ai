@@ -71,7 +71,10 @@ describe('テンプレートから作成（試着・2b-4）', () => {
     expect(c.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['app-group:groupNode', 'batch-input:batchInputNode', 'model:libraryModelNode', 'tryon:tryOnNode', 'export:exportNode'])
     expect(appScopeOf(c)).toMatchObject({ kind: 'batch', groupId: 'app-group', entryId: 'batch-input' })
     expect(c.edges.map((e) => `${e.source}:${e.sourceHandle}→${e.target}:${e.targetHandle}`)).toEqual(['batch-input:out-image-image→tryon:in-image-garment', 'model:out-image-front→tryon:in-image-model', 'tryon:out-image-image-out→export:in-image-0', 'batch-input:out-item-item→export:in-item-item'])
-    expect(planTasks(c).warnings).toEqual(['Try-On（Try-On 正面）はモデルの画像が無いため一括実行の対象外です（Model ノードをつなぐか、参照画像のモデルタブから入れてください）'])   // 注意文・列名では向きの予定を添える
+    // Model ノードはつないであるがモデル未選択 → App は止めず「設定」で選べば動く（2026-11-07 メモ 68）
+    const before = planTasks(c)
+    expect(before.warnings).toEqual(['Try-On（Try-On 正面）はモデルが選ばれていないため、まだ処理できません（App の「設定」の Model か、キャンバスの Model ノードでモデルを選んでください）'])
+    expect(before.pendingModel).toEqual(['tryon'])   // 注意文・列名では向きの予定を添える
     const { tasks, warnings } = planTasks(withModels(c))
     expect(warnings).toEqual([])
     expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}`)).toEqual(['tryon:imageEdit:1'])

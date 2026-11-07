@@ -28,6 +28,12 @@ describe('一括 App の設定（2026-11-02 メモ 46・使う人ごとに選ぶ
     expect(appSettingFieldsOf(ns, first, ['ig'])).toEqual([])
   })
 
+  it('モデル未選択の Try-On（pendingModel）を処理のノードとして渡すと Model のカードが出る（2026-11-07 メモ 68）', () => {
+    const ns = [node('bi', 'batchInputNode', { type: 'batchInput' }), node('m', 'libraryModelNode', { type: 'libraryModel', label: 'Model', modelId: null, cuts: {} }), node('t', 'tryOnNode', { type: 'tryOn' })]
+    const es = [{ source: 'bi', sourceHandle: 'out-image-image', target: 't', targetHandle: 'in-image-garment' }, { source: 'm', sourceHandle: 'out-image-front', target: 't', targetHandle: 'in-image-model' }]
+    expect(appSettingFieldsOf(ns, es, [])).toEqual([])
+    expect(appSettingFieldsOf(ns, es, ['t']).map((f) => `${f.kind}:${f.nodeId}:${f.roles.join('/')}`)).toEqual(['model:m:front'])
+  })
   it('写しに入れる: 種類が合う設定だけ重ね、空の文はキャンバスの文のまま', () => {
     const fields = appSettingFieldsOf(nodes, edges, ['tryon'])
     const settings: AppSettings = {

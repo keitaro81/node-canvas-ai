@@ -25,7 +25,10 @@ export interface AppScope { kind: AppKind | null; groupId: string | null; entryI
 export type AppIssueCode = 'entries' | 'prompt' | 'excluded' | 'cutouts' | 'mixed' | 'videos' | 'outputs'
 export interface AppIssue { code: AppIssueCode; message: string }
 /** 一括 App の計画（App の「処理内容」）と問題。nodes = 範囲（グループの中）のノード */
-export interface AppBatchPlan { entryId: string; tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; issue: AppIssue | null; nodes: SnapshotNode[] }
+export interface AppBatchPlan {
+  entryId: string; tasks: PlannedTask[]; warnings: string[]; excluded: Record<string, string>; issue: AppIssue | null; nodes: SnapshotNode[]
+  pendingModel: string[]   // モデル未選択の Try-On（とその後段）。App は止めず、「設定」でモデルを選べば計画に入る（2026-11-07 メモ 68）
+}
 
 const NONE: AppScope = { kind: null, groupId: null, entryId: null, entryCount: 0 }
 const isEntry = (n: { data?: Record<string, unknown> } | null | undefined) => n?.data?.type === 'batchInput'
@@ -74,18 +77,20 @@ export function appBatchPlanOf(canvas: unknown, groupId: string | null): AppBatc
   const nodes: SnapshotNode[] = inScope
   const entryId = entries[0].id
   if (entries.length > 1) {
-    return { entryId, tasks: [], warnings: [], excluded: {}, nodes, issue: { code: 'entries', message: `入口（Batch Input）が ${entries.length} つあります。一括 App として動かすには 1 つにしてください` } }
+    return { entryId, tasks: [], warnings: [], excluded: {}, nodes, issue: { code: 'entries', message: `入口（Batch Input）が ${entries.length} つあります。一括 App として動かすには 1 つにしてください` }, pendingModel: [] }
   }
   const ids = new Set(inScope.map((n) => n.id))
   const edges: SnapshotEdge[] = (Array.isArray(c?.edges) ? c!.edges! : []).filter((e): e is NonNullable<typeof e> => !!e && ids.has(e.source) && ids.has(e.target))
-  const { tasks, warnings, excluded: planned, droppedForVideo, emptyPrompt } = planTasks(pruneToEntry({ nodes, edges, promptTranslations: c?.promptTranslations }, entryId))
+  const { tasks, warnings, excluded: planned, droppedForVideo, emptyPrompt, pendingModel } = planTasks(pruneToEntry({ nodes, edges, promptTranslations: c?.promptTranslations }, entryId))
   const excluded = { ...planned, ...unplannedReasons(nodes, edges, tasks, planned) }
   let issue: AppIssue | null = null
   const videos = tasks.filter((t) => (t.kind === 'videoShot' || t.kind === 'videoMerge') && t.terminal)
   const cutouts = tasks.filter((t) => t.kind === 'cutout')
-  // 動画だけの構成のため作らない画像（droppedForVideo）は「画像と動画の混在」の方で知らせる
+  // 動画だけの構成のため作らない画像（droppedForVideo）は「画像と動画の混在」の方で知らせる。
+  // モデル未選択の Try-On（pendingModel）は App を止めない（「設定」でモデルを選べば動く・メモ 68）
   const dropped = new Set(droppedForVideo.map((t) => t.nodeId))
-  const excludedReasons = Object.entries(excluded).filter(([id]) => !dropped.has(id)).map(([, r]) => r)
+  const pending = new Set(pendingModel)
+  const excludedReasons = Object.entries(excluded).filter(([id]) => !dropped.has(id) && !pending.has(id)).map(([, r]) => r)
   const finals = finalOutputsOf(nodes, edges, tasks)
   if (emptyPrompt.length) {
     issue = { code: 'prompt', message: `${countedLabels(emptyPrompt.map((id) => nodeLabelOf(nodes.find((n) => n.id === id))))} の指示が空です。Image Generation はプロンプトの欄、Video Generation は「動き」の欄に書くか、Text Prompt をつないでください` }
@@ -103,7 +108,7 @@ export function appBatchPlanOf(canvas: unknown, groupId: string | null): AppBatc
   if (!issue && finals.length > 1) {
     issue = { code: 'outputs', message: `写真 1 枚から ${finals.length} 種類（${countedLabels(finals.map((f) => f.label))}）を作る構成です。一括 App で作るものは 1 種類にしてください（大きさや背景の違いは Product Layout のバリアントで作れます。途中の結果を次の処理につなぐのはかまいません）` }
   }
-  return { entryId, tasks, warnings, excluded, nodes, issue }
+  return { entryId, tasks, warnings, excluded, nodes, issue, pendingModel }
 }
 
 /**
