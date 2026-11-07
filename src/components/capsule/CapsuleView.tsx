@@ -478,6 +478,8 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
         {inputs.map((input) =>
           input.nodeType === 'referenceImage' ? (
             <ImageUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+          ) : input.nodeType === 'referenceVideo' ? (
+            <VideoUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : input.nodeType === 'promptEnhancer' ? (
             <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : (
@@ -1293,6 +1295,7 @@ function CapsuleStagePanel({
             .filter((input) => !listSlotNodeIds.has(input.nodeId))
           const textInputs = allInputs.filter((i) => i.nodeType === 'textPrompt' || i.nodeType === 'promptEnhancer')
           const refImages = allInputs.filter((i) => i.nodeType === 'referenceImage')
+          const refVideos = allInputs.filter((i) => i.nodeType === 'referenceVideo')   // 参照動画の入れ替え（2026-11-08 メモ 69）
 
           return (
             <>
@@ -1323,6 +1326,11 @@ function CapsuleStagePanel({
                   ))
                 )
               )}
+              {refVideos.map((input) => (
+                <div key={input.nodeId} className="mb-3">
+                  <VideoUploadField nodeId={input.nodeId} label={input.label} />
+                </div>
+              ))}
             </>
           )
         })()}

@@ -732,13 +732,14 @@ export async function finalizeTask(admin: Admin, opts: BatchOpts, taskId: string
       const cut = pickCutoutImage(task.endpoint, outcome.payload)
       if (cut && cut.url === file.url) meta.cutout_path = dest
       else if (cut) {
+        // 透過画像の取得・保存に失敗したら完了にせず submitted のまま残す → 照合（reconcile）で結果を取り直す（マスクの取得失敗と同じ扱い・2026-11-08 メモ 70）
         const cres = await fetch(cut.url).catch(() => null)
-        if (cres && cres.ok) {
-          const cdest = `${task.team_id}/${task.job_id}/${task.item_id ?? 'job'}/${task.node_id}-cutout.png`
-          const cbuf = await cres.arrayBuffer()
-          const { error: cErr } = await admin.storage.from(BATCH_BUCKET).upload(cdest, cbuf, { contentType: cres.headers.get('content-type') ?? 'image/png', upsert: true })
-          if (!cErr) meta.cutout_path = cdest
-        }
+        if (!cres || !cres.ok) return { action: 'cutout_fetch_failed', applied: false }
+        const cdest = `${task.team_id}/${task.job_id}/${task.item_id ?? 'job'}/${task.node_id}-cutout.png`
+        const cbuf = await cres.arrayBuffer()
+        const { error: cErr } = await admin.storage.from(BATCH_BUCKET).upload(cdest, cbuf, { contentType: cres.headers.get('content-type') ?? 'image/png', upsert: true })
+        if (cErr) return { action: 'cutout_store_failed', applied: false }
+        meta.cutout_path = cdest
       }
     }
     const cost = estimateTaskCost(task.endpoint, outcome.inferenceTime ?? null, task.input)

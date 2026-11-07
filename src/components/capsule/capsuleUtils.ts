@@ -2,10 +2,11 @@ import type { Edge } from '@xyflow/react'
 import type { AppNode } from '../../stores/canvasStore'
 import type { CapsuleFieldDef, GroupNodeData } from '../../types/nodes'
 
-// ステージとして扱う生成ノードのみ（TextPrompt・ReferenceImage・PromptEnhancerは入力系として扱う）
+// ステージとして扱う生成ノードのみ（TextPrompt・ReferenceImage・ReferenceVideo・PromptEnhancerは入力系として扱う）
 export type GenerationNodeType = 'imageGen' | 'videoGen'
 
-export type InputNodeType = 'textPrompt' | 'referenceImage' | 'promptEnhancer'
+// referenceVideo = 参照動画（Video Generation の参照動画の入れ替え・2026-11-08 メモ 69）
+export type InputNodeType = 'textPrompt' | 'referenceImage' | 'referenceVideo' | 'promptEnhancer'
 
 export interface CapsuleInputInfo {
   nodeId: string
@@ -35,6 +36,7 @@ const GENERATION_RF_TYPES: Record<string, GenerationNodeType> = {
 const INPUT_NODE_TYPES: Record<string, InputNodeType> = {
   textPromptNode:     'textPrompt',
   referenceImageNode: 'referenceImage',
+  referenceVideoNode: 'referenceVideo',
   promptEnhancerNode: 'promptEnhancer',
 }
 
@@ -42,7 +44,11 @@ const INPUT_NODE_TYPES: Record<string, InputNodeType> = {
 const INPUT_CAPSULE_FIELD: Record<string, string> = {
   textPromptNode:     'prompt',
   referenceImageNode: 'imageUrl',
+  referenceVideoNode: 'videoUrl',
 }
+
+/** 入力ノードの既定の表示名（ノードに名前が無いとき） */
+const inputDefaultLabel = (type: string | undefined): string => (type === 'textPromptNode' ? 'テキスト' : type === 'referenceVideoNode' ? '参照動画' : '参照画像')
 
 /** 入力ノードがAppモードで表示対象かどうかを capsuleFields で判定 */
 function isInputNodeVisible(node: AppNode): boolean {
@@ -121,7 +127,7 @@ export function buildCapsuleStages(
       return {
         nodeId,
         nodeType: INPUT_NODE_TYPES[n.type!],
-        label: (d.label as string) ?? (n.type === 'textPromptNode' ? 'テキスト' : '参照画像'),
+        label: (d.label as string) ?? inputDefaultLabel(n.type),
       }
     })
   }
@@ -268,7 +274,7 @@ export function buildCapsuleInputNodes(
     stages.flatMap((s) => s.stageInputs.map((si) => si.nodeId))
   )
 
-  // ListNode のスロット（in-image-* / in-text-*）に接続済みのノードID
+  // ListNode のスロット（in-image-* / in-text-* / in-video-*）に接続済みのノードID
   // → グローバル入力として全ステージに表示させない（各ステージの ListNode パネルで表示される）
   const listSlotNodeIds = new Set(
     internalEdges
@@ -276,7 +282,7 @@ export function buildCapsuleInputNodes(
         const target = children.find((n) => n.id === e.target)
         return (
           target?.type === 'listNode' &&
-          (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-'))
+          (e.targetHandle?.startsWith('in-image-') || e.targetHandle?.startsWith('in-text-') || e.targetHandle?.startsWith('in-video-'))
         )
       })
       .map((e) => e.source)
@@ -297,7 +303,7 @@ export function buildCapsuleInputNodes(
       return {
         nodeId: n.id,
         nodeType: INPUT_NODE_TYPES[n.type!],
-        label: (d.label as string) ?? (n.type === 'textPromptNode' ? 'テキスト' : '参照画像'),
+        label: (d.label as string) ?? inputDefaultLabel(n.type),
       }
     })
 }
