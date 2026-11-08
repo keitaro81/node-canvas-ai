@@ -123,6 +123,12 @@ export async function setGenerationPinned(id: string, pinned: boolean): Promise<
   if (error) throw new Error(error.message)
 }
 
+/** 生成物のチーム共有（0022）: private / team。持ち主だけ切り替えられる */
+export async function setGenerationVisibility(id: string, visibility: LibraryVisibility): Promise<void> {
+  const { error } = await sb.from('generations').update({ visibility }).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 /** 1 件の保存形式 URL を署名する（ライブラリの素材・生成物のどちらでも） */
 export async function signLibraryUrl(url: string): Promise<string> {
   const map = await signMediaRequest({ urls: [url] })

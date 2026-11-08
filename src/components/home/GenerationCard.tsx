@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Play, Download, ArrowsOut, X, Trash, CircleNotch, ImageSquare, PushPin } from '@phosphor-icons/react'
+import { Play, Download, ArrowsOut, X, Trash, CircleNotch, ImageSquare, PushPin, UsersThree } from '@phosphor-icons/react'
 import type { GenerationWithWorkflow } from '../../lib/api/generations'
 import { deleteGeneration } from '../../lib/api/generations'
-import { setGenerationPinned } from '../../lib/api/library'
+import { setGenerationPinned, setGenerationVisibility } from '../../lib/api/library'
 import { downloadFile } from '../../lib/downloadFile'
 import { showToast } from '../../hooks/useToast'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
@@ -11,6 +11,10 @@ import { useSignedMedia } from '../../hooks/useSignedMedia'
 interface GenerationCardProps {
   generation: GenerationWithWorkflow
   onDeleted?: (id: string) => void
+  /** 自分の生成物か（既定 true）。他人のチーム共有は見る・ダウンロードだけ（ピン留め・共有・削除は出さない） */
+  mine?: boolean
+  /** チーム共有を切り替えたら親に知らせる（一覧の絞り込みに使う・0022） */
+  onVisibilityChange?: (id: string, visibility: 'private' | 'team') => void
 }
 
 function formatDate(dateStr: string): string {
@@ -37,7 +41,7 @@ function daysUntilDeletion(createdStr: string): number {
 }
 
 
-export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
+export function GenerationCard({ generation, onDeleted, mine = true, onVisibilityChange }: GenerationCardProps) {
   const rawUrl = generation.output_url!
   const isVideo = isVideoUrl(rawUrl) || generation.node_type === 'video-generation'
   // 非公開バケット化: 表示は署名URL（読込口で署名済み）、失効時は onError で再署名
@@ -53,6 +57,15 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
     const next = !pinned
     setPinned(next)
     try { await setGenerationPinned(generation.id, next) } catch (err) { setPinned(!next); showToast(err instanceof Error ? err.message : '保存の切り替えに失敗しました', 'error') }
+  }
+  // チーム共有（0022）: 同じチームのメンバーがライブラリで見られ、「画像を追加」で選べる
+  const [shared, setShared] = useState(generation.visibility === 'team')
+  const toggleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = !shared
+    setShared(next)
+    try { await setGenerationVisibility(generation.id, next ? 'team' : 'private'); onVisibilityChange?.(generation.id, next ? 'team' : 'private') }
+    catch (err) { setShared(!next); showToast(err instanceof Error ? err.message : '共有の切り替えに失敗しました（0022 のマイグレーションが未適用の可能性）', 'error') }
   }
 
   const filename = isVideo
@@ -145,23 +158,42 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
             >
               <ArrowsOut size={15} weight="bold" />
             </button>
-            <button
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
-              style={{ background: pinned ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.15)' }}
-              onClick={togglePin}
-              title={pinned ? '保存を解除（90 日で自動削除に戻す）' : '保存（自動削除しない）'}
-            >
-              <PushPin size={15} weight={pinned ? 'fill' : 'bold'} />
-            </button>
-            <button
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
-              style={{ background: 'rgba(239,68,68,0.85)' }}
-              onClick={(e) => { e.stopPropagation(); setConfirmOpen(true) }}
-              title="削除"
-            >
-              <Trash size={15} weight="bold" />
-            </button>
+            {mine && (
+              <button
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                style={{ background: pinned ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.15)' }}
+                onClick={togglePin}
+                title={pinned ? '保存を解除（90 日で自動削除に戻す）' : '保存（自動削除しない）'}
+              >
+                <PushPin size={15} weight={pinned ? 'fill' : 'bold'} />
+              </button>
+            )}
+            {mine && (
+              <button
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                style={{ background: shared ? 'rgba(99,102,241,0.85)' : 'rgba(255,255,255,0.15)' }}
+                onClick={toggleShare}
+                title={shared ? 'チーム共有を解除（自分だけに戻す）' : 'チームに共有（同じチームのメンバーがライブラリで見られ、「画像を追加」で選べる）'}
+              >
+                <UsersThree size={15} weight={shared ? 'fill' : 'bold'} />
+              </button>
+            )}
+            {mine && (
+              <button
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                style={{ background: 'rgba(239,68,68,0.85)' }}
+                onClick={(e) => { e.stopPropagation(); setConfirmOpen(true) }}
+                title="削除"
+              >
+                <Trash size={15} weight="bold" />
+              </button>
+            )}
           </div>
+          {shared && (
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-medium text-white" style={{ background: 'rgba(99,102,241,0.85)', backdropFilter: 'blur(4px)' }}>
+              チーム共有
+            </div>
+          )}
 
           {/* Type badge */}
           <div
@@ -184,6 +216,7 @@ export function GenerationCard({ generation, onDeleted }: GenerationCardProps) {
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
             {formatDate(generation.created_at)}
           </p>
+          {!mine && <p className="text-[10px] mt-0.5" style={{ color: '#6366F1' }}>チームのメンバーが作成</p>}
           {pinned ? (
             <p className="text-[10px] mt-0.5" style={{ color: '#22C55E' }}>保存済み（自動削除しない）</p>
           ) : (() => {
