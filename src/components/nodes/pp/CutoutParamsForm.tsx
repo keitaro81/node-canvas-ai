@@ -38,6 +38,21 @@ export function CutoutParamsForm({ params, onChange, disabled }: Props) {
       )}
       <Range label="アルファのしきい値" value={params.alphaThreshold} min={0} max={255} disabled={disabled} onChange={(v) => onChange({ alphaThreshold: v })} />
       <Range label="縁のぼかし幅" value={params.featherPx} min={0} max={20} unit="px" disabled={disabled} onChange={(v) => onChange({ featherPx: v })} />
+      <Field label="縁の色被り">
+        <label className="flex items-center gap-2 text-[12px] nodrag" style={{ color: 'var(--text-primary)' }}>
+          <input type="checkbox" className="nodrag" checked={params.defringe} disabled={disabled} onChange={(e) => onChange({ defringe: e.target.checked })} />
+          背景色の混ざりを縁から除く
+        </label>
+        {params.defringe && (
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="text-[11px] shrink-0" style={{ color: 'var(--text-secondary)' }}>内側の補正</span>
+            <select className={`${CTRL} flex-1`} style={INPUT_STYLE} value={params.defringePx} disabled={disabled} onChange={(e) => onChange({ defringePx: Number(e.target.value) })}>
+              {[0, 1, 2, 3].map((n) => <option key={n} value={n}>{n === 0 ? 'なし（半透明の縁だけ）' : `${n} px`}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="text-[11px] text-[var(--text-tertiary)] mt-1 leading-snug">半透明の縁画素から背景色の混ざり分を差し引き、不透明の縁の数 px は背景の反射（色被り）を弱めます。無地背景の写真向け。fal は呼ばず、再適用・レイアウトで反映</div>
+      </Field>
     </div>
   )
 }

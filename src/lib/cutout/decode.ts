@@ -1,5 +1,6 @@
 // ブラウザ側の画像デコード/エンコード（Canvas API）。純関数は alpha.ts、ここは DOM/OffscreenCanvas 依存。
-import { compositeRgba, resizeAlpha, type AlphaMap } from './alpha'
+import { resizeAlpha, type AlphaMap } from './alpha'
+import { compositeDefringed, type DefringeSpec } from './defringe'
 
 export interface DecodedImage {
   width: number
@@ -78,8 +79,8 @@ export async function encodeGrayPng(alpha: AlphaMap): Promise<Blob> {
  * 元画像にアルファを適用した透過 PNG を作る。maxEdge を渡すと長辺をその画素数に縮小する（サムネイル用）。
  * フル解像度では RGB を書き換えない（原則2。半透明画素の PNG 保存時のプリマルチプライ丸めは避けられない）。
  */
-export async function renderTransparentPng(original: DecodedImage, alpha: AlphaMap, maxEdge?: number): Promise<Blob> {
-  const rgba = compositeRgba(original.rgba, alpha)
+export async function renderTransparentPng(original: DecodedImage, alpha: AlphaMap, maxEdge?: number, defringe?: DefringeSpec | null): Promise<Blob> {
+  const rgba = compositeDefringed(original.rgba, alpha, defringe)   // 縁の色被り除去（既定 ON・2026-11-08 メモ 72）
   const { canvas, ctx } = makeCanvas(original.width, original.height)
   const img = ctx.createImageData(original.width, original.height)
   img.data.set(rgba)

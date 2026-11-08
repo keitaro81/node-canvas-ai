@@ -41,7 +41,7 @@ import { ExportDialog, type ExportDialogState } from './ExportDialog'
 import { showToast } from '../../../hooks/useToast'
 
 const isTypingTarget = (t: EventTarget | null) => { const tag = (t as HTMLElement | null)?.tagName; return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' }
-const DEFAULT_CUTOUT: CutoutParams = { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, previewBg: 'checker' } as CutoutParams
+const DEFAULT_CUTOUT: CutoutParams = { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, defringe: true, defringePx: 2, previewBg: 'checker' } as CutoutParams
 
 export interface JobReviewPanelProps {
   jobId: string

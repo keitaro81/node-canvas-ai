@@ -70,7 +70,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
   }, [id, params, updateNode])
 
   const cutoutKey = cutout
-    ? `${cutout.sourceRef}|${cutout.maskPath}|${JSON.stringify(cutout.bbox)}|${cutout.params.alphaThreshold}|${cutout.params.featherPx}`
+    ? `${cutout.sourceRef}|${cutout.maskPath}|${JSON.stringify(cutout.bbox)}|${cutout.params.alphaThreshold}|${cutout.params.featherPx}|${cutout.params.defringe !== false}|${cutout.params.defringePx ?? 2}`
     : ''
   const paramsKey = JSON.stringify(params)
 
@@ -83,7 +83,7 @@ function ProductLayoutNodeInner(props: NodeProps) {
     const storedLayout = stored?.layout as LayoutOutputRef | undefined
     const hash = await layoutHash({
       params, sourceRef: cutout.sourceRef, maskPath: cutout.maskPath,
-      alphaThreshold: cutout.params.alphaThreshold, featherPx: cutout.params.featherPx, backgroundRef: bgCanonical,
+      alphaThreshold: cutout.params.alphaThreshold, featherPx: cutout.params.featherPx, defringe: cutout.params.defringe !== false, defringePx: cutout.params.defringePx ?? 2, backgroundRef: bgCanonical,
     })
     if (runId !== runIdRef.current) return
     if (storedLayout?.layoutHash === hash && storedLayout.path && typeof stored?.output === 'string' && stored.output) {

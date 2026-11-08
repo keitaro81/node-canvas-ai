@@ -13,6 +13,8 @@ describe('normalizeCutoutParams', () => {
     expect(p.featherPx).toBe(0)
     expect(p.birefnetModel).toBe(DEFAULT_CUTOUT_PARAMS.birefnetModel)
     expect(p.previewBg).toBe('checker')
+    expect(p.defringe).toBe(true); expect(p.defringePx).toBe(2)                     // 縁の色被り除去は未指定 = ON・内側 2px（2026-11-08 メモ 72）
+    expect(normalizeCutoutParams({ defringe: false, defringePx: 9 })).toMatchObject({ defringe: false, defringePx: 3 })
   })
 })
 

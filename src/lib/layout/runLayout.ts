@@ -4,6 +4,7 @@ import type { CutoutRef, LayoutOutputRef, LayoutParams } from '../../types/nodes
 import type { AlphaMap } from '../cutout/alpha'
 import { decodeBlob, fetchBlob, type DecodedImage } from '../cutout/decode'
 import { loadRawAlpha } from '../cutout/runCutout'
+import { normalizeCutoutParams } from '../cutout/engines'
 import { signBatchPath, uploadBatchObjectIfMissing } from '../cutout/store'
 import { computeLayout, type LayoutPlan } from './computeLayout'
 import { layoutHash } from './identity'
@@ -54,13 +55,14 @@ export async function runLayout(input: RunLayoutInput): Promise<RunLayoutResult>
     bbox: cutout.bbox,
     background: assets.background ? { width: assets.background.width, height: assets.background.height } : null,
   })
+  const cp = normalizeCutoutParams(cutout.params)   // 古い保存値にも縁の色被り除去の既定（ON）を補う
   const hash = await layoutHash({
     params, sourceRef: cutout.sourceRef, maskPath: cutout.maskPath,
-    alphaThreshold: cutout.params.alphaThreshold, featherPx: cutout.params.featherPx, backgroundRef: input.backgroundRef ?? null,
+    alphaThreshold: cp.alphaThreshold, featherPx: cp.featherPx, defringe: cp.defringe, defringePx: cp.defringePx, backgroundRef: input.backgroundRef ?? null,
   })
   const blob = await renderLayoutToPng({
     plan, original: assets.original, rawAlpha: assets.rawAlpha,
-    cutout: { alphaThreshold: cutout.params.alphaThreshold, featherPx: cutout.params.featherPx },
+    cutout: { alphaThreshold: cp.alphaThreshold, featherPx: cp.featherPx, defringe: cp.defringe, defringePx: cp.defringePx },
     background: assets.background,
   })
   return { plan, hash, blob }

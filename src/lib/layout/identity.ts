@@ -9,6 +9,8 @@ export interface LayoutIdentityInput {
   maskPath: string             // 生マスクのパス
   alphaThreshold: number       // 切り抜き側のパラメータ（マスクの解釈に影響する）
   featherPx: number
+  defringe?: boolean           // 縁の色被り除去（未指定 = ON・2026-11-08 メモ 72）
+  defringePx?: number
   backgroundRef?: string | null
   /** 同じパスに結果が上書きされる場合（一括実行の再実行）の版。未指定なら識別値に含めない（既存の値を変えない） */
   maskVersion?: string | null
@@ -23,6 +25,8 @@ export function layoutIdentityString(input: LayoutIdentityInput): string {
     maskPath: input.maskPath,
     alphaThreshold: input.alphaThreshold,
     featherPx: input.featherPx,
+    defringe: input.defringe !== false,
+    defringePx: input.defringePx ?? 2,
     backgroundRef: input.backgroundRef ?? null,
     ...(input.maskVersion ? { maskVersion: input.maskVersion } : {}),
     params: Object.fromEntries((Object.keys(p) as Array<keyof LayoutParams>).sort().map((k) => [k, p[k]])),

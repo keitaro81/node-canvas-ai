@@ -7,7 +7,7 @@ const seqIds = () => { let n = 0; return (kind: string) => `${kind}-${++n}` }
 const sample: PostProductionProfile = {
   format: PROFILE_FORMAT, version: 1, name: 'sample', exportedAt: '2026-10-03T00:00:00.000Z',
   input: { skuPattern: '^([A-Z0-9-]+)_', sortOrder: 'filename' },
-  cutout: { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0 },
+  cutout: { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, defringe: true, defringePx: 2 },   // 縁の色被り除去（2026-11-08 メモ 72）
   backgrounds: [{ key: 'bg_1', model: 'fal-ai/nano-banana-2', prompt: 'beige studio backdrop', aspectRatio: '9:16', resolution: '1K', seed: null }],
   variants: [
     { ...DEFAULT_LAYOUT_PARAMS, variantName: 'ec_white', background: null },

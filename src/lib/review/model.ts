@@ -220,7 +220,7 @@ export function itemInfoOfRow(item: Pick<BatchItemRow, 'sku' | 'original_filenam
 export function identityFor(input: {
   item: Pick<BatchItemRow, 'source_path' | 'interactive_path'>
   task: Pick<BatchTaskRow, 'result_path' | 'completed_at' | 'result_meta' | 'id'>
-  cutout: Pick<CutoutParams, 'alphaThreshold' | 'featherPx'>
+  cutout: Pick<CutoutParams, 'alphaThreshold' | 'featherPx'> & Partial<Pick<CutoutParams, 'defringe' | 'defringePx'>>
   params: LayoutParams
   backgroundRef?: string | null
   sourceRef?: string | null
@@ -232,6 +232,8 @@ export function identityFor(input: {
     maskVersion: maskVersionOf(input.task),
     alphaThreshold: input.cutout.alphaThreshold,
     featherPx: input.cutout.featherPx,
+    defringe: input.cutout.defringe !== false,
+    defringePx: input.cutout.defringePx ?? 2,
     backgroundRef: input.backgroundRef ?? null,
   }
 }

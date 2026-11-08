@@ -15,7 +15,7 @@ export const PROFILE_FILE_SUFFIX = '.ppprofile.json'
 
 export interface ProfileBackground { key: string; model: string; prompt: string; aspectRatio: string; resolution: string; seed: number | null }
 export type ProfileVariant = LayoutParams & { background: string | null }
-export type ProfileCutout = Omit<CutoutParams, 'previewBg'>
+export type ProfileCutout = Omit<CutoutParams, 'previewBg' | 'defringe' | 'defringePx'> & Partial<Pick<CutoutParams, 'defringe' | 'defringePx'>>   // 縁の色被り除去は 2026-11-08 に追加（古いプロファイルには無い → 読み込み時に既定 ON）
 export interface PostProductionProfile {
   format: typeof PROFILE_FORMAT
   version: number
