@@ -85,11 +85,24 @@ export const missingImageInputs = (inputs: MergeAppInput[], nodes: NodeLike[]): 
 
 export interface ShotState { status: 'idle' | 'running' | 'done' | 'failed'; videoUrl: string | null; error: string | null }
 
+/** 生成 App の「今回の実行」。Video Merge ノードの data.appRun に保存する（画面を開き直しても・読み込み直しても、そろったら結合に進めるため・2026-11-08 メモ 71） */
+export interface MergeAppRun { id: number; startedAt: string; since: Record<string, string[]> }
+export function mergeAppRunOf(mergeData: unknown): MergeAppRun | null {
+  const r = (mergeData as { appRun?: unknown } | undefined)?.appRun as Partial<MergeAppRun> | null | undefined
+  if (!r || typeof r !== 'object' || typeof r.id !== 'number' || typeof r.startedAt !== 'string' || !r.since || typeof r.since !== 'object') return null
+  const since: Record<string, string[]> = {}
+  for (const [k, v] of Object.entries(r.since)) if (Array.isArray(v)) since[k] = v.filter((x): x is string => typeof x === 'string')
+  return { id: r.id, startedAt: r.startedAt, since }
+}
+/** 作り始めてからこれだけ経っても結果のノードが無く、Video Generation も動いていなければ「結果が見つからない」とみなす（読み込み直しで生成が途切れたとき） */
+export const LOST_AFTER_MS = 90_000
+export const LOST_ERROR = '結果が見つかりません（ページを読み込み直した、または時間切れ）。作り直してください'
+
 /**
  * ショットの状態。since（作り始める前にあった Video Result の id）を渡すと、それより後にできた結果だけを見る（今回の実行の進み）。
  * since が無いときは、最後にできた動画を見せる
  */
-export function shotStateOf(shotId: string, nodes: NodeLike[], edges: EdgeLike[], since?: Set<string> | null): ShotState {
+export function shotStateOf(shotId: string, nodes: NodeLike[], edges: EdgeLike[], since?: Set<string> | null, opts?: { startedAt?: number | null; now?: number }): ShotState {
   const d = dataOf(nodes.find((n) => n.id === shotId))
   const vgRunning = RUNNING.has(String(d.status ?? ''))
   const vgError = d.status === 'failed' || d.status === 'error' ? (typeof d.error === 'string' && d.error ? d.error : '生成に失敗しました') : null
@@ -101,15 +114,31 @@ export function shotStateOf(shotId: string, nodes: NodeLike[], edges: EdgeLike[]
       const url = typeof rd.videoUrl === 'string' && rd.videoUrl ? rd.videoUrl : null
       if (url && rd.status !== 'failed') return { status: 'done', videoUrl: url, error: null }
       if (rd.status === 'failed') return { status: 'failed', videoUrl: null, error: typeof rd.error === 'string' && rd.error ? rd.error : '生成に失敗しました' }
+      // 結果のノードはあるが動画が入らないまま、Video Generation も動いていない（読み込み直しで生成が途切れた）→ 時間が経てば「結果が見つからない」
+      if (!vgRunning && opts?.startedAt != null && (opts.now ?? Date.now()) - opts.startedAt > LOST_AFTER_MS) return { status: 'failed', videoUrl: null, error: LOST_ERROR }
       return { status: 'running', videoUrl: null, error: null }
     }
     if (vgError && !vgRunning) return { status: 'failed', videoUrl: null, error: vgError }
+    if (!vgRunning && opts?.startedAt != null && (opts.now ?? Date.now()) - opts.startedAt > LOST_AFTER_MS) return { status: 'failed', videoUrl: null, error: LOST_ERROR }
     return { status: 'running', videoUrl: null, error: null }
   }
   const url = latestVideoOf(shotId, nodes, edges)
   if (vgRunning) return { status: 'running', videoUrl: url, error: null }
   if (vgError) return { status: 'failed', videoUrl: url, error: vgError }
   return { status: url ? 'done' : 'idle', videoUrl: url, error: null }
+}
+
+export type AutoMergeDecision = 'wait' | 'merge' | 'stop'
+/** 今回の実行の進みから結合に進むか。wait = まだ作っている / merge = 全ショットの動画がそろった / stop = 失敗したショットがある（結合しない・作り直しを待つ） */
+export function autoMergeDecision(run: MergeAppRun, shotIds: string[], nodes: NodeLike[], edges: EdgeLike[], now = Date.now()): { decision: AutoMergeDecision; states: Record<string, ShotState> } {
+  const parsed = Date.parse(run.startedAt)
+  const startedAt = Number.isFinite(parsed) ? parsed : null
+  const states: Record<string, ShotState> = {}
+  for (const [id, before] of Object.entries(run.since)) states[id] = shotStateOf(id, nodes, edges, new Set(before), { startedAt, now })
+  const list = Object.values(states)
+  if (list.some((s) => s.status === 'running')) return { decision: 'wait', states }
+  if (list.some((s) => s.status === 'failed')) return { decision: 'stop', states }
+  return { decision: shotIds.every((id) => !!latestVideoOf(id, nodes, edges)) ? 'merge' : 'stop', states }
 }
 
 /** ショットの見出し（始点 → 終点の写真の向き。Reference Image の見出しの向きか、Model ノードの向きのポート） */

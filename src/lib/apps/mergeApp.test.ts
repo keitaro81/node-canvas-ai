@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeAppInputsOf, mergeAppShapeOf, missingImageInputs, shotStateOf, shotTurnLabel } from './mergeApp'
+import { LOST_ERROR, autoMergeDecision, mergeAppInputsOf, mergeAppRunOf, mergeAppShapeOf, missingImageInputs, shotStateOf, shotTurnLabel } from './mergeApp'
 import { latestVideoOf, mergeInputsOf } from '../video/latestVideo'
 
 const inG = (id: string, type: string, data: Record<string, unknown> = {}, y = 0) => ({ id, type, parentId: 'g', position: { x: 0, y }, data })
@@ -83,5 +83,37 @@ describe('生成 App の「ショット → 結合」（2026-11-02 メモ 54）'
     expect(shotStateOf('v1', failed, es2, before)).toEqual({ status: 'failed', videoUrl: null, error: 'timeout' })
     const early = ns.map((n) => (n.id === 'v1' ? { ...n, data: { ...n.data, status: 'failed', error: '参照画像をアップロードしてください' } } : n))
     expect(shotStateOf('v1', early, es, before)).toEqual({ status: 'failed', videoUrl: null, error: '参照画像をアップロードしてください' })
+  })
+  it('今回の実行は Video Merge の data.appRun から読む（壊れた値は無視・2026-11-08 メモ 71）', () => {
+    expect(mergeAppRunOf({ appRun: { id: 1, startedAt: '2026-11-08T00:00:00Z', since: { v1: ['d1'], v2: [] } } })).toEqual({ id: 1, startedAt: '2026-11-08T00:00:00Z', since: { v1: ['d1'], v2: [] } })
+    expect(mergeAppRunOf({ appRun: null })).toBeNull()
+    expect(mergeAppRunOf({})).toBeNull()
+    expect(mergeAppRunOf({ appRun: { id: 'x', startedAt: 1, since: {} } })).toBeNull()
+  })
+  it('結合に進む判断: 作っている間は wait、全ショットの動画がそろえば merge、失敗や「結果が見つからない」ショットがあれば stop', () => {
+    const { nodes, edges } = base()
+    const t0 = Date.parse('2026-11-08T00:00:00Z')
+    const run = { id: 1, startedAt: '2026-11-08T00:00:00Z', since: { v1: [], v2: [] } }
+    expect(autoMergeDecision(run, ['v1', 'v2'], nodes, edges, t0 + 1000).decision).toBe('wait')   // 作り始めた直後・結果はまだ無い
+    const lost = autoMergeDecision(run, ['v1', 'v2'], nodes, edges, t0 + 120_000)                   // 90 秒経っても結果が無く、生成も動いていない
+    expect(lost.decision).toBe('stop')
+    expect(lost.states.v1).toEqual({ status: 'failed', videoUrl: null, error: LOST_ERROR })
+    const running = nodes.map((n) => (n.id === 'v1' || n.id === 'v2' ? { ...n, data: { ...n.data, status: 'processing' } } : n))
+    expect(autoMergeDecision(run, ['v1', 'v2'], running, edges, t0 + 120_000).decision).toBe('wait')   // 生成が動いていれば時間が経っても待つ
+    const ns = [...nodes, inG('d1', 'videoDisplayNode', { videoUrl: 'https://x/1.mp4', status: 'completed' }), inG('d2', 'videoDisplayNode', { videoUrl: 'https://x/2.mp4', status: 'completed' })]
+    const es = [...edges, e('v1', 'out-video', 'd1', 'in-video'), e('v2', 'out-video', 'd2', 'in-video')]
+    expect(autoMergeDecision(run, ['v1', 'v2'], ns, es, t0 + 120_000).decision).toBe('merge')
+    const one = { id: 2, startedAt: '2026-11-08T00:10:00Z', since: { v1: ['d1'] } }   // 片方だけ作り直す: since に無いショットは最後の動画を使う
+    const ns2 = [...ns, inG('d1b', 'videoDisplayNode', { videoUrl: 'https://x/1b.mp4', status: 'completed' })]
+    const es2 = [...es, e('v1', 'out-video', 'd1b', 'in-video')]
+    expect(autoMergeDecision(one, ['v1', 'v2'], ns2, es2, Date.parse('2026-11-08T00:12:00Z')).decision).toBe('merge')
+    const failed = ns.map((n) => (n.id === 'd2' ? { ...n, data: { videoUrl: null, status: 'failed', error: 'timeout' } } : n))
+    expect(autoMergeDecision(run, ['v1', 'v2'], failed, es, t0 + 5000).decision).toBe('stop')
+    // 結果のノードが「作成中」のまま動画が入らず、生成も動いていない（読み込み直しで途切れた）→ 90 秒を過ぎたら結果が見つからない扱い。生成が動いていれば待つ
+    const stuck = ns.map((n) => (n.id === 'd2' ? { ...n, data: { videoUrl: null, status: 'processing' } } : n))
+    expect(autoMergeDecision(run, ['v1', 'v2'], stuck, es, t0 + 5000).decision).toBe('wait')
+    expect(autoMergeDecision(run, ['v1', 'v2'], stuck, es, t0 + 120_000).states.v2).toEqual({ status: 'failed', videoUrl: null, error: LOST_ERROR })
+    const stuckButRunning = stuck.map((n) => (n.id === 'v2' ? { ...n, data: { ...n.data, status: 'processing' } } : n))
+    expect(autoMergeDecision(run, ['v1', 'v2'], stuckButRunning, es, t0 + 120_000).decision).toBe('wait')
   })
 })
