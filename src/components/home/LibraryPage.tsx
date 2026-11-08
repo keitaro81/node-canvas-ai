@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowSquareOut, ArrowsOut, CircleNotch, CloudArrowUp, Download, PencilSimple, Play, PushPin, Trash, UserCircle, UsersThree, X } from '@phosphor-icons/react'
 import { VideoLightbox } from '../library/VideoLightbox'
 import { useNavigate } from 'react-router'
-import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
+import { listLibraryGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
+import { generationInScope } from '../../lib/library/generationVisibility'
 import { deleteLibraryItem, libraryDaysLeft, listLibraryItems, signLibraryItems, touchLibraryItems, updateLibraryItem, uploadToLibrary, type LibraryItem, type LibraryMedia } from '../../lib/api/library'
 import { formatRelativeJa } from '../../lib/batch/dates'
 import { downloadFile } from '../../lib/downloadFile'
@@ -54,7 +55,7 @@ export function LibraryPage() {
     setLoading(true)
     try {
       const [{ data: { user } }, libs, gs, ms, bvs, fds] = await Promise.all([
-        supabase.auth.getUser(), listLibraryItems(), getMyGenerations(), listLibraryModels(), listBatchVideos().catch(() => [] as BatchVideo[]), listBatchFolders().catch(() => [] as BatchFolder[]),
+        supabase.auth.getUser(), listLibraryItems(), listLibraryGenerations(), listLibraryModels(), listBatchVideos().catch(() => [] as BatchVideo[]), listBatchFolders().catch(() => [] as BatchFolder[]),
       ])
       setMyId(user?.id ?? null); setItems(libs); setGens(gs); setModels(ms); setBatchVideos(bvs); setFolders(fds); setError(null)
       const [libMap, bvMap, fdMap] = await Promise.all([signLibraryItems(libs), signBatchVideos(bvs), signFolderPreviews(fds)])
@@ -78,7 +79,7 @@ export function LibraryPage() {
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [tab, scope])
 
   const uploadsShown = useMemo(() => items.filter((it) => scope === 'all' ? true : scope === 'mine' ? it.user_id === myId : it.user_id !== myId), [items, scope, myId])
-  const gensShown = useMemo(() => gens.filter((g) => !!g.output_url && ((isVideoUrl(g.output_url) || g.node_type === 'video-generation') === (tab === 'gen-video'))), [gens, tab])
+  const gensShown = useMemo(() => gens.filter((g) => !!g.output_url && ((isVideoUrl(g.output_url) || g.node_type === 'video-generation') === (tab === 'gen-video')) && generationInScope(g, scope, myId)), [gens, tab, scope, myId])   // 絞り込み（すべて / 自分 / チーム共有）は生成物にも効く（0022）
   // 生成動画 = キャンバスの生成（generations）＋ 商品動画 App の結果（batch）を日時順に
   const videoEntries = useMemo(() => {
     if (tab !== 'gen-video') return [] as Array<{ kind: 'gen'; date: string; g: GenerationWithWorkflow } | { kind: 'batch'; date: string; v: BatchVideo }>
@@ -211,10 +212,10 @@ export function LibraryPage() {
                   ? models.slice(0, visibleCount).map((m) => <ModelCard key={m.id} model={m} url={modelThumbs[m.id]} mine={m.user_id === myId} onEdit={() => setEditor({ open: true, model: m })} onShare={() => onModelShare(m)} onDelete={() => onModelDelete(m)} />)
                   : tab === 'gen-video'
                     ? videoEntries.slice(0, visibleCount).map((e) => e.kind === 'gen'
-                      ? <GenerationCard key={e.g.id} generation={e.g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
+                      ? <GenerationCard key={e.g.id} generation={e.g} mine={e.g.user_id === myId} onVisibilityChange={(id, v) => setGens((prev) => prev.map((x) => (x.id === id ? { ...x, visibility: v } : x)))} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
                       : <BatchVideoCard key={e.v.id} video={e.v} url={signed[`batch:${e.v.id}`]} mine={!e.v.createdBy || e.v.createdBy === myId} onOpen={() => navigate(e.v.workflowId ? `/app/${e.v.workflowId}?job=${e.v.jobId}` : `/jobs/${e.v.jobId}`)} />)
                     : imageEntries.slice(0, visibleCount).map((e) => e.kind === 'gen'
-                      ? <GenerationCard key={e.g.id} generation={e.g} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
+                      ? <GenerationCard key={e.g.id} generation={e.g} mine={e.g.user_id === myId} onVisibilityChange={(id, v) => setGens((prev) => prev.map((x) => (x.id === id ? { ...x, visibility: v } : x)))} onDeleted={(id) => setGens((prev) => prev.filter((x) => x.id !== id))} />
                       : <BatchFolderCard key={`folder:${e.f.jobId}`} folder={e.f} urls={e.f.previews.map((p) => folderUrls[p]).filter((u): u is string => !!u)} mine={!e.f.createdBy || e.f.createdBy === myId} onOpen={() => setFolderOpen(e.f)} onOpenResults={() => openFolderResults(e.f)} />)}
             </div>
             {visibleCount < total && (

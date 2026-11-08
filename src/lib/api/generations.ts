@@ -1,6 +1,7 @@
 import { supabase } from '../supabase'
 import { toCanonicalRef } from './storage'
 import { signGenerationRows, signUrlRecord } from './signMedia'
+import { isOwnOrTeamShared } from '../library/generationVisibility'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useTeamStore } from '../../stores/teamStore'
@@ -126,7 +127,33 @@ export async function getLatestGenerationUrlsByWorkflow(
   return signUrlRecord(map)
 }
 
-export type GenerationWithWorkflow = GenerationRow & { workflow_name: string }
+export type GenerationWithWorkflow = GenerationRow & { workflow_name: string; visibility?: string | null }   // visibility は 0022（チーム共有）
+
+/**
+ * ライブラリに並べる生成物（2026-11-08 メモ 75・0022）: 自分のもの ＋ チーム共有（visibility = 'team'）のもの。
+ * RLS で見える「共有 WF の他人の private な生成物」はここには出さない（そのワークフローを開いて見る）。
+ */
+export async function listLibraryGenerations(): Promise<GenerationWithWorkflow[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  const me = user?.id ?? null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from('generations') as any)
+    .select('*')
+    .eq('status', 'completed')
+    .not('output_url', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(300)
+  if (error) throw error
+  const rows = ((data ?? []) as Array<GenerationRow & { visibility?: string | null }>).filter((g) => isOwnOrTeamShared(g, me))
+  const wfIds = [...new Set(rows.map((g) => g.workflow_id).filter((id): id is string => !!id))]
+  const names: Record<string, string> = {}
+  if (wfIds.length) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: wfs } = await (supabase.from('workflows') as any).select('id, name').in('id', wfIds)
+    for (const w of (wfs ?? []) as Array<{ id: string; name: string }>) names[w.id] = w.name
+  }
+  return signGenerationRows(rows.map((g) => ({ ...g, workflow_name: names[g.workflow_id] ?? (g.user_id === me ? 'Unknown' : 'チームの生成物') })))
+}
 
 export async function getMyGenerations(): Promise<GenerationWithWorkflow[]> {
   // Step 1: 自分のプロジェクト一覧

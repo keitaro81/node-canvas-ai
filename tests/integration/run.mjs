@@ -73,7 +73,7 @@ function check(desc, cond, detail = '') {
 }
 
 const TAG = `itest-${Math.random().toString(36).slice(2, 8)}`
-const created = { users: [], teams: [], projects: [], workflows: [], batchJobs: [], batchObjects: [] }
+const created = { users: [], teams: [], projects: [], workflows: [], batchJobs: [], batchObjects: [], generations: [] }
 
 async function main() {
   console.log(`\n統合テスト対象: ${URL_BASE}  (Edge: ${APP_URL})`)
@@ -330,12 +330,52 @@ async function main() {
     const g13 = await rowsOf(await patch(jwtOwner, { canvas_data: canvasG(6) }))
     check(`許可を OFF に戻すとメンバーは保存できず（${g12?.length} 行）、所有者はロック無しで保存できる（version=${g13?.[0]?.canvas_version}）`, g12?.length === 0 && g13?.[0]?.canvas_version === cur + 2)
   }
+  // ───────────────────────────────────────────────
+  // Group H: 生成物のチーム共有（0022 generations.visibility）— 未適用なら SKIP
+  // ───────────────────────────────────────────────
+  console.log('Group H: 生成物のチーム共有（0022 generations.visibility・RLS）')
+  {
+    const colRes = await rest('generations?select=visibility&limit=1')
+    if (colRes.status !== 200) {
+      console.log('  ⚠️ SKIP: generations.visibility が無い（migration 0022 未適用）')
+    } else {
+      const emH = `${TAG}-h@example.com`
+      const hId = await createUser(emH, pw); created.users.push(hId)   // チーム A のメンバー（A の生成物を見る側）
+      await addMember(teamA, hId, 'member')
+      const jwtH = await jwtFor(emH, pw)
+      const jwtA2 = await jwtFor(emA, pw)
+      const projH = await (await rest('projects', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ user_id: aId, name: `${TAG} pjH` }) })).json()
+      created.projects.push(projH[0].id)
+      const wfH = await (await rest('workflows', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ project_id: projH[0].id, name: `${TAG} wfH`, canvas_data: { nodes: [], edges: [] }, team_id: teamA, visibility: 'private' }) })).json()
+      created.workflows.push(wfH[0].id)
+      const genRow = await (await rest('generations', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ workflow_id: wfH[0].id, node_id: 'n1', node_type: 'image-generation', status: 'completed', output_url: `https://example.invalid/${TAG}.png`, user_id: aId, team_id: teamA, visibility: 'team' }) })).json()
+      const genId = genRow[0]?.id
+      if (!genId) {
+        check('生成物（team 共有）を作れる', false, JSON.stringify(genRow).slice(0, 160))
+      } else {
+        created.generations.push(genId)
+        const uGet = (path, jwt) => fetch(`${URL_BASE}/rest/v1/${path}`, { headers: { apikey: ANON, Authorization: `Bearer ${jwt}` } })
+        const uPatch = (path, jwt, body) => fetch(`${URL_BASE}/rest/v1/${path}`, { method: 'PATCH', headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(body) })
+        const seenByH = await (await uGet(`generations?select=id&id=eq.${genId}`, jwtH)).json()
+        check('同じチームのメンバーは team 共有の生成物を見られる（1 行）', Array.isArray(seenByH) && seenByH.length === 1, JSON.stringify(seenByH).slice(0, 120))
+        const seenByB = await (await uGet(`generations?select=id&id=eq.${genId}`, jwtB)).json()
+        check('別チームのユーザーには見えない（0 行）', Array.isArray(seenByB) && seenByB.length === 0, JSON.stringify(seenByB).slice(0, 120))
+        const hPatch = await (await uPatch(`generations?id=eq.${genId}`, jwtH, { visibility: 'private' })).json()
+        check('メンバーは他人の共有を切り替えられない（0 行）', Array.isArray(hPatch) && hPatch.length === 0, JSON.stringify(hPatch).slice(0, 120))
+        const aPatch = await (await uPatch(`generations?id=eq.${genId}`, jwtA2, { visibility: 'private' })).json()
+        check('持ち主は private に戻せる（1 行）', Array.isArray(aPatch) && aPatch.length === 1 && aPatch[0].visibility === 'private', JSON.stringify(aPatch).slice(0, 120))
+        const seenAfter = await (await uGet(`generations?select=id&id=eq.${genId}`, jwtH)).json()
+        check('private に戻すとメンバーには見えなくなる（0 行）', Array.isArray(seenAfter) && seenAfter.length === 0, JSON.stringify(seenAfter).slice(0, 120))
+      }
+    }
+  }
 }
 
 async function cleanup() {
   console.log('\ncleanup...')
   for (const p of created.batchObjects) await fetch(`${URL_BASE}/storage/v1/object/batch`, { method: 'DELETE', headers: adminHeaders, body: JSON.stringify({ prefixes: [p] }) })
   for (const id of created.batchJobs) await rest(`batch_jobs?id=eq.${id}`, { method: 'DELETE' })  // items/tasks/outputs は cascade
+  for (const id of created.generations) await rest(`generations?id=eq.${id}`, { method: 'DELETE' })
   for (const id of created.workflows) await rest(`workflows?id=eq.${id}`, { method: 'DELETE' })
   for (const id of created.projects) await rest(`projects?id=eq.${id}`, { method: 'DELETE' })
   for (const id of created.users) await auth(`admin/users/${id}`, { method: 'DELETE' })

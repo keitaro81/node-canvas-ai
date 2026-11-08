@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import { CircleNotch, CloudArrowUp, Play, X } from '@phosphor-icons/react'
 import { CheckButton } from '../ui/CheckButton'
 import { MediaImg } from '../ui/MediaImg'
-import { getMyGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
+import { listLibraryGenerations, type GenerationWithWorkflow } from '../../lib/api/generations'
 import { signMediaRequest } from '../../lib/api/storage'
 import { libraryCanonicalUrl, listLibraryItems, signLibraryItems, touchLibraryItems, uploadToLibrary, type LibraryItem, type LibraryMedia } from '../../lib/api/library'
 import { supabase } from '../../lib/supabase'
@@ -71,7 +71,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
     setLoading(true)
     try {
       const [{ data: { user } }, libs, gs, bvs, fds] = await Promise.all([
-        supabase.auth.getUser(), listLibraryItems({ media }), getMyGenerations(),
+        supabase.auth.getUser(), listLibraryItems({ media }), listLibraryGenerations(),
         media === 'video' ? listBatchVideos().catch(() => [] as BatchVideo[]) : Promise.resolve([] as BatchVideo[]),
         media === 'image' ? listBatchFolders().catch(() => [] as BatchFolder[]) : Promise.resolve([] as BatchFolder[]),
       ])
@@ -111,7 +111,7 @@ export function MediaPickerDialog({ open, onClose, media, multiple = false, titl
   const entries = useMemo<Entry[]>(() => [
     ...uploads.map((l): Entry => ({ key: `lib:${l.id}`, kind: 'upload', media: l.media, url: libraryCanonicalUrl(l), name: l.name, isTeam: !!myId && l.user_id !== myId, createdAt: l.created_at, lib: l })),
     ...[
-      ...gens.map((g): Entry => ({ key: `gen:${g.id}`, kind: 'generated', media, url: g.output_url as string, name: g.workflow_name ?? null, isTeam: false, createdAt: g.created_at, gen: g })),
+      ...gens.map((g): Entry => ({ key: `gen:${g.id}`, kind: 'generated', media, url: g.output_url as string, name: g.workflow_name ?? null, isTeam: !!myId && g.user_id !== myId, createdAt: g.created_at, gen: g })),   // チーム共有の生成物（0022）
       ...batchVideos.map((v): Entry => ({ key: `batch:${v.id}`, kind: 'generated', media: 'video', url: v.url, name: `${v.sku}（${v.jobName}）`, isTeam: !!myId && !!v.createdBy && v.createdBy !== myId, createdAt: v.completedAt, batch: v })),
       ...folders.map((f): Entry => ({ key: `folder:${f.jobId}`, kind: 'generated', media: 'image', url: '', name: f.jobName, isTeam: !!myId && !!f.createdBy && f.createdBy !== myId, createdAt: f.createdAt, folder: f })),
     ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),

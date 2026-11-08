@@ -89,16 +89,23 @@ async function signUrls(admin: any, urls: string[]): Promise<Record<string, stri
   return out
 }
 
-/** 各 url の generations 行を引き、所有 or その WF が public/team 共有なら許可。許可URLの配列を返す。 */
+/** 各 url の generations 行を引き、所有 or チーム共有（0022）or その WF が public/team 共有なら許可。許可URLの配列を返す。 */
 async function authorizeGenerationUrls(admin: any, urls: string[], userId: string, callerTeamId: string | null): Promise<string[]> {
   if (!urls.length) return []
-  const { data: gens } = await admin.from('generations').select('output_url, user_id, workflow_id').in('output_url', urls)
-  const rows = (gens ?? []) as Array<{ output_url: string | null; user_id: string | null; workflow_id: string | null }>
+  type GenRow = { output_url: string | null; user_id: string | null; workflow_id: string | null; team_id?: string | null; visibility?: string | null }
+  // 0022: 生成物のチーム共有（visibility / team_id）。未適用（列が無い）環境では従来の列だけで読む
+  let rows: GenRow[]
+  const withShare = await admin.from('generations').select('output_url, user_id, workflow_id, team_id, visibility').in('output_url', urls)
+  if (withShare.error) {
+    const { data: gens } = await admin.from('generations').select('output_url, user_id, workflow_id').in('output_url', urls)
+    rows = (gens ?? []) as GenRow[]
+  } else rows = (withShare.data ?? []) as GenRow[]
   const allowed: string[] = []
   const needWf: typeof rows = []
   for (const g of rows) {
     if (!g.output_url) continue
     if (g.user_id === userId) allowed.push(g.output_url)
+    else if (g.visibility === 'team' && !!g.team_id && !!callerTeamId && g.team_id === callerTeamId) allowed.push(g.output_url)   // チーム共有（0022）
     else if (g.workflow_id) needWf.push(g)
   }
   if (needWf.length) {
