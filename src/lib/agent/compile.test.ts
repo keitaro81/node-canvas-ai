@@ -126,7 +126,11 @@ describe('チャットで組む: 書き出しは一括か結合があるとき�
       edges: [{ from: 'ri.image', to: 'ig.image' }, { from: 'tp.text', to: 'ig.text' }, { from: 'ig.image', to: 't.garment' }, { from: 'm.front', to: 't.model' }, { from: 't.image', to: 'ex.image' }],
     })
     expect(r.errors).toEqual([])
-    expect(r.canvas!.nodes.map((n) => n.id)).toEqual(['ri', 'tp', 'ig', 'm', 't'])
+    // Image Generation の出力は Result 経由（2026-11-08 メモ 81）: Result は Image Generation の次の列、Try-On はその次
+    expect(r.canvas!.nodes.map((n) => `${n.id}:${n.type}:${n.position!.x}`)).toEqual(['ri:referenceImageNode:80', 'tp:textPromptNode:80', 'ig:imageGenerationNode:500', 'ig-result:imageDisplayNode:920', 'm:libraryModelNode:80', 't:tryOnNode:1340'])
+    expect(r.canvas!.nodes.find((n) => n.id === 'ig-result')!.data).toEqual({ type: 'imageDisplay', label: 'Result', params: {}, status: 'idle', output: undefined })
+    expect(r.canvas!.edges.filter((e) => e.target === 't' || e.target === 'ig-result').map((e) => `${e.source}.${e.sourceHandle}→${e.target}.${e.targetHandle}`).sort()).toEqual(['ig-result.out-image-image-out→t.in-image-garment', 'ig.out-image-image-out→ig-result.in-image-image-in', 'm.out-image-front→t.in-image-model'])
+    expect(r.notes.some((n) => n.includes('Image Generation の結果は Result に出て'))).toBe(true)
     expect(r.canvas!.edges.some((e) => e.target === 'ex')).toBe(false)
     expect(r.hints).toEqual({})
     expect(r.notes.some((n) => n.includes('書き出し（Export）は外しました'))).toBe(true)
@@ -141,5 +145,33 @@ describe('チャットで組む: 書き出しは一括か結合があるとき�
     expect(r.canvas!.nodes.map((n) => n.id)).toContain('ex')
     expect(r.notes.some((n) => n.includes('書き出し（Export）は外しました'))).toBe(false)
     expect(buildSystemPrompt()).toContain('Batch Input の無い構成（1 枚ずつ対話で作る）には export を置かない')
+  })
+})
+
+describe('チャットで組む: Image Generation の出力は Result 経由（2026-11-08 メモ 81）', () => {
+  it('Image Generation → Video Generation の始点も Result 経由。一括の構成でも計画は Result を透過して 2 段になる', () => {
+    const r = compileWorkflow({
+      nodes: [{ id: 'in', type: 'batchInput' }, { id: 'tp', type: 'textPrompt', params: { prompt: '白背景のスタジオで' } }, { id: 'ig', type: 'imageGen' }, { id: 'v', type: 'videoGen' }, { id: 'ex', type: 'export' }],
+      edges: [{ from: 'in.image', to: 'ig.image' }, { from: 'tp.text', to: 'ig.text' }, { from: 'ig.image', to: 'v.start' }, { from: 'tp.text', to: 'v.text' }, { from: 'v.video', to: 'ex.video' }, { from: 'in.item', to: 'ex.item' }],
+    })
+    expect(r.errors).toEqual([])
+    const c = r.canvas!
+    expect(c.nodes.filter((n) => n.type === 'imageDisplayNode').map((n) => n.id)).toEqual(['ig-result'])
+    expect(c.edges.filter((e) => e.target === 'v').map((e) => `${e.source}.${e.sourceHandle}→${e.targetHandle}`).sort()).toEqual(['ig-result.out-image-image-out→in-image', 'tp.out-text-text-out→in-text'])
+    expect(c.edges.filter((e) => e.source === 'ig').map((e) => `${e.target}.${e.targetHandle}`)).toEqual(['ig-result.in-image-image-in'])
+    const { tasks } = planTasks(c)
+    expect(tasks.map((t) => `${t.nodeId}:${t.stage}`)).toEqual(['ig:1', 'v:2'])
+  })
+  it('画像の出力をつながない Image Generation には Result を足さない。2 つの Image Generation にはそれぞれ', () => {
+    const r1 = compileWorkflow({ nodes: [{ id: 'tp', type: 'textPrompt' }, { id: 'ig', type: 'imageGen' }], edges: [{ from: 'tp.text', to: 'ig.text' }] })
+    expect(r1.canvas!.nodes.map((n) => n.id)).toEqual(['tp', 'ig'])
+    expect(r1.notes.some((n) => n.includes('Result'))).toBe(false)
+    const r2 = compileWorkflow({
+      nodes: [{ id: 'tp', type: 'textPrompt' }, { id: 'a', type: 'imageGen' }, { id: 'b', type: 'imageGen' }, { id: 'm', type: 'libraryModel' }, { id: 't', type: 'tryOn' }],
+      edges: [{ from: 'tp.text', to: 'a.text' }, { from: 'a.image', to: 'b.image' }, { from: 'tp.text', to: 'b.text' }, { from: 'b.image', to: 't.garment' }, { from: 'm.front', to: 't.model' }],
+    })
+    expect(r2.errors).toEqual([])
+    expect(r2.canvas!.nodes.map((n) => n.id)).toEqual(['tp', 'a', 'a-result', 'b', 'b-result', 'm', 't'])
+    expect(r2.canvas!.edges.filter((e) => e.target === 'b' || e.target === 't').map((e) => `${e.source}→${e.target}.${e.targetHandle}`).sort()).toEqual(['a-result→b.in-image', 'b-result→t.in-image-garment', 'm→t.in-image-model', 'tp→b.in-text'])
   })
 })
