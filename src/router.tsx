@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- route 設定ファイル。lazy() のページ定義と router export が同居するのは意図的（Fast Refresh 対象外） */
 import { lazy } from 'react'
-import { createBrowserRouter, Navigate } from 'react-router'
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
+import { RouteErrorPage } from './components/RouteErrorPage'
 import { HomeLayout } from './components/home/HomeLayout' // シェルは eager（即表示）
 
 // ページは route 単位で遅延ロード（コード分割）。特に CanvasPage は React Flow を含むため
@@ -24,7 +25,7 @@ const CutoutBenchPage = import.meta.env.DEV
   ? lazy(() => import('./components/dev/CutoutBenchPage').then((m) => ({ default: m.CutoutBenchPage })))
   : null
 
-export const router = createBrowserRouter([
+const routes: RouteObject[] = [
   {
     path: '/',
     element: <Navigate to="/projects" replace />,
@@ -63,4 +64,7 @@ export const router = createBrowserRouter([
   // 招待リンクの着地（AuthGuard 配下＝未ログインはログイン後にここへ）
   { path: '/join/:token', element: <JoinPage /> },
   ...(CutoutBenchPage ? [{ path: '/dev/cutout-bench', element: <CutoutBenchPage /> }] : []),
-])
+]
+
+// すべての最上位ルートに同じエラー画面。デプロイ直後の古いチャンクのエラーなら一度だけ自動で再読み込み、それ以外は日本語の案内（2026-11-08 メモ 74）
+export const router = createBrowserRouter(routes.map((r) => ({ ...r, errorElement: <RouteErrorPage /> })))
