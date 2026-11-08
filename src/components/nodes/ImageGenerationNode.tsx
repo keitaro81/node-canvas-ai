@@ -277,8 +277,10 @@ async function runGeneration(
 }
 
 function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
+  // ノードの data はストアから直接読む（2026-11-08 メモ 80: このノードはストアの nodes も購読していて、入力のたびに React Flow が新しい data を渡す前に古い data で一度描き直され、入力欄の値が 1 文字前に戻って IME の変換が切れていた）
+  const liveData = useCanvasStore((s) => s.nodes.find((n) => n.id === id)?.data)
   const drag = useDragTarget(id, 'imageGenerationNode')   // 線のドラッグ中: 候補のポートに名前・合わないポートは薄く（メモ 31）
-  const nodeData = data as NodeData
+  const nodeData = (liveData ?? data) as NodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
 
   // canvasStore から直接エッジ・ノードを購読（useEdges/useNodes より確実に最新状態を反映）

@@ -1,15 +1,15 @@
 // ノードが組み済みのテンプレート（2026-10-31・設計 docs/specs/product-video-nodes.md §8、2026-11-01 試着 docs/specs/library-tryon.md §4.2）。
 // My Projects の「テンプレートから作成」で新しいワークフローにする。
-// - 商品動画の 3 構成（EC 標準 15 秒 / ターンテーブル 12 秒 / ショート 9 秒）は、向きつきの参照画像 → Video Generation × ショット → Video Merge → Export に組む
-//   （2026-11-01: Cut Set Input と動画の一括処理は廃止。商品ごとに参照画像へ写真を入れて対話実行する）
-// - 試着（2b-4）: 服のカット（SKU ごと）→ Try-On × 向き → ターンテーブルの動画、商品写真 → Try-On → 着用画像の書き出し
+// - 商品動画（2026-11-08 ユーザー決定）: ターンテーブルは「正面と背面の 2 枚 → Kling Element（参照一式）→ Video Generation 1 本（10 秒・始点も終点も正面）」の 1 本版だけ。
+//   4 本を結合する版（ターンテーブル 12 秒）・EC 標準 15 秒・ショート 9 秒・試着 → ターンテーブルは、結果が安定しなかったため一旦外した（商品ごとに参照画像へ写真を入れて対話実行する点は同じ）
+// - 試着: 商品写真 → Try-On → 着用画像の書き出し（一括）
 // - 2026-11-01: モデルは Model ノード（ライブラリのモデルを選ぶと向きごとの出力ポート）から Try-On につなぐ。回転の指示文は定型文として Video Generation の欄に入れる（トグル廃止）
 // - 2026-11-01 ユーザー指示: 組んだノードの名前は種類名のまま（「ショット 1」「試着 正面」のような名前は付けない。向きはノードの中の行で見える）
 // - 2026-11-02 メモ 42: 参照画像の「向き」は廃止。どの写真を入れるかは案内（photoHint・見出し「Reference Image（正面）」）で出す。
 //   Kling の参照一式は Kling Element ノードにまとめて各ショットの「参照一式 1」につなぎ、ショットの「動き」の先頭に @Element1 を入れる（見える形）
-import { CUT_ROLE_LABEL, DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, REFERENCE_PRIORITY, VIDEO_TEMPLATES, templateById, totalSeconds, turnPreset, withTurnMotion, withTurnNegative, type CutRole, type VideoShotSpec } from '../video/productVideo'
+import { CUT_ROLE_LABEL, DEFAULT_BASE_PROMPT, DEFAULT_NEGATIVE_PROMPT, REFERENCE_PRIORITY, type CutRole } from '../video/productVideo'
 import { KLING_ELEMENT_OUTPUT, KLING_ELEMENT_SLOTS, VIDEO_GEN_ELEMENT_HANDLES, withElementTag } from '../video/klingElement'
-import { PRODUCT_VIDEO_DEFAULT_MODEL, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, VIDEO_OUTPUT_HANDLE, cutSetRoleHandle, videoMergeSlotHandle, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
+import { PRODUCT_VIDEO_DEFAULT_MODEL, VIDEO_GEN_END_HANDLE, VIDEO_GEN_START_HANDLE, cutSetRoleHandle, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
 import { DEFAULT_EXPORT_PARAMS } from '../export/naming'
 import { DEFAULT_BATCH_INPUT_PARAMS } from '../batch/items'
 import { DEFAULT_TRY_ON_PARAMS, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE } from '../tryon/prompt'
@@ -55,45 +55,43 @@ function wireKlingElement(nodes: SnapshotNode[], edges: SnapshotEdge[], sources:
     if (shot) shot.data = { ...shot.data, params: { ...shot.data.params, prompt: withElementTag(String(shot.data.params?.prompt ?? ''), 1) } }
   }
 }
-/** ショット = Video Generation（Kling v3 Pro・写真の比率）。終了フレームのあるショットは回転の定型文を「動き」「避けたいこと」に入れる */
-const videoShotNode = (id: string, shot: VideoShotSpec, position: { x: number; y: number }): SnapshotNode => ({
-  id, type: 'videoGenerationNode', position,
-  data: {
-    type: 'videoGen', label: 'Video Generation',
-    model: PRODUCT_VIDEO_DEFAULT_MODEL, duration: String(shot.duration), resolution: '1080p', aspectRatio: 'auto', fps: 25, audioEnabled: false, seed: null, count: 1,
-    status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, activeDisplayNodeId: null,
-    params: shot.endRole
-      ? (() => { const t = turnPreset(shot.role, shot.endRole); return { prompt: withTurnMotion(shot.motion, t.motion), negativePrompt: withTurnNegative(DEFAULT_NEGATIVE_PROMPT, t.negativeJp), autoTurn: false } })()
-      : { prompt: shot.motion, negativePrompt: DEFAULT_NEGATIVE_PROMPT, autoTurn: false },
-  },
-})
-/** ショットで使う向き（最初に出てくる順） */
-const rolesOf = (shots: VideoShotSpec[]): CutRole[] => [...new Set(shots.flatMap((sh) => [sh.role, ...(sh.endRole ? [sh.endRole] : [])]))]
 const REF_OUT = 'out-image'
-const SHOT_GAP = 660, REF_GAP = 440
 
-/** 商品動画のテンプレート（VIDEO_TEMPLATES の id）: 向きつきの参照画像 × 必要な向き → Text Prompt（共通の説明）→ Video Generation × ショット → Video Merge → Export。
- *  id は読みやすい固定名（ref-<向き> / base-prompt / shot-N / merge / export）。ノードの名前は種類名のまま */
-export function buildProductVideoTemplate(templateId: string): TemplateCanvas {
-  const tpl = templateById(templateId)
-  if (!tpl) throw new Error(`unknown template: ${templateId}`)
+/** ターンテーブル（1 本版・2026-11-08 ユーザー決定）の「動き」「避けたいこと」。日本語のまま入れ、生成時に英訳する */
+export const TURNTABLE_SINGLE_MOTION = [
+  'モデルがその場で、ゆっくり一定の速さで時計回りに一回転する（360 度）。',
+  '最初は正面を向き、中間（5 秒あたり）で背面（参照の後ろ姿のとおり）を向き、最後にまた正面に戻って静かに止まる。',
+  '足の位置は変えず、腕は自然に下ろしたまま。服のシルエット・丈・色・ディテールは最初から最後まで写真のとおり。',
+].join('\n')
+export const TURNTABLE_SINGLE_NEGATIVE = `${DEFAULT_NEGATIVE_PROMPT}、回転の途中で止まる、逆回転、向きが飛ぶ、別の服に変わる`
+export const TURNTABLE_SINGLE_SECONDS = 10
+
+/** 商品動画: ターンテーブル 10 秒（1 本版）。参照画像（正面・背面）→ Kling Element（正面 = 主カット・背面 = 別角度 1）→ Video Generation × 1
+ *  （Kling v3 Pro・10 秒・始点も終点も正面 = 一回転して元の向きに戻る）。最初からグループに入れて App 化（生成 App の 1 ステージ）。
+ *  id は読みやすい固定名（ref-front / ref-back / base-prompt / element / shot-1）。ノードの名前は種類名のまま */
+export function buildTurntableSingleTemplate(): TemplateCanvas {
   const x = 80, y = 80
-  const nodes: SnapshotNode[] = rolesOf(tpl.shots).map((role, i) => refImageNode(`ref-${role}`, role, { x, y: y + i * REF_GAP }))
-  nodes.push({ id: 'base-prompt', type: 'textPromptNode', position: { x: x + 420, y }, data: { type: 'textPrompt', label: 'Text Prompt', params: { prompt: DEFAULT_BASE_PROMPT }, status: 'idle' } })
-  const edges: SnapshotEdge[] = []
-  tpl.shots.forEach((shot, i) => {
-    const id = `shot-${i + 1}`
-    nodes.push(videoShotNode(id, shot, { x: x + 840, y: y + i * SHOT_GAP }))
-    edges.push(edge(`ref-${shot.role}`, REF_OUT, id, VIDEO_GEN_START_HANDLE))
-    if (shot.endRole) edges.push(edge(`ref-${shot.endRole}`, REF_OUT, id, VIDEO_GEN_END_HANDLE))
-    edges.push(edge('base-prompt', 'out-text-text-out', id, 'in-text'))
-    edges.push(edge(id, VIDEO_OUTPUT_HANDLE, 'merge', videoMergeSlotHandle(i + 1)))
-  })
-  nodes.push({ id: 'merge', type: 'videoMergeNode', position: { x: x + 1260, y }, data: { type: 'videoMerge', label: 'Video Merge', params: {}, status: 'idle', videoUrl: null } })
-  nodes.push(exportNode({ x: x + 1640, y }))
-  edges.push(edge('merge', VIDEO_OUTPUT_HANDLE, 'export', 'in-video-v0'))
-  wireKlingElement(nodes, edges, Object.fromEntries(rolesOf(tpl.shots).map((r) => [r, { id: `ref-${r}`, handle: REF_OUT }])), tpl.shots.map((_, i) => `shot-${i + 1}`), { x: x + 420, y: y + 340 })
-  return { nodes, edges, viewport: null }
+  const nodes: SnapshotNode[] = [
+    refImageNode('ref-front', 'front', { x, y }),
+    refImageNode('ref-back', 'back', { x, y: y + 460 }),
+    { id: 'base-prompt', type: 'textPromptNode', position: { x: x + 420, y }, data: { type: 'textPrompt', label: 'Text Prompt', params: { prompt: DEFAULT_BASE_PROMPT }, status: 'idle' } },
+    {
+      id: 'shot-1', type: 'videoGenerationNode', position: { x: x + 840, y },
+      data: {
+        type: 'videoGen', label: 'Video Generation',
+        model: PRODUCT_VIDEO_DEFAULT_MODEL, duration: String(TURNTABLE_SINGLE_SECONDS), resolution: '1080p', aspectRatio: 'auto', fps: 25, audioEnabled: false, seed: null, count: 1,
+        status: 'idle', progress: '', videoUrl: null, fileName: null, error: null, requestId: null, requestEndpoint: null, activeDisplayNodeId: null,
+        params: { prompt: TURNTABLE_SINGLE_MOTION, negativePrompt: TURNTABLE_SINGLE_NEGATIVE, autoTurn: false },
+      },
+    },
+  ]
+  const edges: SnapshotEdge[] = [
+    edge('ref-front', REF_OUT, 'shot-1', VIDEO_GEN_START_HANDLE),
+    edge('ref-front', REF_OUT, 'shot-1', VIDEO_GEN_END_HANDLE),   // 終点も正面 = 一回転して元の向きに戻る
+    edge('base-prompt', 'out-text-text-out', 'shot-1', 'in-text'),
+  ]
+  wireKlingElement(nodes, edges, { front: { id: 'ref-front', handle: REF_OUT }, back: { id: 'ref-back', handle: REF_OUT } }, ['shot-1'], { x: x + 420, y: y + 360 })
+  return wrapInAppGroup({ nodes, edges }, 'ターンテーブル（正面＋背面）')
 }
 
 const tryOnNode = (id: string, label: string, role: CutRole, position: { x: number; y: number }): SnapshotNode =>
@@ -103,37 +101,6 @@ const exportNode = (position: { x: number; y: number }): SnapshotNode =>
 /** Model ノード（ライブラリのモデル・作った後に選ぶ）: 向きごとの出力ポートを Try-On の model につなぐ */
 const modelNode = (position: { x: number; y: number }): SnapshotNode =>
   ({ id: 'model', type: 'libraryModelNode', position, data: { type: 'libraryModel', label: 'Model', params: {}, status: 'idle', modelId: null, modelName: null, cuts: {} } })
-
-/** 試着 → ターンテーブル 12 秒: 服の写真（参照画像・向き = 正面/右側面/背面/左側面）＋ Model → Try-On × 4（同じ向き）→ Video Generation × 4 → Video Merge → Export。
- *  作った後に参照画像へ服の写真を向きどおりに入れ、Model ノードでモデルを選ぶ。ショットの「動き」「避けたいこと」には回転の定型文が入っている */
-export function buildTryOnTurntableTemplate(): TemplateCanvas {
-  const tpl = templateById('turntable12')
-  if (!tpl) throw new Error('turntable12 template missing')
-  const x = 80, y = 80
-  const roles: CutRole[] = ['front', 'right', 'back', 'left']
-  const nodes: SnapshotNode[] = roles.map((role, i) => refImageNode(`garment-${role}`, role, { x, y: y + i * REF_GAP }))
-  nodes.push(modelNode({ x, y: y + roles.length * REF_GAP }))
-  const edges: SnapshotEdge[] = []
-  roles.forEach((role, i) => {
-    nodes.push(tryOnNode(`tryon-${role}`, 'Try-On', role, { x: x + 420, y: y + i * REF_GAP }))
-    edges.push(edge(`garment-${role}`, REF_OUT, `tryon-${role}`, TRY_ON_GARMENT_HANDLE))
-    edges.push(edge('model', cutSetRoleHandle(role), `tryon-${role}`, TRY_ON_MODEL_HANDLE))
-  })
-  nodes.push({ id: 'base-prompt', type: 'textPromptNode', position: { x: x + 840, y }, data: { type: 'textPrompt', label: 'Text Prompt', params: { prompt: DEFAULT_BASE_PROMPT }, status: 'idle' } })
-  tpl.shots.forEach((shot, i) => {
-    const id = `shot-${i + 1}`
-    nodes.push(videoShotNode(id, shot, { x: x + 1260, y: y + i * SHOT_GAP }))
-    edges.push(edge(`tryon-${shot.role}`, TRY_ON_OUTPUT_HANDLE, id, VIDEO_GEN_START_HANDLE))
-    if (shot.endRole) edges.push(edge(`tryon-${shot.endRole}`, TRY_ON_OUTPUT_HANDLE, id, VIDEO_GEN_END_HANDLE))
-    edges.push(edge('base-prompt', 'out-text-text-out', id, 'in-text'))
-    edges.push(edge(id, VIDEO_OUTPUT_HANDLE, 'merge', videoMergeSlotHandle(i + 1)))
-  })
-  nodes.push({ id: 'merge', type: 'videoMergeNode', position: { x: x + 1680, y }, data: { type: 'videoMerge', label: 'Video Merge', params: {}, status: 'idle', videoUrl: null } })
-  nodes.push(exportNode({ x: x + 2060, y }))
-  edges.push(edge('merge', VIDEO_OUTPUT_HANDLE, 'export', 'in-video-v0'))
-  wireKlingElement(nodes, edges, Object.fromEntries(roles.map((r) => [r, { id: `tryon-${r}`, handle: TRY_ON_OUTPUT_HANDLE }])), tpl.shots.map((_, i) => `shot-${i + 1}`), { x: x + 840, y: y + 340 })
-  return { nodes, edges, viewport: null }
-}
 
 /** 商品写真の背景処理: Batch Input → Remove Background → Product Layout（白背景 1200×1200）→ Export（画像とアイテム情報）。最初からグループに入れて App 化（2026-11-02） */
 export function buildPostProductionTemplate(): TemplateCanvas {
@@ -183,27 +150,16 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     summary: 'Batch Input → Remove Background → Product Layout → Export。サイズ・余白・背景は Product Layout で変えられる',
     build: buildPostProductionTemplate,
   },
-  ...VIDEO_TEMPLATES.map((t): WorkflowTemplate => ({
-    id: `video-${t.id}`,
-    name: `商品動画: ${t.label}`,
-    description: t.description,
-    kind: 'video',
-    goal: 'video',
-    shots: t.shots.length,
-    seconds: totalSeconds(t.shots),
-    summary: `${t.shots.length} ショット・約 ${totalSeconds(t.shots)} 秒・参照画像（向き）× ${rolesOf(t.shots).length} → Video Generation × ${t.shots.length} → Video Merge → Export。作ったら参照画像に商品の写真を向きどおりに入れる`,
-    build: () => buildProductVideoTemplate(t.id),
-  })),
   {
-    id: 'tryon-turntable12',
-    name: '商品写真から商品動画: 試着 → ターンテーブル 12 秒',
-    description: '服の写真（正面・右側面・背面・左側面）にライブラリのモデルを着せ、その着用画像でターンテーブルの動画を作る（1 商品ずつ）',
+    id: 'video-turntable-single',
+    name: `商品動画: ターンテーブル ${TURNTABLE_SINGLE_SECONDS} 秒（正面と背面の 2 枚で 1 本）`,
+    description: '正面と背面の写真を Kling の参照一式に渡し、その場で一回転する動画を 1 本で作る（4 本に分けて結合しない）',
     kind: 'video',
     goal: 'video',
-    shots: 4,
-    seconds: 12,
-    summary: '4 ショット・約 12 秒・参照画像（服・向き）× 4 ＋ Model → Try-On × 4 → Video Generation × 4 → Video Merge → Export。作ったら参照画像に服の写真を向きどおりに入れ、Model ノードでモデルを選ぶ',
-    build: buildTryOnTurntableTemplate,
+    shots: 1,
+    seconds: TURNTABLE_SINGLE_SECONDS,
+    summary: `参照画像（正面・背面）→ Kling Element → Video Generation × 1（${TURNTABLE_SINGLE_SECONDS} 秒・始点と終点は正面）。作ったら正面と背面の写真を入れて「動画を生成」`,
+    build: buildTurntableSingleTemplate,
   },
   {
     id: 'tryon-images',

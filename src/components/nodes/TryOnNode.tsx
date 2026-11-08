@@ -110,7 +110,9 @@ function SourceRow({ label, thumb, text, sub, placeholder, actions }: { label: s
 
 function TryOnNodeInner(props: NodeProps) {
   const { id, data } = props
-  const nodeData = data as unknown as TryOnNodeData
+  // ノードの data はストアから直接読む（2026-11-08 メモ 80: このノードはストアの nodes も購読していて、入力のたびに React Flow が新しい data を渡す前に古い data で一度描き直され、入力欄の値が 1 文字前に戻って IME の変換が切れていた）
+  const liveData = useCanvasStore((s) => s.nodes.find((n) => n.id === id)?.data)
+  const nodeData = (liveData ?? data) as unknown as TryOnNodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const edges = useCanvasStore((s) => s.edges)
   const nodes = useCanvasStore((s) => s.nodes)
@@ -207,7 +209,10 @@ function TryOnNodeInner(props: NodeProps) {
         garmentUrl = ensured.signedUrl
       } else {
         const raw = imageUrlFromNodeData(gNode.data as Record<string, unknown>, gEdge?.sourceHandle)
-        if (!raw) throw new Error(`${labelOf(gNode, '服')} に画像がありません`)
+        // Image Generation は結果を自分では持たない（結果ノードに出る）。直接つないであるときは結果の選び方を案内する（2026-11-08 メモ 78）
+        if (!raw) throw new Error(gNode.type === 'imageGenerationNode'
+          ? `${labelOf(gNode, 'Image Generation')} の結果（Result）を「服」につないでください（App では、前のステージの結果の画像を「次のステージで使用」で選べます）`
+          : `${labelOf(gNode, '服')} に画像がありません`)
         if (raw.startsWith('blob:') || raw.startsWith('data:')) throw new Error('服の画像のアップロード完了を待ってから実行してください')
         garmentUrl = await resolveFetchableUrl({ canonical: toCanonicalRef(raw) ?? raw, fresh: garmentFresh, liveUrl: raw })
       }
@@ -243,6 +248,16 @@ function TryOnNodeInner(props: NodeProps) {
       setBusy(false)
     }
   }, [busy, id, picked, params, updateNode, modelFresh, garmentFresh])
+
+  // App（生成 App のステージ）の「試着する」から動かす（Image Generation / Video Generation と同じ合図・2026-11-08 メモ 78）
+  useEffect(() => {
+    function onCapsuleGenerate(e: Event) {
+      const { nodeId } = (e as CustomEvent<{ nodeId: string }>).detail
+      if (nodeId === id) void handleRun()
+    }
+    window.addEventListener('capsule:generate', onCapsuleGenerate)
+    return () => window.removeEventListener('capsule:generate', onCapsuleGenerate)
+  }, [id, handleRun])
 
   // ── 再読み込み後の復旧（Image Generation と同じ: 結果ノードに requestId が残っていれば結果を取りに行く）──
   const recovering = useRef(false)
@@ -306,7 +321,7 @@ function TryOnNodeInner(props: NodeProps) {
           label="服（左のポート・下）"
           thumb={garmentCutout ? garmentCutoutThumb : (garmentWiredThumb ?? null)}
           text={garmentText}
-          sub={garmentNode ? (garmentCutout ? '切り抜き画像を使う' : '配線から') : '商品写真・切り抜き・参照画像をつなぐ'}
+          sub={garmentNode ? (garmentCutout ? '切り抜き画像を使う' : garmentNode.type === 'imageGenerationNode' && !garmentRaw ? '結果（Result）をつなぐか、App で画像を選ぶ' : '配線から') : '商品写真・切り抜き・参照画像をつなぐ'}
           placeholder={<Shirt size={18} />}
         />
 

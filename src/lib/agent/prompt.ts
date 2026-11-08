@@ -102,7 +102,7 @@ export function buildSystemPrompt(): string {
     '- 辺は "ノードid.ポート名" → "ノードid.ポート名"。出力ポートから入力ポートへ。種類（kind）が同じものだけつなげる。例外: cutout の出力は acceptsCutout の画像入力（imageGen.image / tryOn.garment）にもつなげる。',
     '- multi の入力（export.image / export.video / videoMerge.video / imageGen.image）には複数つなげる（つないだ順）。それ以外の入力は 1 本だけ。',
     '- Image Generation と Video Generation には Text Prompt を text につなぐ（プロンプトは Text Prompt に書く）。',
-    '- 書き出しには export を置き、画像は export.image、動画は export.video、入口の item を export.item につなぐ。',
+    '- 書き出し（export）は、Batch Input の一括処理か videoMerge の結合がある構成にだけ置く（画像は export.image、動画は export.video、入口の item を export.item につなぐ）。Batch Input の無い構成（1 枚ずつ対話で作る）には export を置かない（結果はノードの Result に出て、そこからダウンロードできる）。',
     '- 試着（tryOn）には libraryModel（モデル）を 1 つ置き、服のカットと同じ向きの出力（front / right / left / back）を tryOn の model につなぐ（モデルの中身はユーザーが後で選ぶ）。側面・背面を作るときは、同じ向きの服の写真（role 付きの referenceImage）を garment につなぎ、tryOn の role にその向きを入れる。',
     '- 回る商品動画は、向きのある 2 枚（tryOn の結果か role 付きの referenceImage）を videoGen の start と end につなぐ（回転の指示文は自動で動きの欄に入る）。複数のショットはショットごとに videoGen を置き、videoMerge で 1 本にする。',
     '- 同じ服や人物を正面と別の角度から写した写真が 2 枚以上あり、videoGen のモデルが kling-v3-pro のときは、klingElement を 1 つ置いて正面を frontal、別の角度を ref1〜ref3 につなぎ、klingElement.element を各 videoGen の element1 につなぐ（動きの欄の先頭に @Element1 が自動で入る）。参照画像の role は「どの向きの写真を入れるか」の案内と回転の指示文にだけ使われ、ノードに向きは残らない。',

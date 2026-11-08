@@ -108,7 +108,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function ExportNodeInner(props: NodeProps) {
   const { id, data } = props
-  const nodeData = data as unknown as NodeData
+  // ノードの data はストアから直接読む（2026-11-08 メモ 80: このノードはストアの nodes も購読していて、入力のたびに React Flow が新しい data を渡す前に古い data で一度描き直され、入力欄の値が 1 文字前に戻って IME の変換が切れていた）
+  const liveData = useCanvasStore((s) => s.nodes.find((n) => n.id === id)?.data)
+  const nodeData = (liveData ?? data) as unknown as NodeData
   const updateNode = useCanvasStore((s) => s.updateNode)
   const edges = useCanvasStore((s) => s.edges)
   const nodes = useCanvasStore((s) => s.nodes)
