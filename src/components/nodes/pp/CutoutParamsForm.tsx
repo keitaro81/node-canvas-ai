@@ -18,7 +18,7 @@ export function CutoutParamsForm({ params, onChange, disabled }: Props) {
         <select className={`${CTRL} w-full`} style={INPUT_STYLE} value={params.engine} disabled={disabled} onChange={(e) => onChange({ engine: e.target.value as CutoutEngine })}>
           {CUTOUT_ENGINE_IDS.map((k) => <option key={k} value={k}>{CUTOUT_ENGINES[k].label}</option>)}
         </select>
-        <div className="text-[11px] text-[var(--text-tertiary)] mt-1 leading-snug">{engineDef.pricing}・{engineDef.note}</div>
+        <div className="text-[11px] text-[var(--text-tertiary)] mt-1 leading-snug">{engineDef.note}</div>   {/* 単価は出さない（2026-11-08 メモ 77） */}
       </Field>
       {params.engine === 'birefnet' && (
         <div className="grid grid-cols-2 gap-2">

@@ -1,5 +1,5 @@
 // チャットでワークフローを組む（2026-11-01・段階 1）: 目的を日本語で書く → LLM がノード構成（JSON）を返す → 検証して並べたものを「この構成で作る」。
-// 曖昧なら質問が返るので答える。会話は LLM に毎回まとめて渡す（エンドポイントは履歴を持たない）。費用は usage.cost を足し上げて表示
+// 曖昧なら質問が返るので答える。会話は LLM に毎回まとめて渡す（エンドポイントは履歴を持たない）。費用（usage.cost）は画面に出さない（2026-11-08 メモ 77・クライアントに金額を見せない）
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChatCircleText, CircleNotch, PaperPlaneRight, X } from '@phosphor-icons/react'
@@ -13,7 +13,6 @@ interface Msg { role: 'user' | 'assistant'; text: string; result?: AgentTurnResu
 interface Props { open: boolean; onClose: () => void; onCreate: (canvas: CompiledCanvas, name: string) => Promise<void>; actionLabel?: string }
 
 const STARTERS = ['商品写真の背景を白にして 1200×1200 で書き出したい', '商品写真をモデルに着せた着用画像を一括で作りたい', '服の正面と右側面の写真から、正面から右に回る商品動画を SKU ごとに作りたい']
-const usd = (n: number | null) => (n === null ? '—' : `$${n < 0.01 ? n.toFixed(4) : n.toFixed(3)}`)
 
 export function AgentBuilderDialog({ open, onClose, onCreate, actionLabel = 'この構成で作る' }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -32,7 +31,6 @@ export function AgentBuilderDialog({ open, onClose, onCreate, actionLabel = 'こ
 
   const turnsOf = (list: Msg[]): AgentTurn[] => list.map((m) => ({ role: m.role, content: m.role === 'assistant' ? (m.result?.text ?? m.text) : m.text }))
   const userTurns = msgs.filter((m) => m.role === 'user').length
-  const totalCost = msgs.reduce((s, m) => s + (m.result?.usage.cost ?? 0), 0)
   const last = [...msgs].reverse().find((m) => m.role === 'assistant')?.result
   const ready = !!last?.compiled?.canvas && last.compiled.errors.length === 0
 
@@ -68,7 +66,7 @@ export function AgentBuilderDialog({ open, onClose, onCreate, actionLabel = 'こ
             <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.12)', color: '#8B5CF6' }}><ChatCircleText size={16} /></span>
             <div>
               <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>チャットで組む</h2>
-              <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>作りたいものを日本語で書くと、ノードをつないだ構成を提案します（LLM の費用はこの会話で {usd(totalCost)}）</p>
+              <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>作りたいものを日本語で書くと、ノードをつないだ構成を提案します</p>
             </div>
           </div>
           <button onClick={onClose} disabled={busy || creating} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-elevated)] disabled:opacity-40" style={{ color: 'var(--text-secondary)' }} title="閉じる"><X size={14} /></button>
@@ -103,7 +101,7 @@ export function AgentBuilderDialog({ open, onClose, onCreate, actionLabel = 'こ
                     {m.result.compiled.notes.map((n, j) => <div key={j} className="text-[11px] mt-1" style={{ color: '#F59E0B' }}>{n}</div>)}
                   </div>
                 )}
-                {m.result && <div className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>{m.result.model.replace(/^anthropic\//, '')}・{usd(m.result.usage.cost)}{m.result.repaired ? '・検証エラーを 1 回直しました' : ''}</div>}
+                {m.result && <div className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>{m.result.model.replace(/^anthropic\//, '')}{m.result.repaired ? '・検証エラーを 1 回直しました' : ''}</div>}
               </div>
             </div>
           ))}
