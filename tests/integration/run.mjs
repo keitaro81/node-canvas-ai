@@ -348,10 +348,10 @@ async function main() {
       created.projects.push(projH[0].id)
       const wfH = await (await rest('workflows', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ project_id: projH[0].id, name: `${TAG} wfH`, canvas_data: { nodes: [], edges: [] }, team_id: teamA, visibility: 'private' }) })).json()
       created.workflows.push(wfH[0].id)
-      const genRow = await (await rest('generations', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ workflow_id: wfH[0].id, node_id: 'n1', node_type: 'image-generation', status: 'completed', output_url: `https://example.invalid/${TAG}.png`, user_id: aId, team_id: teamA, visibility: 'team' }) })).json()
+      const genRow = await (await rest('generations', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ workflow_id: wfH[0].id, node_id: 'n1', node_type: 'image-generation', provider: 'fal', status: 'completed', input_params: {}, output_url: `https://example.invalid/${TAG}.png`, user_id: aId, team_id: teamA, visibility: 'team' }) })).json()   // 列はアプリの saveGeneration と同じ
       const genId = genRow[0]?.id
       if (!genId) {
-        check('生成物（team 共有）を作れる', false, JSON.stringify(genRow).slice(0, 160))
+        check('生成物（team 共有）を作れる', false, JSON.stringify(genRow).slice(0, 400))
       } else {
         created.generations.push(genId)
         const uGet = (path, jwt) => fetch(`${URL_BASE}/rest/v1/${path}`, { headers: { apikey: ANON, Authorization: `Bearer ${jwt}` } })
