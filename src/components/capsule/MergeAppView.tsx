@@ -196,6 +196,9 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
         {inputs.length === 0 && <div className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>この App で入れる写真や文はありません（キャンバスのとおりに作ります）</div>}
       </div>
       <div className="px-4 py-3 shrink-0 flex flex-col gap-1.5" style={{ borderTop: '1px solid var(--border)' }}>
+        {!canEdit && (
+          <div className="text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>閲覧のみ: このワークフローを編集できるのは作成者（または編集を許可されたチームのメンバー）で、同時に 1 人です。動画の再生とダウンロードはできます</div>
+        )}
         {missing.length > 0 && (
           <div className="text-[11px] leading-snug" style={{ color: '#F59E0B' }}>{missing.map((i) => (i.hint ? `${i.hint}の写真` : i.label)).join('・')}を入れてください</div>
         )}
@@ -290,8 +293,8 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
 
   return (
     <div className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col overflow-y-auto' : 'overflow-hidden'}`} style={{ position: 'relative' }}>
-      {/* 他人のワークフロー（編集できない）は操作不可（今の生成 App と同じ） */}
-      {!canEdit && <div className="absolute inset-0 z-50" style={{ cursor: 'not-allowed', background: 'transparent' }} />}
+      {/* 編集できないとき（権限なし・編集ロックが別のタブやほかの人にある）は、ボタンと入力欄を個別に無効にする。
+          全面に透明な板をかぶせると動画の再生やダウンロードまでできなくなる（2026-11-08 ユーザー報告・メモ 73） */}
       {left}
       {right}
     </div>

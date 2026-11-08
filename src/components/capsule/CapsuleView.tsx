@@ -2484,29 +2484,29 @@ export function CapsuleView() {
   if (isMobile) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" style={{ position: 'relative' }}>
-        {/* Read-only overlay */}
-        {!isOwned && (
-          <div
-            className="absolute inset-0 z-50"
-            style={{ cursor: 'not-allowed', background: 'transparent' }}
-          />
-        )}
-
-        {/* Top: preview — 35% + 100px */}
+        {/* Top: preview — 35% + 100px（編集できなくても再生・ダウンロードはできる） */}
         <div className="flex flex-col overflow-hidden" style={{ flex: '0 0 calc(35% + 100px)' }}>
           <StepTabs stages={stages} activeIndex={activePreviewIndex} onChange={handlePreviewChange} />
           <MobileStagePreview stages={stages} activeIndex={activePreviewIndex} />
         </div>
 
-        {/* Bottom: input controls — 65% - 100px */}
+        {/* Bottom: input controls — 65% - 100px。編集できないときはここだけに透明な板（2026-11-08 メモ 73） */}
         <div
           className="flex flex-col overflow-hidden"
           style={{
             flex: '0 0 calc(65% - 100px)',
             borderTop: '1px solid var(--border)',
             background: 'var(--bg-surface)',
+            position: 'relative',
           }}
         >
+          {!isOwned && (
+            <div
+              className="absolute inset-0 z-50"
+              style={{ cursor: 'not-allowed', background: 'transparent' }}
+              title="閲覧のみ（編集できるのは作成者か、編集を許可されたチームのメンバーで、同時に 1 人）"
+            />
+          )}
           {/* Panel header */}
           <div
             className="flex items-center gap-2.5 px-4 py-4 flex-shrink-0"
@@ -2542,22 +2542,23 @@ export function CapsuleView() {
 
   return (
     <div className="flex-1 flex overflow-hidden" style={{ position: 'relative' }}>
-      {/* Read-only overlay — 他人のワークフローは操作不可 */}
-      {!isOwned && (
-        <div
-          className="absolute inset-0 z-50"
-          style={{ cursor: 'not-allowed', background: 'transparent' }}
-        />
-      )}
-      {/* Left panel */}
+      {/* Left panel（入力と生成ボタン）。編集できないときは左側だけに透明な板をかぶせ、右のプレビュー（画像・動画の再生・ダウンロード）は触れるままにする（2026-11-08 メモ 73） */}
       <div
         className="flex flex-col flex-shrink-0 overflow-hidden"
         style={{
           width: 320,
           background: 'var(--bg-surface)',
           borderRight: '1px solid var(--border)',
+          position: 'relative',
         }}
       >
+        {!isOwned && (
+          <div
+            className="absolute inset-0 z-50"
+            style={{ cursor: 'not-allowed', background: 'transparent' }}
+            title="閲覧のみ（編集できるのは作成者か、編集を許可されたチームのメンバーで、同時に 1 人）"
+          />
+        )}
         {/* Panel header */}
         <div
           className="flex items-center gap-2.5 px-4 py-3 flex-shrink-0"
