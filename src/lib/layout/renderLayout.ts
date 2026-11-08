@@ -1,6 +1,7 @@
 // レイアウト描画（ブラウザ実装・Canvas 2D）。計算結果（LayoutPlan）に従い 背景 → 影 → 商品 の順に描く。
 // 将来サーバー実装を足せるよう LayoutRenderer インターフェースで差し替え可能にしておく（仕様 4-10）。
-import { compositeRgba, processAlpha, type AlphaMap } from '../cutout/alpha'
+import { processAlpha, type AlphaMap } from '../cutout/alpha'
+import { compositeDefringed, type DefringeSpec } from '../cutout/defringe'
 import { canvasToPng, makeCanvas, type Any2D, type AnyCanvas, type DecodedImage } from '../cutout/decode'
 import type { LayoutPlan } from './computeLayout'
 import { contactShadowAlpha, dropShadowAlpha } from './shadow'
@@ -9,7 +10,7 @@ export interface RenderLayoutInput {
   plan: LayoutPlan
   original: DecodedImage                              // 元画像（sRGB にデコード済み）
   rawAlpha: AlphaMap                                  // 生マスク（元解像度）
-  cutout: { alphaThreshold: number; featherPx: number } // 切り抜き側のしきい値/ぼかし
+  cutout: { alphaThreshold: number; featherPx: number } & DefringeSpec // 切り抜き側のしきい値/ぼかし・縁の色被り除去
   background?: ImageBitmap | null                     // backgroundKind='image' のとき
 }
 
@@ -35,10 +36,10 @@ function drawAlphaLayer(ctx: Any2D, alpha: AlphaMap, rgb: [number, number, numbe
  * - 倍率 1.0: 整数座標に再サンプリングなしで写す（商品内部の画素値は元画像と一致。仕様 7 章）
  * - 縮小: 50% ずつ段階的に縮小してから最終サイズへ（大幅な縮小でも荒れない）
  */
-async function drawProduct(ctx: Any2D, plan: LayoutPlan, original: DecodedImage, alpha: AlphaMap): Promise<void> {
+async function drawProduct(ctx: Any2D, plan: LayoutPlan, original: DecodedImage, alpha: AlphaMap, defringe: DefringeSpec): Promise<void> {
   const { canvas: pc, ctx: pctx } = makeCanvas(original.width, original.height)
   const img = pctx.createImageData(original.width, original.height)
-  img.data.set(compositeRgba(original.rgba, alpha))
+  img.data.set(compositeDefringed(original.rgba, alpha, defringe))
   pctx.putImageData(img, 0, 0)
 
   if (plan.scale === 1) {
@@ -85,7 +86,7 @@ export async function renderLayoutToPng(input: RenderLayoutInput): Promise<Blob>
   else if (plan.shadow?.kind === 'contact') drawAlphaLayer(ctx, contactShadowAlpha(plan), [0, 0, 0])
 
   // 商品
-  await drawProduct(ctx, plan, input.original, alpha)
+  await drawProduct(ctx, plan, input.original, alpha, input.cutout)
   return canvasToPng(canvas)
 }
 

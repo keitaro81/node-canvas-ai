@@ -11,7 +11,7 @@ import { CUTOUT_VARIANT_KEY } from './model'
 
 export interface ItemAssetsInput { originalUrl: string; resultUrl: string; resultKind: 'mask' | 'rgba' }
 export interface ItemAssets { original: DecodedImage; rawAlpha: AlphaMap }
-export interface CutoutSpec { alphaThreshold: number; featherPx: number }
+export interface CutoutSpec { alphaThreshold: number; featherPx: number; defringe?: boolean; defringePx?: number }   // 縁の色被り除去は未指定 = ON（2026-11-08 メモ 72）
 export interface VariantSpec { key: string; params: LayoutParams; backgroundUrl?: string | null }
 export interface EncodeSpec { format: ExportFormat; quality: number; maxBytes: number | null }
 export interface FullVariantSpec extends VariantSpec { encode?: EncodeSpec | null }
@@ -128,7 +128,7 @@ export interface ThumbsOptions { thumbMaxEdge: number; includeCutout: boolean; i
 export async function renderItemThumbs(assets: ItemAssets, cutout: CutoutSpec, variants: VariantSpec[], opts: ThumbsOptions, onThumb: (t: ThumbResult) => void): Promise<void> {
   if (opts.includeCutout) {
     const { alpha } = processAlpha(assets.rawAlpha, cutout)
-    const blob = await renderTransparentPng(assets.original, alpha, opts.thumbMaxEdge)
+    const blob = await renderTransparentPng(assets.original, alpha, opts.thumbMaxEdge, cutout)
     const size = fitSize(assets.original.width, assets.original.height, opts.thumbMaxEdge)
     onThumb({ key: CUTOUT_VARIANT_KEY, blob, warnings: [], scale: 1, transparent: true, width: size.w, height: size.h })
   }
@@ -152,7 +152,7 @@ export async function renderItemFull(assets: ItemAssets, cutout: CutoutSpec, var
     if (isCancelled?.()) return
     if (v.key === CUTOUT_VARIANT_KEY) {
       const { alpha } = processAlpha(assets.rawAlpha, cutout)
-      onResult({ key: v.key, blob: await renderTransparentPng(assets.original, alpha), warnings: [], quality: null, format: 'png' })
+      onResult({ key: v.key, blob: await renderTransparentPng(assets.original, alpha, undefined, cutout), warnings: [], quality: null, format: 'png' })
       continue
     }
     const background = v.params.backgroundKind === 'image' && v.backgroundUrl ? await loadBackground(v.backgroundUrl) : null

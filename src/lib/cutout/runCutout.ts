@@ -50,7 +50,7 @@ export async function buildCutoutFromEngineResult(input: BuildCutoutInput): Prom
   const { alpha, bbox } = processAlpha(rawAlpha, params)
   const [maskBlob, previewBlob, cutoutBlob] = await Promise.all([
     encodeGrayPng(rawAlpha),
-    renderTransparentPng(original, alpha, PREVIEW_MAX_EDGE),
+    renderTransparentPng(original, alpha, PREVIEW_MAX_EDGE, params),
     cutoutFile ? fetchBlob(cutoutFile.url) : Promise.resolve(null),
   ])
   await Promise.all([
@@ -112,14 +112,14 @@ export async function reapplyCutoutParams(input: {
   const { ref, rawAlpha, original, params, dir } = input
   const { alpha, bbox } = processAlpha(rawAlpha, params)
   const previewPath = `${dir}/${Date.now()}-preview.png`
-  await uploadBatchObject(previewPath, await renderTransparentPng(original, alpha, PREVIEW_MAX_EDGE))
+  await uploadBatchObject(previewPath, await renderTransparentPng(original, alpha, PREVIEW_MAX_EDGE, params))
   return { ...ref, previewPath, bbox, params: { ...params }, createdAt: new Date().toISOString() }
 }
 
 /** フル解像度の透過 PNG（評価/ダウンロード用）。 */
 export async function renderCutoutFullPng(original: DecodedImage, rawAlpha: AlphaMap, params: CutoutParams): Promise<Blob> {
   const { alpha } = processAlpha(rawAlpha, params)
-  return renderTransparentPng(original, alpha)
+  return renderTransparentPng(original, alpha, undefined, params)
 }
 
 /** 保存済みの生マスク（署名 URL）を読み戻す。 */

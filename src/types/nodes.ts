@@ -194,6 +194,8 @@ export interface CutoutParams {
   birefnetResolution: string   // '1024x1024' | '2048x2048' | '2304x2304'（2304 は Dynamic のみ）
   alphaThreshold: number       // 0〜255。これ以下のアルファ値を 0 として扱う
   featherPx: number            // 縁のぼかし幅（px）
+  defringe: boolean            // 縁の色被り除去（半透明の縁から背景色の混ざり分を差し引く・2026-11-08 メモ 72・既定 ON）
+  defringePx: number           // 不透明の縁を何 px 内側まで補正するか（0〜3・既定 2）
   previewBg: CutoutPreviewBg   // ノード上のプレビュー背景
 }
 

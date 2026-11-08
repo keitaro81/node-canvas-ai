@@ -4,7 +4,7 @@
   "name": "サンプル: EC 白背景 + SNS 生成背景",
   "exportedAt": "2026-10-03T00:00:00.000Z",
   "input": { "skuPattern": "^([A-Za-z0-9-]+)_", "sortOrder": "filename" },
-  "cutout": { "engine": "birefnet", "birefnetModel": "General Use (Light)", "birefnetResolution": "2048x2048", "alphaThreshold": 8, "featherPx": 0 },
+  "cutout": { "engine": "birefnet", "birefnetModel": "General Use (Light)", "birefnetResolution": "2048x2048", "alphaThreshold": 8, "featherPx": 0, "defringe": true, "defringePx": 2 },
   "backgrounds": [
     {
       "key": "bg_sns",

@@ -72,7 +72,8 @@ function RemoveBackgroundNodeInner(props: NodeProps) {
 
   const isStale = !!output && !!upstreamCanonical && output.sourceRef !== upstreamCanonical
   const paramsDirty = !!output && (
-    output.params.alphaThreshold !== params.alphaThreshold || output.params.featherPx !== params.featherPx
+    output.params.alphaThreshold !== params.alphaThreshold || output.params.featherPx !== params.featherPx ||
+    (output.params.defringe !== false) !== params.defringe || (output.params.defringePx ?? 2) !== params.defringePx
   )
   const engineDirty = !!output && (
     output.params.engine !== params.engine ||

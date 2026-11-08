@@ -50,6 +50,8 @@ export const DEFAULT_CUTOUT_PARAMS: CutoutParams = {
   birefnetResolution: '2048x2048',
   alphaThreshold: 8,
   featherPx: 0,
+  defringe: true,
+  defringePx: 2,
   previewBg: 'checker',
 }
 
@@ -77,6 +79,8 @@ export function normalizeCutoutParams(p: unknown): CutoutParams {
     birefnetResolution,
     alphaThreshold: clampInt(src.alphaThreshold, 0, 255, DEFAULT_CUTOUT_PARAMS.alphaThreshold),
     featherPx: clampInt(src.featherPx, 0, 50, DEFAULT_CUTOUT_PARAMS.featherPx),
+    defringe: src.defringe !== false,   // 未指定は ON（保存済みの古い設定にも効く）
+    defringePx: clampInt(src.defringePx, 0, 3, DEFAULT_CUTOUT_PARAMS.defringePx),
     previewBg,
   }
 }
