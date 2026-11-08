@@ -15,7 +15,7 @@ import { downloadFile } from '../../lib/downloadFile'
 import { effectiveVideoSettings, videoPricePerSecond } from '../../lib/ai/videoModels'
 import { videoGenInputOf } from '../../lib/video/videoGenInput'
 import { latestVideoOf, videoResultsOf } from '../../lib/video/latestVideo'
-import { mergeAppInputsOf, missingImageInputs, shotStateOf, shotTurnLabel, type MergeAppInput, type MergeAppShape, type ShotState } from '../../lib/apps/mergeApp'
+import { autoMergeDecision, mergeAppInputsOf, mergeAppRunOf, missingImageInputs, shotStateOf, shotTurnLabel, type MergeAppInput, type MergeAppRun, type MergeAppShape, type ShotState } from '../../lib/apps/mergeApp'
 
 const ACCENT = '#EC4899'
 
@@ -118,13 +118,18 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
     return { videos, seconds, usd }
   }, [shape, nodes, edges])
 
-  // 今回の実行（作り始める前にあった Video Result の id をショットごとに覚え、それより後の結果で進みを見る）
-  const [run, setRun] = useState<{ id: number; since: Record<string, string[]> } | null>(null)
+  // 今回の実行（作り始める前にあった Video Result の id をショットごとに覚え、それより後の結果で進みを見る）。
+  // Video Merge ノードの data.appRun に保存するので、Canvas と行き来しても・ページを読み込み直しても、そろったら結合に進む（2026-11-08 メモ 71）
+  const merge = useMemo(() => (nodes.find((n) => n.id === shape.mergeId)?.data ?? {}) as Record<string, unknown>, [nodes, shape.mergeId])
+  const run = useMemo(() => mergeAppRunOf(merge), [merge])
+  const [tick, setTick] = useState(0)   // 「結果が見つからない」の時間切れを見るための定期的な再評価
+  useEffect(() => { if (!run) return; const t = setInterval(() => setTick((x) => x + 1), 15_000); return () => clearInterval(t) }, [run?.id])   // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const auto = useMemo(() => (run ? autoMergeDecision(run, shape.shotIds, nodes, edges) : null), [run, shape, nodes, edges, tick])
   const handledRun = useRef<number | null>(null)
-  const runStates = useMemo(() => (run ? Object.fromEntries(Object.entries(run.since).map(([id, before]) => [id, shotStateOf(id, nodes, edges, new Set(before))])) : null), [run, nodes, edges])
-  const runRunning = !!runStates && Object.values(runStates).some((s) => s.status === 'running')
-  const runFailed = !!runStates && !runRunning && Object.values(runStates).some((s) => s.status === 'failed')
-  const merge = (nodes.find((n) => n.id === shape.mergeId)?.data ?? {}) as Record<string, unknown>
+  const runStates = auto?.states ?? null
+  const runRunning = auto?.decision === 'wait'
+  const runFailed = auto?.decision === 'stop'
   const merging = merge.status === 'generating'
   const mergedRaw = typeof merge.videoUrl === 'string' && merge.videoUrl ? merge.videoUrl : null
   const mergeError = merge.status === 'error' && typeof merge.error === 'string' ? merge.error : null
@@ -132,15 +137,14 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
   const shotStates = shape.shotIds.map((id) => (run?.since[id] && runStates ? runStates[id] : shotStateOf(id, nodes, edges)))
   const allShotsReady = shape.shotIds.every((id) => !!latestVideoOf(id, nodes, edges))
 
-  // 全ショットがそろったら自動で結合（失敗したショットがあれば結合しない。作り直していないショットは最後の動画を使う）
+  // 全ショットがそろったら自動で結合（失敗したショットがあれば結合しない。作り直していないショットは最後の動画を使う）。
+  // 結合に進むときに appRun を消すので、画面を開き直しても二重に結合しない。編集できる人の画面でだけ進める
   useEffect(() => {
-    if (!run || runRunning || handledRun.current === run.id) return
+    if (!run || !auto || auto.decision !== 'merge' || !canEdit || handledRun.current === run.id) return
     handledRun.current = run.id
-    if (runFailed) return
-    const { nodes: ns, edges: es } = useCanvasStore.getState()
-    if (!shape.shotIds.every((id) => !!latestVideoOf(id, ns, es))) return
+    updateNode(shape.mergeId, { appRun: null } as never)
     window.dispatchEvent(new CustomEvent('capsule:merge', { detail: { nodeId: shape.mergeId } }))
-  }, [run, runRunning, runFailed, shape])
+  }, [run, auto, canEdit, shape, updateNode])
 
   const start = (ids: string[]) => {
     if (busy || !canEdit) return
@@ -150,10 +154,17 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
       since[id] = videoResultsOf(id, ns, es).map((n) => n.id)
       updateNode(id, { status: 'idle', error: null } as never)   // 前回の失敗の表示を消してから
     }
-    setRun({ id: Date.now(), since })
+    const appRun: MergeAppRun = { id: Date.now(), startedAt: new Date().toISOString(), since }
+    handledRun.current = null
+    updateNode(shape.mergeId, { appRun } as never)
     for (const id of ids) window.dispatchEvent(new CustomEvent('capsule:generate', { detail: { nodeId: id } }))
   }
-  const remerge = () => { if (!busy && canEdit && allShotsReady) window.dispatchEvent(new CustomEvent('capsule:merge', { detail: { nodeId: shape.mergeId } })) }
+  // 手で結合する（結合済みが無いときは「結合する」、あれば「結合し直す」）。今回の実行の記憶は消す
+  const remerge = () => {
+    if (busy || !canEdit || !allShotsReady) return
+    if (run) updateNode(shape.mergeId, { appRun: null } as never)
+    window.dispatchEvent(new CustomEvent('capsule:merge', { detail: { nodeId: shape.mergeId } }))
+  }
   const download = () => {
     if (!mergedRaw) return
     if (shape.exportId) window.dispatchEvent(new CustomEvent('capsule:export', { detail: { nodeId: shape.exportId } }))
@@ -211,11 +222,15 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
         <h2 className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>結果</h2>
         {progressText && <span className="text-[12px] truncate" style={{ color: runFailed ? '#F59E0B' : 'var(--text-secondary)' }}>{progressText}</span>}
         <div className="flex-1" />
-        {allShotsReady && !busy && canEdit && (
+        {allShotsReady && !busy && canEdit && (mergedRaw ? (
           <button type="button" onClick={remerge} className="h-8 px-3 rounded-lg text-[12px] flex items-center gap-1.5 hover:bg-[var(--bg-elevated)]" style={{ border: '1px solid var(--border-active)', color: 'var(--text-primary)' }} title="いまのショットの動画で結合し直す">
             <RotateCcw size={13} />結合し直す
           </button>
-        )}
+        ) : (
+          <button type="button" onClick={remerge} className="h-8 px-3 rounded-lg text-[12px] font-medium text-white flex items-center gap-1.5" style={{ background: ACCENT }} title="そろったショットの動画を 1 本に結合する">
+            <Layers size={13} />結合する
+          </button>
+        ))}
         {mergedRaw && !busy && (
           <button type="button" onClick={download} className="h-8 px-3 rounded-lg text-[12px] font-medium text-white flex items-center gap-1.5" style={{ background: ACCENT }} title={shape.exportId ? 'Export の名前の付け方でダウンロード' : '結合した動画をダウンロード'}>
             <Download size={13} />ダウンロード
@@ -227,7 +242,7 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
         <div className="relative w-full max-w-[880px] mx-auto rounded-xl overflow-hidden flex items-center justify-center shrink-0" style={{ background: '#000', height: 'min(56vh, 520px)' }}>
           {merging ? <span className="flex items-center gap-2 text-[13px]" style={{ color: '#fff' }}><Loader2 size={16} className="animate-spin" />結合しています…</span>
             : mergedRaw ? <SignedVideo raw={mergedRaw} className="absolute inset-0 w-full h-full object-contain" />
-            : <span className="text-[12px] px-6 text-center" style={{ color: 'rgba(255,255,255,0.6)' }}>{runRunning ? 'ショットを作っています。そろったら結合した動画がここに出ます' : '写真を入れて「動画を作る」を押すと、結合した動画がここに出ます'}</span>}
+            : <span className="text-[12px] px-6 text-center" style={{ color: 'rgba(255,255,255,0.6)' }}>{runRunning ? 'ショットを作っています。そろったら結合した動画がここに出ます' : allShotsReady ? 'ショットはそろっています。右上の「結合する」で 1 本の動画にします' : '写真を入れて「動画を作る」を押すと、結合した動画がここに出ます'}</span>}
         </div>
         {mergeError && !merging && (
           <div className="w-full max-w-[880px] mx-auto flex items-center gap-2 rounded-lg px-3 py-2 text-[12px]" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>
