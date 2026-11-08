@@ -14,6 +14,7 @@ import { saveGeneration, checkQuota } from '../../lib/api/generations'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { uploadImageFromUrl } from '../../lib/api/storage'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
+import { planResultSlots } from '../../lib/imageGen/resultSlots'
 import { getImageUrlFromNodeData, getMaskUrlFromNodeData } from '../../lib/utils'
 import { ensureCutoutImage } from '../../lib/cutout/ensureCutout'
 import { useBatchSignedUrl } from '../../hooks/useBatchSignedUrl'
@@ -622,11 +623,12 @@ function ImageGenerationNodeInner({ id, data, selected }: NodeProps) {
       ? Math.max(...existingDisplayNodes.map((n) => n.position.y)) + displayNodeEstimatedHeight + vGap
       : thisNode.position.y
 
-    // effectiveCount 個の DisplayNode を新規作成
-    const displayNodeIds: string[] = []
+    // 先に置いてある空の Result（チャット・テンプレートが置いたもの）はまず埋め、足りない分だけ新しく作る（2026-11-08 メモ 81）
+    const slots = planResultSlots(existingDisplayNodes.map((n) => ({ id: n.id, position: n.position, data: n.data as unknown as Record<string, unknown> })), effectiveCount)
+    const displayNodeIds: string[] = [...slots.reuseIds]
     const newEdges: Edge[] = []
 
-    for (let i = 0; i < effectiveCount; i++) {
+    for (let i = 0; i < slots.createCount; i++) {
       const displayId = `node-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`
       displayNodeIds.push(displayId)
 

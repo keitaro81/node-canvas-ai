@@ -1,6 +1,6 @@
 // チャットでワークフローを組む: DSL → キャンバス（テンプレートと同じ形）。種別・ポート・相性を検証し、段ごとに自動配置する。
 // 一括処理の入口（Batch Input）があれば planTasks の注意も添える（LLM の修正ループと、ユーザーへの表示に使う）
-import { catalogNode, multiHandle, portsCompatible, type CatalogPort } from './catalog'
+import { IMAGE_GEN_OUTPUT, catalogNode, multiHandle, portsCompatible, type CatalogPort } from './catalog'
 import type { DslWorkflow } from './dsl'
 import { inputNodesOf, materializeTurnPresets, planTasks, type SnapshotEdge, type SnapshotNode } from '../batch/plan'
 import { TRY_ON_MODEL_HANDLE } from '../tryon/prompt'
@@ -13,6 +13,8 @@ export interface CompiledCanvas { nodes: SnapshotNode[]; edges: SnapshotEdge[]; 
 export interface CompileResult { canvas: CompiledCanvas | null; errors: string[]; notes: string[]; name: string; hints: Record<string, string> }   // hints = LLM が付けた短い説明（ノード id → 文。ノードの名前にはしない・2026-11-01）
 
 const COL_W = 420, X0 = 80, Y0 = 80, GAP = 40
+// Image Generation の結果ノード（Result = imageDisplayNode）。ハンドルは ImageDisplayNode の image-in / image-out
+const RESULT_INPUT = 'in-image-image-in', RESULT_OUTPUT = 'out-image-image-out', RESULT_HEIGHT = 360
 const safeId = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 40) || 'n'
 
 export function compileWorkflow(wf: DslWorkflow): CompileResult {
@@ -78,6 +80,26 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     }
   }
 
+  // 画像生成の出力は結果ノード（Result）を経由して次へつなぐ（2026-11-08 メモ 81）。Image Generation は結果を自分では持たず Result に出すので、
+  // 直接つなぐと次のノード（Try-On / Video Generation）に画像が渡らず、App の「次のステージで使用」でも選べない。
+  // Image Generation 1 つにつき Result を 1 つ置き、画像の出力の線はそこから出す（生成はこの空の Result をまず埋める: lib/imageGen/resultSlots.ts）
+  let resultInserted = false
+  for (const k of [...order]) {
+    const v = byId.get(k)!
+    if (v.type !== 'imageGen') continue
+    const outs = edges.filter((e) => e.source === v.id && e.sourceHandle === IMAGE_GEN_OUTPUT)
+    if (!outs.length) continue
+    let rid = `${v.id}-result`
+    while ([...byId.values()].some((x) => x.id === rid)) rid = `${rid}-2`
+    // catalog は辺の検証にしか使わないので、ここでは参照されない（型を満たすために元のノードのものを入れる）
+    byId.set(`${k}#result`, { id: rid, type: 'imageDisplay', label: 'Result', data: { type: 'imageDisplay', label: 'Result', params: {}, status: 'idle', output: undefined }, height: RESULT_HEIGHT, catalog: v.catalog })
+    order.splice(order.indexOf(k) + 1, 0, `${k}#result`)
+    for (const e of outs) { e.id = `e-${rid}-${RESULT_OUTPUT}-${e.target}-${e.targetHandle}`; e.source = rid; e.sourceHandle = RESULT_OUTPUT }
+    edges.push({ id: `e-${v.id}-${IMAGE_GEN_OUTPUT}-${rid}-${RESULT_INPUT}`, source: v.id, sourceHandle: IMAGE_GEN_OUTPUT, target: rid, targetHandle: RESULT_INPUT })
+    resultInserted = true
+  }
+  if (resultInserted) notes.push('Image Generation の結果は Result に出て、次のノードはその画像を使います（複数できたときは App の「次のステージで使用」で選べます）')
+
   // 配置: 入力辺を持たないノードを 0 列目、以降は最長経路で列を決め、列の中は出現順に縦に積む
   const depth = new Map<string, number>()
   for (const k of order) depth.set(k, 0)
@@ -97,7 +119,7 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
     const col = depth.get(k) ?? 0
     const y = colY.get(col) ?? Y0
     colY.set(col, y + v.height + GAP)
-    return { id: v.id, type: v.catalog.rfType, position: { x: X0 + col * COL_W, y }, data: v.data }
+    return { id: v.id, type: v.type === 'imageDisplay' ? 'imageDisplayNode' : v.catalog.rfType, position: { x: X0 + col * COL_W, y }, data: v.data }
   })
   // 始点と終点の向きが違う Video Generation には回転の定型文を「動き」「避けたいこと」に入れる（テンプレートと同じ・トグル廃止）。
   // 参照画像の向き（DSL の role）は組むこの時点でだけ使い、ノードには残さない（2026-11-02 メモ 42）
