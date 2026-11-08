@@ -2,16 +2,16 @@ import { describe, it, expect } from 'vitest'
 import { compositeDefringed, defringePxOf, defringeRgba, estimateBackground } from './defringe'
 import type { AlphaMap } from './alpha'
 
-// 12×12: 背景 (200,40,40)。商品 = (100,100,100) の正方形 x,y ∈ [3,8]。その外側 1 周は半透明（α=128・色は半々の混色）。
+// 16×16: 背景 (200,40,40)。商品 = (100,100,100) の正方形 x,y ∈ [3,12]。その外側 1 周は半透明（α=128・色は半々の混色）。
 // 商品の一番外の 1 周（深さ 1）は背景の反射で少し赤く被っている (110,94,94)
 const BG: [number, number, number] = [200, 40, 40], OBJ = [100, 100, 100]
 function build() {
-  const w = 12, h = 12, rgba = new Uint8ClampedArray(w * h * 4), alpha = new Uint8ClampedArray(w * h)
+  const w = 16, h = 16, rgba = new Uint8ClampedArray(w * h * 4), alpha = new Uint8ClampedArray(w * h)
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x
-    const inObj = x >= 3 && x <= 8 && y >= 3 && y <= 8
-    const ring = !inObj && x >= 2 && x <= 9 && y >= 2 && y <= 9
-    const outer = inObj && (x === 3 || x === 8 || y === 3 || y === 8)
+    const inObj = x >= 3 && x <= 12 && y >= 3 && y <= 12
+    const ring = !inObj && x >= 2 && x <= 13 && y >= 2 && y <= 13
+    const outer = inObj && (x === 3 || x === 12 || y === 3 || y === 12)
     const col = inObj ? (outer ? [110, 94, 94] : OBJ) : ring ? [150, 70, 70] : BG
     rgba.set([col[0], col[1], col[2], 255], i * 4)
     alpha[i] = inObj ? 255 : ring ? 128 : 0
@@ -38,6 +38,27 @@ describe('縁の色被り除去（2026-11-08 メモ 72）', () => {
     expect(edge[3]).toBe(255)
     expect(edge[0]).toBeLessThan(110); expect(edge[1]).toBeGreaterThan(94); expect(edge[2]).toBeGreaterThan(94)
     expect(Math.abs(edge[0] - edge[1])).toBeLessThan(16 - 4)  // 元は R−G = 16 → 小さくなる
+  })
+  it('半透明でも背景と混ざっていない画素（折り返しの影・布どうしの境目）は変えない＝背景色の補色のノイズを出さない', () => {
+    const { w, rgba, alpha } = build()
+    const i = 7 * w + 7                                  // 商品の内側に半透明の影の画素を置く（色は暗いグレー・背景のオレンジ系は混ざっていない）
+    rgba.set([60, 60, 60, 255], i * 4); alpha.data[i] = 128
+    const out = compositeDefringed(rgba, alpha, { defringe: true, defringePx: 2 })
+    expect(px(out, w, 7, 7)).toEqual([60, 60, 60, 128])
+    // 本当の縁（半々の混色）は引き続き商品の色に戻る
+    const ring = px(out, w, 2, 5); expect(Math.abs(ring[0] - 100)).toBeLessThanOrEqual(2); expect(Math.abs(ring[2] - 100)).toBeLessThanOrEqual(2)
+  })
+  it('透明度がとても低い縁画素は差し引いて拡大せず、基準色（内側の色）に寄せる。不透明領域から遠い半透明画素は触らない', () => {
+    const { w, rgba, alpha } = build()
+    const i = 5 * w + 1                                  // 縁の外の列 x=1（不透明から 2px）: α=20・色はほぼ背景＋ノイズ
+    rgba.set([196, 44, 52, 255], i * 4); alpha.data[i] = 20
+    const far = 14 * w + 14                              // 不透明領域から遠い（対角 ≥ 3px… 16 周以内なので基準色は付く）→ 別に、参照できないケースは画像の外側に作る
+    rgba.set([150, 70, 70, 255], far * 4); alpha.data[far] = 128
+    const out = compositeDefringed(rgba, alpha, { defringe: true, defringePx: 2 })
+    const low = px(out, w, 1, 5)
+    expect(low[3]).toBe(20)
+    for (let c = 0; c < 3; c++) expect(Math.abs(low[c] - 100)).toBeLessThanOrEqual(20)   // 拡大された極端な色（0 や 255）にならず、内側の色の近くに収まる
+    const f = px(out, w, 14, 14); expect(f[3]).toBe(128); expect(Math.abs(f[0] - 100)).toBeLessThanOrEqual(3)   // 16 周以内なので基準色が届き、普通に直る
   })
   it('OFF ならアルファを付けただけで色は 1 バイトも変えない。内側 0 px なら半透明の縁だけ直す', () => {
     const { w, rgba, alpha } = build()
