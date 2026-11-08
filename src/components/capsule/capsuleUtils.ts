@@ -2,11 +2,13 @@ import type { Edge } from '@xyflow/react'
 import type { AppNode } from '../../stores/canvasStore'
 import type { CapsuleFieldDef, GroupNodeData } from '../../types/nodes'
 
-// ステージとして扱う生成ノードのみ（TextPrompt・ReferenceImage・ReferenceVideo・PromptEnhancerは入力系として扱う）
-export type GenerationNodeType = 'imageGen' | 'videoGen'
+// ステージとして扱うノード（TextPrompt・ReferenceImage・ReferenceVideo・PromptEnhancer・Model は入力系として扱う）
+// tryOn = Try-On（2026-11-08 メモ 78: 画像生成 → 試着の App で、前のステージの結果から「次のステージで使用」で服を選ぶ）
+export type GenerationNodeType = 'imageGen' | 'videoGen' | 'tryOn'
 
 // referenceVideo = 参照動画（Video Generation の参照動画の入れ替え・2026-11-08 メモ 69）
-export type InputNodeType = 'textPrompt' | 'referenceImage' | 'referenceVideo' | 'promptEnhancer'
+// libraryModel = Model ノード（Try-On のモデル。App の欄でライブラリのモデルを選ぶ・2026-11-08 メモ 78）
+export type InputNodeType = 'textPrompt' | 'referenceImage' | 'referenceVideo' | 'promptEnhancer' | 'libraryModel'
 
 export interface CapsuleInputInfo {
   nodeId: string
@@ -31,13 +33,17 @@ export interface CapsuleStageInfo {
 const GENERATION_RF_TYPES: Record<string, GenerationNodeType> = {
   imageGenerationNode: 'imageGen',
   videoGenerationNode: 'videoGen',
+  tryOnNode: 'tryOn',
 }
+/** App 化の可否（並列の判定）に数える生成ノードは従来どおり画像・動画の生成だけ。Try-On まで数えると、Model から Try-On を 2 つ並べた既存の App が「並列」で解除されてしまう */
+const PARALLEL_CHECK_RF_TYPES = new Set(['imageGenerationNode', 'videoGenerationNode'])
 
 const INPUT_NODE_TYPES: Record<string, InputNodeType> = {
   textPromptNode:     'textPrompt',
   referenceImageNode: 'referenceImage',
   referenceVideoNode: 'referenceVideo',
   promptEnhancerNode: 'promptEnhancer',
+  libraryModelNode:   'libraryModel',
 }
 
 // 各入力ノードタイプに対応するCapsule表示可否を判定するフィールドID（promptEnhancerは常時表示）
@@ -48,12 +54,12 @@ const INPUT_CAPSULE_FIELD: Record<string, string> = {
 }
 
 /** 入力ノードの既定の表示名（ノードに名前が無いとき） */
-const inputDefaultLabel = (type: string | undefined): string => (type === 'textPromptNode' ? 'テキスト' : type === 'referenceVideoNode' ? '参照動画' : '参照画像')
+const inputDefaultLabel = (type: string | undefined): string => (type === 'textPromptNode' ? 'テキスト' : type === 'referenceVideoNode' ? '参照動画' : type === 'libraryModelNode' ? 'モデル' : '参照画像')
 
 /** 入力ノードがAppモードで表示対象かどうかを capsuleFields で判定 */
 function isInputNodeVisible(node: AppNode): boolean {
-  // PromptEnhancerは常にAppパネルに表示
-  if (node.type === 'promptEnhancerNode') return true
+  // PromptEnhancer と Model は常に App の欄に出す（Model はライブラリのモデルを選ぶ欄・2026-11-08 メモ 78）
+  if (node.type === 'promptEnhancerNode' || node.type === 'libraryModelNode') return true
   const fieldId = INPUT_CAPSULE_FIELD[node.type ?? '']
   if (!fieldId) return false
   const d = node.data as Record<string, unknown>
@@ -223,7 +229,7 @@ export function hasParallelGenerationNodes(
   edges: Edge[]
 ): boolean {
   const children = getGroupChildren(groupId, nodes)
-  const genNodes = children.filter(isGenerationNode)
+  const genNodes = children.filter((n) => n.type != null && PARALLEL_CHECK_RF_TYPES.has(n.type))
   if (genNodes.length <= 1) return false
 
   const childIds = new Set(children.map((n) => n.id))
@@ -317,4 +323,52 @@ export function getActiveCapsuleGroup(
   const node = nodes.find((n) => n.id === capsuleGroupId && n.type === 'groupNode')
   if (!node) return null
   return { node, data: node.data as unknown as GroupNodeData }
+}
+
+// ────────────────────────────────────────────
+// 次のステージへの線（2026-11-08 メモ 78）
+// 「前のステージの結果の画像を選ぶ」= 次のステージへの線の出どころを、選んだ結果ノードに付け替える。
+// チャットで組んだ直後はステージのノード自体（Image Generation など）から次のステージへ線が付いていて、
+// そのままでは次のステージに画像が渡らない（Image Generation は結果を自分では持たない）ので、その線も対象にする
+// ────────────────────────────────────────────
+export interface DownstreamLink {
+  /** いまの出どころ: 結果ノード（選択済み）か、ステージのノード自体（まだ選んでいない） */
+  sourceId: string
+  /** つなぎ先のステージのノード */
+  genNodeId: string
+  targetHandle: string
+}
+
+export function isStageNodeType(type: string | null | undefined): boolean {
+  return type != null && type in GENERATION_RF_TYPES
+}
+
+const STAGE_OUTPUT_HANDLES = new Set(['out-image-image-out', 'out-video'])
+
+/** ステージの結果ノード（か、ステージのノード自体の出力）から、他のステージへつながる線 */
+export function downstreamLinksOf(stage: Pick<CapsuleStageInfo, 'nodeId' | 'displayNodeIds'>, nodes: AppNode[], edges: Edge[]): DownstreamLink[] {
+  const displayIds = new Set(stage.displayNodeIds ?? [])
+  return edges
+    .filter((e) => displayIds.has(e.source) || (e.source === stage.nodeId && STAGE_OUTPUT_HANDLES.has(e.sourceHandle ?? '')))
+    .filter((e) => isStageNodeType(nodes.find((n) => n.id === e.target)?.type))
+    .map((e) => ({ sourceId: e.source, genNodeId: e.target, targetHandle: e.targetHandle ?? 'in-image' }))
+}
+
+/** 選んだ結果ノードに次のステージへの線を付け替えた辺の一覧（同じ先・同じ入力の線は 1 本に） */
+export function rewireDownstream(displayNodeId: string, stage: Pick<CapsuleStageInfo, 'nodeId' | 'displayNodeIds'>, links: DownstreamLink[], nodes: AppNode[], edges: Edge[]): Edge[] {
+  if (!links.length) return edges
+  const sourceIds = new Set([...(stage.displayNodeIds ?? []), stage.nodeId])
+  const genIds = new Set(links.map((l) => l.genNodeId))
+  const kept = edges.filter((e) => !(sourceIds.has(e.source) && genIds.has(e.target)))
+  const display = nodes.find((n) => n.id === displayNodeId)
+  const sourceHandle = display?.type === 'videoDisplayNode' ? 'out-video' : 'out-image-image-out'
+  const seen = new Set<string>()
+  const added: Edge[] = []
+  for (const l of links) {
+    const key = `${l.genNodeId}|${l.targetHandle}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    added.push({ id: `e-disp-${displayNodeId}-${l.genNodeId}-${l.targetHandle}`, source: displayNodeId, sourceHandle, target: l.genNodeId, targetHandle: l.targetHandle, style: { stroke: '#8B5CF6', strokeWidth: 2 }, animated: false, className: '' })
+  }
+  return [...kept, ...added]
 }

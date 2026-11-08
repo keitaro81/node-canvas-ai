@@ -1,24 +1,30 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { signLibraryUrl } from '../../lib/api/library'
+import { libraryCanonicalUrl, signLibraryUrl } from '../../lib/api/library'
 import { MediaPickerDialog, type PickedMedia } from '../library/MediaPickerDialog'
 import { LLM_MODELS, normalizeLlmModel } from '../../lib/ai/llmModels'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { createPortal } from 'react-dom'
-import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus } from 'lucide-react'
+import { Layers, ChevronLeft, ChevronRight, Loader2, Sparkles, Film, ImageIcon, X, Download, Play, Pause, ChevronDown, Copy, Check, Volume2, VolumeX, AlertCircle, Minus, Plus, Shirt, UserRound } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
+import { useAppOperable } from './useAppOperable'
 import { llmComplete } from '../../lib/ai/llmClient'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
-import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, type CapsuleStageInfo, type CapsuleInputInfo } from './capsuleUtils'
+import { buildCapsuleStages, buildCapsuleInputNodes, getActiveCapsuleGroup, downstreamLinksOf, rewireDownstream, type CapsuleStageInfo, type CapsuleInputInfo, type DownstreamLink } from './capsuleUtils'
 import { MergeAppView } from './MergeAppView'
 import { canStartFromImage, effectiveVideoSettings, switchedModelNotice, videoModelsForInput } from '../../lib/ai/videoModels'
 import { videoGenInputOf } from '../../lib/video/videoGenInput'
 import { mergeAppShapeOf } from '../../lib/apps/mergeApp'
-import type { CapsuleFieldDef, NodeData, CameraListNodeData } from '../../types/nodes'
+import type { CapsuleFieldDef, NodeData, CameraListNodeData, LibraryModelNodeData, TryOnNodeData } from '../../types/nodes'
 import { CAMERA_PRESETS } from '../../lib/cameraPresets'
 import { downloadFile } from '../../lib/downloadFile'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
 import { MediaImg } from '../ui/MediaImg'
+import { ModelPickerDialog } from '../library/ModelPickerDialog'
+import { MODEL_ROLES } from '../../lib/library/modelRoles'
+import { cutSetRoleHandle, imageRoleOfSource, type SnapshotEdge, type SnapshotNode } from '../../lib/batch/plan'
+import { CUT_ROLE_LABEL } from '../../lib/video/productVideo'
+import { TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_RESOLUTIONS, normalizeTryOnParams } from '../../lib/tryon/prompt'
+import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
 
 const T2I_MODELS = [
   { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
@@ -459,6 +465,150 @@ function TextPromptField({ nodeId, label }: { nodeId: string; label: string }) {
 }
 
 // ────────────────────────────────────────────
+// Model ノードの欄（Try-On のモデル。ライブラリのモデルを選ぶ・2026-11-08 メモ 78）
+// ────────────────────────────────────────────
+function ModelField({ nodeId, label }: { nodeId: string; label: string }) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const updateNode = useCanvasStore((s) => s.updateNode)
+  const [open, setOpen] = useState(false)
+  const node = nodes.find((n) => n.id === nodeId)
+  const d = (node?.data ?? {}) as unknown as Partial<LibraryModelNodeData>
+  const cuts = d.cuts ?? {}
+  const roles = MODEL_ROLES.filter((r) => !!cuts[r.id])
+  // 署名 URL（outputs）は Model ノードが作る（キャンバスは App の裏でも生きている）
+  const thumb = d.outputs?.[cutSetRoleHandle('front')] ?? (roles[0] ? d.outputs?.[cutSetRoleHandle(roles[0].id)] : undefined) ?? null
+  return (
+    <div className="mb-3">
+      <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
+      <div className="flex items-center gap-2 rounded-md p-2" style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}>
+        <div className="shrink-0 rounded overflow-hidden flex items-center justify-center" style={{ width: 40, height: 52, background: 'var(--bg-placeholder)', color: 'var(--text-tertiary)' }}>
+          {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" draggable={false} /> : <UserRound size={16} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] truncate" style={{ color: d.modelId ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>{d.modelName ?? (d.modelId ? 'モデル' : 'モデルが選ばれていません')}</div>
+          <div className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }}>{roles.length ? roles.map((r) => r.label).join(' / ') : 'ライブラリのモデルを選ぶと、向きごとの写真が Try-On に入ります'}</div>
+        </div>
+        <button
+          className="h-7 px-2.5 rounded-md text-[11px] font-medium text-white shrink-0 hover:opacity-90"
+          style={{ background: '#8B5CF6' }}
+          onClick={() => setOpen(true)}
+        >
+          {d.modelId ? '変更' : '選ぶ'}
+        </button>
+      </div>
+      <ModelPickerDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        onPick={(model, items) => {
+          // Model ノードと同じ書き込み（保存形式の URL。署名 URL（outputs）はノードが作り直す）
+          const byId = new Map(items.map((it) => [it.id, it]))
+          const next: LibraryModelNodeData['cuts'] = {}
+          for (const r of MODEL_ROLES) { const itemId = model.cuts[r.id]; const it = itemId ? byId.get(itemId) : undefined; if (it) next[r.id] = { itemId: it.id, url: libraryCanonicalUrl(it) } }
+          updateNode(nodeId, { modelId: model.id, modelName: model.name, cuts: next, outputs: {} } as never)
+        }}
+      />
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
+// Try-On ステージの欄（モデル・服の出どころ・解像度・補足・2026-11-08 メモ 78）
+// 服は前のステージの結果から「次のステージで使用」で選ぶ（Image Generation → Video Generation と同じ）
+// ────────────────────────────────────────────
+const PICK_SOURCE_TYPES = new Set(['imageGenerationNode', 'videoGenerationNode', 'tryOnNode'])
+
+function TryOnStagePanel({ nodeId }: { nodeId: string }) {
+  const nodes = useCanvasStore((s) => s.nodes)
+  const edges = useCanvasStore((s) => s.edges)
+  const updateNode = useCanvasStore((s) => s.updateNode)
+  const node = nodes.find((n) => n.id === nodeId)
+  const d = (node?.data ?? {}) as unknown as TryOnNodeData
+  const params = normalizeTryOnParams(d.params)
+  const isRunning = d.status === 'generating'
+
+  // モデル: Model ノード（上の「モデル」の欄で選ぶ）/ 参照画像（モデルタブ）/ 以前にノードで選んだモデル
+  const modelEdge = edges.find((e) => e.target === nodeId && e.targetHandle === TRY_ON_MODEL_HANDLE)
+  const modelNode = modelEdge ? nodes.find((n) => n.id === modelEdge.source) : undefined
+  const modelRole = modelEdge ? imageRoleOfSource(nodes as unknown as SnapshotNode[], edges as unknown as SnapshotEdge[], modelEdge.source, modelEdge.sourceHandle) : null
+  const modelUrl = modelNode ? imageUrlFromNodeData(modelNode.data as Record<string, unknown>, modelEdge?.sourceHandle) : null
+  const picked = d.model ?? null
+  const modelNodeData = (modelNode?.data ?? {}) as { label?: string; modelName?: string | null }
+  const roleSuffix = modelRole ? `・${CUT_ROLE_LABEL[modelRole]}` : ''
+  const modelText = modelNode
+    ? (modelNode.type === 'libraryModelNode' ? (modelNodeData.modelName ? `${modelNodeData.modelName}${roleSuffix}` : null) : `${modelNodeData.label || 'つないだ画像'}${roleSuffix}`)
+    : picked ? `${picked.modelName ?? 'モデル'}${picked.role ? `・${CUT_ROLE_LABEL[picked.role]}` : ''}` : null
+  const modelWarn = modelNode?.type === 'libraryModelNode' && !modelText ? '上の「モデル」の欄でライブラリのモデルを選んでください'
+    : !modelNode && !picked ? 'モデルがつながっていません（キャンバスで Model ノードか参照画像を Try-On の「モデル」につないでください）'
+    : modelNode && modelNode.type !== 'libraryModelNode' && !modelUrl ? 'モデルの画像がまだありません'
+    : null
+
+  // 服: 前のステージの結果（選択済み）/ まだ選んでいない（ステージのノード自体に線が付いている）/ 参照画像 / 切り抜き
+  const garmentEdge = edges.find((e) => e.target === nodeId && e.targetHandle === TRY_ON_GARMENT_HANDLE)
+  const garmentNode = garmentEdge ? nodes.find((n) => n.id === garmentEdge.source) : undefined
+  const garmentIsCutout = garmentNode?.type === 'removeBackgroundNode'
+  const garmentUrl = garmentNode && !garmentIsCutout ? imageUrlFromNodeData(garmentNode.data as Record<string, unknown>, garmentEdge?.sourceHandle) : null
+  const garmentNeedsPick = !!garmentNode && PICK_SOURCE_TYPES.has(garmentNode.type ?? '') && !garmentUrl
+  const garmentText = !garmentNode ? null
+    : garmentIsCutout ? '切り抜き画像（Remove Background）'
+    : garmentNode.type === 'imageDisplayNode' ? '前のステージで選んだ画像'
+    : ((garmentNode.data as { label?: string }).label || 'つないだ画像')
+  const garmentWarn = !garmentNode ? '服の画像がつながっていません（キャンバスで Try-On の「服」につないでください）'
+    : garmentNeedsPick ? '前のステージの結果で「次のステージで使用」（画像の右上の ○）を押して、服にする画像を選んでください'
+    : !garmentIsCutout && !garmentUrl ? '服の画像がまだありません'
+    : null
+
+  const row = (label: string, thumb: string | null, text: string | null, warn: string | null, placeholder: React.ReactNode) => (
+    <div className="flex items-center gap-2 rounded-md p-2" style={{ background: 'var(--bg-canvas)', border: `1px solid ${warn ? 'rgba(245,158,11,0.6)' : 'var(--border)'}` }}>
+      <div className="shrink-0 rounded overflow-hidden flex items-center justify-center" style={{ width: 40, height: 52, background: 'var(--bg-placeholder)', color: 'var(--text-tertiary)' }}>
+        {thumb ? <MediaImg src={thumb} alt="" className="w-full h-full object-cover" fallback={placeholder} /> : placeholder}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] font-medium" style={{ color: 'var(--text-tertiary)' }}>{label}</div>
+        <div className="text-[12px] truncate" style={{ color: text ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>{text ?? '未設定'}</div>
+        {warn && <div className="text-[10px] leading-snug mt-0.5" style={{ color: '#F59E0B' }}>{warn}</div>}
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      {row('モデル', modelUrl, modelText, modelWarn, <UserRound size={16} />)}
+      {row('服', garmentUrl, garmentText, garmentWarn, <Shirt size={16} />)}
+      <div className="flex items-center justify-between mt-1">
+        <span className="text-[11px] font-medium text-[var(--text-secondary)]">解像度</span>
+        <div className="flex gap-1">
+          {TRY_ON_RESOLUTIONS.map((r) => {
+            const active = params.resolution === r
+            return (
+              <button
+                key={r}
+                className="h-6 px-2 rounded text-[11px] font-medium transition-colors"
+                style={{ background: active ? '#8B5CF6' : 'var(--bg-elevated)', color: active ? 'var(--text-primary)' : 'var(--text-secondary)', border: `1px solid ${active ? '#8B5CF6' : 'var(--border)'}` }}
+                onClick={() => updateNode(nodeId, { params: { ...params, resolution: r } } as never)}
+                disabled={isRunning}
+              >
+                {r}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div>
+        <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">服の説明・補足（任意・日本語可）</div>
+        <textarea
+          className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none resize-y"
+          style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)', minHeight: 56 }}
+          placeholder="例: ニットカーディガン。ボタンは開けたまま"
+          value={params.note}
+          onChange={(e) => updateNode(nodeId, { params: { ...params, note: e.target.value } } as never)}
+          disabled={isRunning}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
 // 左パネル: 入力セクション（TextPrompt / ReferenceImage）
 // ────────────────────────────────────────────
 function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
@@ -482,6 +632,8 @@ function InputsPanel({ inputs }: { inputs: CapsuleInputInfo[] }) {
             <VideoUploadField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : input.nodeType === 'promptEnhancer' ? (
             <PromptEnhancerField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+          ) : input.nodeType === 'libraryModel' ? (
+            <ModelField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           ) : (
             <TextPromptField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
           )
@@ -926,7 +1078,7 @@ function StageGenerateButton({
   const prevDone = prevStage ? getStageStatus(prevStage.nodeId, nodes, prevStage.displayNodeIds) === 'done' : true
   const isLocked = !prevDone
 
-  const label = nodeType === 'videoGen' ? '動画を生成' : '画像を生成'
+  const label = nodeType === 'videoGen' ? '動画を生成' : nodeType === 'tryOn' ? '試着する' : '画像を生成'
 
   function handleClick() {
     const event = new CustomEvent('capsule:generate', { detail: { nodeId } })
@@ -988,9 +1140,11 @@ function StageGenerateButton({
         disabled={isDisabled}
       >
         {isGenerating ? (
-          <><Loader2 size={14} className="animate-spin" />生成中...</>
+          <><Loader2 size={14} className="animate-spin" />{nodeType === 'tryOn' ? ((d.progress as string) || '試着中...') : '生成中...'}</>
         ) : nodeType === 'videoGen' ? (
           <><Film size={14} />{label}</>
+        ) : nodeType === 'tryOn' ? (
+          <><Shirt size={14} />{label}</>
         ) : (
           <><Sparkles size={14} />{label}</>
         )}
@@ -1296,6 +1450,7 @@ function CapsuleStagePanel({
           const textInputs = allInputs.filter((i) => i.nodeType === 'textPrompt' || i.nodeType === 'promptEnhancer')
           const refImages = allInputs.filter((i) => i.nodeType === 'referenceImage')
           const refVideos = allInputs.filter((i) => i.nodeType === 'referenceVideo')   // 参照動画の入れ替え（2026-11-08 メモ 69）
+          const models = allInputs.filter((i) => i.nodeType === 'libraryModel')          // Try-On のモデル（2026-11-08 メモ 78）
 
           return (
             <>
@@ -1331,6 +1486,9 @@ function CapsuleStagePanel({
                   <VideoUploadField nodeId={input.nodeId} label={input.label} />
                 </div>
               ))}
+              {models.map((input) => (
+                <ModelField key={input.nodeId} nodeId={input.nodeId} label={input.label} />
+              ))}
             </>
           )
         })()}
@@ -1347,6 +1505,9 @@ function CapsuleStagePanel({
         {stage.fields.map((field) => (
           <FieldRenderer key={field.id} nodeId={stage.nodeId} field={field} />
         ))}
+
+        {/* Try-On: モデル・服の出どころと設定（2026-11-08 メモ 78） */}
+        {stage.nodeType === 'tryOn' && <TryOnStagePanel nodeId={stage.nodeId} />}
 
         <StageGenerateButton nodeId={stage.nodeId} displayNodeIds={stage.displayNodeIds} nodeType={stage.nodeType} stageIndex={i} stages={stages} />
       </div>
@@ -1687,16 +1848,14 @@ function VideoLightbox({
 }
 
 /** 下流ステージへの接続情報（どの DisplayNode が次の Gen に繋がっているか） */
-type DownstreamLink = {
-  displayNodeId: string   // 現在接続中の DisplayNode
-  genNodeId: string       // 接続先の生成ノード
-  targetHandle: string    // 'in-image' など
-}
+// DownstreamLink（次のステージへの線）は capsuleUtils に（ステージのノード自体からの線も対象・2026-11-08 メモ 78）
 
 function DisplayNodeThumbnailGrid({
+  stageNodeId,
   displayNodeIds,
   downstreamLinks = [],
 }: {
+  stageNodeId: string
   displayNodeIds: string[]
   downstreamLinks?: DownstreamLink[]
 }) {
@@ -1718,43 +1877,14 @@ function DisplayNodeThumbnailGrid({
     .map((n) => (n.data as Record<string, unknown>).videoUrl as string)
 
   const hasDownstream = downstreamLinks.length > 0
-  const selectedDisplayIds = new Set(downstreamLinks.map((l) => l.displayNodeId))
+  const selectedDisplayIds = new Set(downstreamLinks.map((l) => l.sourceId))
 
-  /** 選択した DisplayNode に下流エッジを繋ぎ替える */
+  /** 選んだ結果ノードに次のステージへの線を付け替える（ステージのノード自体から直接つないである線も対象・2026-11-08 メモ 78） */
   function handleSelectForDownstream(displayNodeId: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (!hasDownstream) return
-    const { edges: latestEdges } = useCanvasStore.getState()
-
-    const displayIdSet = new Set(displayNodeIds)
-    const downstreamGenIds = new Set(downstreamLinks.map((l) => l.genNodeId))
-
-    // 現在のステージの DisplayNode → 下流 GenNode へのエッジを削除
-    const filteredEdges = latestEdges.filter(
-      (edge) => !(displayIdSet.has(edge.source) && downstreamGenIds.has(edge.target))
-    )
-
-    // 選択した DisplayNode から下流 GenNode へ新しいエッジを追加
-    // 同じ GenNode への重複は除外
-    const seenGens = new Set<string>()
-    const newEdges = downstreamLinks
-      .filter((l) => {
-        if (seenGens.has(l.genNodeId)) return false
-        seenGens.add(l.genNodeId)
-        return true
-      })
-      .map((l) => ({
-        id: `e-disp-${displayNodeId}-gen-${l.genNodeId}`,
-        source: displayNodeId,
-        sourceHandle: 'out-image-image-out',
-        target: l.genNodeId,
-        targetHandle: l.targetHandle,
-        style: { stroke: '#8B5CF6', strokeWidth: 2 },
-        animated: false,
-        className: '',
-      }))
-
-    setEdges([...filteredEdges, ...newEdges])
+    const { edges: latestEdges, nodes: latestNodes } = useCanvasStore.getState()
+    setEdges(rewireDownstream(displayNodeId, { nodeId: stageNodeId, displayNodeIds }, downstreamLinks, latestNodes, latestEdges))
   }
 
   return (
@@ -1931,59 +2061,19 @@ function MobileStagePreview({
     setShowControls(true)
   }
 
-  // 下流ステージへの接続情報（LargePreview と同ロジック）
-  const downstreamLinks = useMemo((): DownstreamLink[] => {
-    if (!stage?.displayNodeIds) return []
-    const displayIdSet = new Set(stage.displayNodeIds)
-    return edges
-      .filter((e) => displayIdSet.has(e.source))
-      .map((e) => {
-        const targetNode = nodes.find((n) => n.id === e.target)
-        if (
-          targetNode?.type !== 'imageGenerationNode' &&
-          targetNode?.type !== 'videoGenerationNode'
-        ) return null
-        return {
-          displayNodeId: e.source,
-          genNodeId: e.target,
-          targetHandle: e.targetHandle ?? 'in-image',
-        } satisfies DownstreamLink
-      })
-      .filter((l): l is DownstreamLink => l !== null)
-  }, [stage, edges, nodes])
+  // 次のステージへの線（LargePreview と同じ。ステージのノード自体から直接つないである線も対象・2026-11-08 メモ 78）
+  const downstreamLinks = useMemo((): DownstreamLink[] => (stage ? downstreamLinksOf(stage, nodes, edges) : []), [stage, edges, nodes])
 
   const hasDownstream = downstreamLinks.length > 0
   const selectedDisplayIds = useMemo(
-    () => new Set(downstreamLinks.map((l) => l.displayNodeId)),
+    () => new Set(downstreamLinks.map((l) => l.sourceId)),
     [downstreamLinks]
   )
 
   function handleSelectForDownstream(displayNodeId: string) {
-    if (!stage?.displayNodeIds || !hasDownstream) return
-    const { edges: latestEdges } = useCanvasStore.getState()
-    const displayIdSet = new Set(stage.displayNodeIds)
-    const downstreamGenIds = new Set(downstreamLinks.map((l) => l.genNodeId))
-    const filteredEdges = latestEdges.filter(
-      (edge) => !(displayIdSet.has(edge.source) && downstreamGenIds.has(edge.target))
-    )
-    const seenGens = new Set<string>()
-    const newEdges = downstreamLinks
-      .filter((l) => {
-        if (seenGens.has(l.genNodeId)) return false
-        seenGens.add(l.genNodeId)
-        return true
-      })
-      .map((l) => ({
-        id: `e-disp-${displayNodeId}-gen-${l.genNodeId}`,
-        source: displayNodeId,
-        sourceHandle: 'out-image-image-out',
-        target: l.genNodeId,
-        targetHandle: l.targetHandle,
-        style: { stroke: '#8B5CF6', strokeWidth: 2 },
-        animated: false,
-        className: '',
-      }))
-    setEdges([...filteredEdges, ...newEdges])
+    if (!stage || !hasDownstream) return
+    const { edges: latestEdges, nodes: latestNodes } = useCanvasStore.getState()
+    setEdges(rewireDownstream(displayNodeId, stage, downstreamLinks, latestNodes, latestEdges))
   }
 
   const accentColor = stage?.nodeType === 'videoGen' ? '#EC4899' : '#8B5CF6'
@@ -2226,6 +2316,7 @@ function MobileStagePreview({
 function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; activeIndex: number }) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
+  const setEdges = useCanvasStore((s) => s.setEdges)
   const stage = stages[activeIndex]
   if (!stage) {
     return (
@@ -2240,25 +2331,10 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
 
   // DisplayNode 複数: サムネイルグリッドを表示
   if (stage.displayNodeIds && stage.displayNodeIds.length > 1) {
-    // 現ステージの DisplayNode から他の Gen ノードへの接続を収集（下流ステージの参照選択用）
-    const displayIdSet = new Set(stage.displayNodeIds)
-    const downstreamLinks: DownstreamLink[] = edges
-      .filter((e) => displayIdSet.has(e.source))
-      .map((e) => {
-        const targetNode = nodes.find((n) => n.id === e.target)
-        if (
-          targetNode?.type !== 'imageGenerationNode' &&
-          targetNode?.type !== 'videoGenerationNode'
-        ) return null
-        return {
-          displayNodeId: e.source,
-          genNodeId: e.target,
-          targetHandle: e.targetHandle ?? 'in-image',
-        } satisfies DownstreamLink
-      })
-      .filter((l): l is DownstreamLink => l !== null)
+    // 現ステージの結果（か、ステージのノード自体）から他のステージへの線（次のステージで使う画像の選択用・2026-11-08 メモ 78）
+    const downstreamLinks = downstreamLinksOf(stage, nodes, edges)
 
-    return <DisplayNodeThumbnailGrid displayNodeIds={stage.displayNodeIds} downstreamLinks={downstreamLinks} />
+    return <DisplayNodeThumbnailGrid stageNodeId={stage.nodeId} displayNodeIds={stage.displayNodeIds} downstreamLinks={downstreamLinks} />
   }
 
   // DisplayNode 1件: その DisplayNode の状態を表示
@@ -2279,9 +2355,33 @@ function LargePreview({ stages, activeIndex }: { stages: CapsuleStageInfo[]; act
       : dispStatus === 'generating'
     const dispFailed = isVideoDisp ? dispStatus === 'failed' : dispStatus === 'error'
     const accentColor = isVideoDisp ? '#EC4899' : '#8B5CF6'
+    // 結果が 1 枚でも「次のステージで使用」を押して選ぶ（線がステージのノード自体に付いている間は次のステージに画像が渡らない・2026-11-08 メモ 78）
+    const links = downstreamLinksOf(stage, nodes, edges)
+    const soleDisplayId = stage.displayNodeIds[0]
+    const soleSelected = links.some((l) => l.sourceId === soleDisplayId)
+    const selectButton = links.length > 0 && dispOutput && !dispGenerating && !dispFailed ? (
+      <button
+        className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full z-10"
+        style={{
+          background: soleSelected ? '#8B5CF6' : 'rgba(0,0,0,0.5)',
+          border: soleSelected ? 'none' : '2px solid rgba(255,255,255,0.55)',
+          backdropFilter: 'blur(8px)',
+        }}
+        onClick={() => { const { edges: latestEdges, nodes: latestNodes } = useCanvasStore.getState(); setEdges(rewireDownstream(soleDisplayId, stage, links, latestNodes, latestEdges)) }}
+        title={soleSelected ? '選択中（次のステージで使用）' : '次のステージで使用'}
+      >
+        {soleSelected && <Check size={16} color="white" strokeWidth={2.5} />}
+      </button>
+    ) : null
 
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto relative">
+        {selectButton && !soleSelected && (
+          <div className="absolute top-4 left-0 right-0 text-center text-[11px] pointer-events-none" style={{ color: 'var(--text-tertiary)' }}>
+            次のステージで使う画像として選ぶ（右上の ○）
+          </div>
+        )}
+        {selectButton}
         {dispGenerating ? (
           <div className="flex flex-col items-center gap-3">
             <div
@@ -2440,7 +2540,8 @@ export function CapsuleView() {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const capsuleGroupId = useCanvasStore((s) => s.capsuleGroupId)
-  const isOwned = useWorkflowStore(selectCanEditNow)   // いま編集できるか（所有者 / ロックを持つ編集者）
+  // App の操作可否（2026-11-08 メモ 79）: 編集権があれば「編集する」を押していなくても操作でき、左パネルの最初の操作でロックを取る。権限が無い・他の人が編集中なら閲覧のみ
+  const { operable, blockedReason, onInteract } = useAppOperable()
   const isMobile = useIsMobile()
 
   const [activePreviewIndex, setActivePreviewIndex] = useState(0)
@@ -2475,7 +2576,7 @@ export function CapsuleView() {
         <Sparkles size={40} style={{ opacity: 0.2 }} />
         <div className="text-center">
           <div className="text-[14px] font-medium text-[var(--text-tertiary)] mb-1">「{group.data.label}」にノードがありません</div>
-          <div className="text-[12px] text-[#52525B]">画像生成・動画生成ノードをグループに追加してください</div>
+          <div className="text-[12px] text-[#52525B]">画像生成・動画生成・試着ノードをグループに追加してください</div>
         </div>
       </div>
     )
@@ -2493,6 +2594,7 @@ export function CapsuleView() {
         {/* Bottom: input controls — 65% - 100px。編集できないときはここだけに透明な板（2026-11-08 メモ 73） */}
         <div
           className="flex flex-col overflow-hidden"
+          onPointerDownCapture={onInteract}
           style={{
             flex: '0 0 calc(65% - 100px)',
             borderTop: '1px solid var(--border)',
@@ -2500,11 +2602,11 @@ export function CapsuleView() {
             position: 'relative',
           }}
         >
-          {!isOwned && (
+          {!operable && (
             <div
               className="absolute inset-0 z-50"
               style={{ cursor: 'not-allowed', background: 'transparent' }}
-              title="閲覧のみ（編集できるのは作成者か、編集を許可されたチームのメンバーで、同時に 1 人）"
+              title={blockedReason ?? ''}
             />
           )}
           {/* Panel header */}
@@ -2545,6 +2647,7 @@ export function CapsuleView() {
       {/* Left panel（入力と生成ボタン）。編集できないときは左側だけに透明な板をかぶせ、右のプレビュー（画像・動画の再生・ダウンロード）は触れるままにする（2026-11-08 メモ 73） */}
       <div
         className="flex flex-col flex-shrink-0 overflow-hidden"
+        onPointerDownCapture={onInteract}
         style={{
           width: 320,
           background: 'var(--bg-surface)',
@@ -2552,11 +2655,11 @@ export function CapsuleView() {
           position: 'relative',
         }}
       >
-        {!isOwned && (
+        {!operable && (
           <div
             className="absolute inset-0 z-50"
             style={{ cursor: 'not-allowed', background: 'transparent' }}
-            title="閲覧のみ（編集できるのは作成者か、編集を許可されたチームのメンバーで、同時に 1 人）"
+            title={blockedReason ?? ''}
           />
         )}
         {/* Panel header */}

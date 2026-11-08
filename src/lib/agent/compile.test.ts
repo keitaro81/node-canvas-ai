@@ -118,3 +118,28 @@ describe('チャットの構成: 名前は種類名のまま・LLM の label は
     expect(buildSystemPrompt()).toContain('Remove Background は、ユーザーが背景処理')
   })
 })
+
+describe('チャットで組む: 書き出しは一括か結合があるときだけ（2026-11-08 メモ 78）', () => {
+  it('Batch Input の無い構成に付いた export は外して注意に添える。辺も消え、配置はほかのノードだけ', () => {
+    const r = compileWorkflow({
+      nodes: [{ id: 'ri', type: 'referenceImage' }, { id: 'tp', type: 'textPrompt' }, { id: 'ig', type: 'imageGen' }, { id: 'm', type: 'libraryModel' }, { id: 't', type: 'tryOn' }, { id: 'ex', type: 'export', label: '書き出し' }],
+      edges: [{ from: 'ri.image', to: 'ig.image' }, { from: 'tp.text', to: 'ig.text' }, { from: 'ig.image', to: 't.garment' }, { from: 'm.front', to: 't.model' }, { from: 't.image', to: 'ex.image' }],
+    })
+    expect(r.errors).toEqual([])
+    expect(r.canvas!.nodes.map((n) => n.id)).toEqual(['ri', 'tp', 'ig', 'm', 't'])
+    expect(r.canvas!.edges.some((e) => e.target === 'ex')).toBe(false)
+    expect(r.hints).toEqual({})
+    expect(r.notes.some((n) => n.includes('書き出し（Export）は外しました'))).toBe(true)
+    expect(r.canvas!.capsuleGroupId).toBeUndefined()
+  })
+  it('結合（videoMerge）がある構成の export は残す。規則もプロンプトに入る', () => {
+    const r = compileWorkflow({
+      nodes: [{ id: 'a', type: 'referenceVideo' }, { id: 'b', type: 'referenceVideo' }, { id: 'mg', type: 'videoMerge' }, { id: 'ex', type: 'export' }],
+      edges: [{ from: 'a.video', to: 'mg.video' }, { from: 'b.video', to: 'mg.video' }, { from: 'mg.video', to: 'ex.video' }],
+    })
+    expect(r.errors).toEqual([])
+    expect(r.canvas!.nodes.map((n) => n.id)).toContain('ex')
+    expect(r.notes.some((n) => n.includes('書き出し（Export）は外しました'))).toBe(false)
+    expect(buildSystemPrompt()).toContain('Batch Input の無い構成（1 枚ずつ対話で作る）には export を置かない')
+  })
+})

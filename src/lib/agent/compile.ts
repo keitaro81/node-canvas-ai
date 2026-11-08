@@ -66,6 +66,18 @@ export function compileWorkflow(wf: DslWorkflow): CompileResult {
   }
   if (errors.length) return { canvas: null, errors, notes, name, hints }
 
+  // 書き出し（Export）は一括処理か結合がある構成にだけ（2026-11-08 メモ 78）。1 枚ずつ作る構成に LLM が付けた Export は外して、そのことを注意に添える
+  const types = [...byId.values()].map((v) => v.type)
+  if (!types.includes('batchInput') && !types.includes('videoMerge')) {
+    const dropped = [...byId.entries()].filter(([, v]) => v.type === 'export')
+    if (dropped.length && dropped.length < byId.size) {
+      const ids = new Set(dropped.map(([, v]) => v.id))
+      for (const [k, v] of dropped) { byId.delete(k); order.splice(order.indexOf(k), 1); delete hints[v.id] }
+      edges.splice(0, edges.length, ...edges.filter((e) => !ids.has(e.source) && !ids.has(e.target)))
+      notes.push('書き出し（Export）は外しました。1 枚ずつ作る構成では、結果はノードの Result に出て、そこからダウンロードできます（Export は一括処理か動画の結合があるときに置きます）')
+    }
+  }
+
   // 配置: 入力辺を持たないノードを 0 列目、以降は最長経路で列を決め、列の中は出現順に縦に積む
   const depth = new Map<string, number>()
   for (const k of order) depth.set(k, 0)

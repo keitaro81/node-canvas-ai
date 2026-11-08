@@ -5,7 +5,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Download, Film, ImageIcon, Layers, Loader2, RotateCcw, X } from 'lucide-react'
 import { useCanvasStore } from '../../stores/canvasStore'
-import { useWorkflowStore, selectCanEditNow } from '../../stores/workflowStore'
+import { useWorkflowStore } from '../../stores/workflowStore'
+import { useAppOperable } from './useAppOperable'
 import { useBatchStore } from '../../stores/batchStore'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useSignedMedia } from '../../hooks/useSignedMedia'
@@ -96,7 +97,8 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const updateNode = useCanvasStore((s) => s.updateNode)
-  const canEdit = useWorkflowStore(selectCanEditNow)
+  // App の操作可否（2026-11-08 メモ 79）: canEdit = 操作してよい（編集権があればロック未取得でも可・最初の操作で取る）、canEditNow = いま保存できる
+  const { operable: canEdit, canEditNow, resumable, blockedReason, onInteract } = useAppOperable()
   const showCost = useBatchStore((s) => s.showCost)
   const isMobile = useIsMobile()
 
@@ -140,11 +142,12 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
   // 全ショットがそろったら自動で結合（失敗したショットがあれば結合しない。作り直していないショットは最後の動画を使う）。
   // 結合に進むときに appRun を消すので、画面を開き直しても二重に結合しない。編集できる人の画面でだけ進める
   useEffect(() => {
-    if (!run || !auto || auto.decision !== 'merge' || !canEdit || handledRun.current === run.id) return
+    if (!run || !auto || auto.decision !== 'merge' || handledRun.current === run.id) return
+    if (!canEditNow) { if (resumable) onInteract(); return }   // ロックを取ってから（取れたら editing が立って、この effect がもう一度走る）
     handledRun.current = run.id
     updateNode(shape.mergeId, { appRun: null } as never)
     window.dispatchEvent(new CustomEvent('capsule:merge', { detail: { nodeId: shape.mergeId } }))
-  }, [run, auto, canEdit, shape, updateNode])
+  }, [run, auto, canEditNow, resumable, onInteract, shape, updateNode])
 
   const start = (ids: string[]) => {
     if (busy || !canEdit) return
@@ -178,7 +181,7 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
     : null
 
   const left = (
-    <div className="flex flex-col min-h-0" style={{ width: isMobile ? '100%' : 320, background: 'var(--bg-surface)', borderRight: isMobile ? undefined : '1px solid var(--border)' }}>
+    <div className="flex flex-col min-h-0" onPointerDownCapture={onInteract} style={{ width: isMobile ? '100%' : 320, background: 'var(--bg-surface)', borderRight: isMobile ? undefined : '1px solid var(--border)' }}>
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'var(--bg-panel)' }}><Layers size={14} style={{ color: ACCENT }} /></div>
         <div className="min-w-0">
@@ -196,8 +199,8 @@ export function MergeAppView({ groupId, groupLabel, shape }: { groupId: string; 
         {inputs.length === 0 && <div className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>この App で入れる写真や文はありません（キャンバスのとおりに作ります）</div>}
       </div>
       <div className="px-4 py-3 shrink-0 flex flex-col gap-1.5" style={{ borderTop: '1px solid var(--border)' }}>
-        {!canEdit && (
-          <div className="text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>閲覧のみ: このワークフローを編集できるのは作成者（または編集を許可されたチームのメンバー）で、同時に 1 人です。動画の再生とダウンロードはできます</div>
+        {!canEdit && blockedReason && (
+          <div className="text-[11px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>{blockedReason}</div>
         )}
         {missing.length > 0 && (
           <div className="text-[11px] leading-snug" style={{ color: '#F59E0B' }}>{missing.map((i) => (i.hint ? `${i.hint}の写真` : i.label)).join('・')}を入れてください</div>
