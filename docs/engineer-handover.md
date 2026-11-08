@@ -269,6 +269,8 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 
 > **秘密情報の運用**: service role/FAL_KEY/CRON_SECRET 等はユーザーが生成・設定する（Claude には貼らない）。ローカルの `.env.local` は本番DBを指すため、クロステナント否定テストは一時ユーザーで行い必ず削除する。
 
+- **デプロイ直後の古いタブ（2026-11-08 メモ 74）**: ハッシュ付きチャンクは新しいデプロイで消えるため、開きっぱなしのタブで遷移すると動的 import が index.html を受けて失敗する。`src/lib/staleChunk.ts` が `vite:preloadError`（main.tsx）と `errorElement`（`RouteErrorPage`・router.tsx）で拾い、30 秒に 1 回まで自動で再読み込みする。
+
 ## 14. GA に向けた残タスク
 
 - **法務文面の確定**（[TermsPage](../src/components/legal/TermsPage.tsx)/[PrivacyPage](../src/components/legal/PrivacyPage.tsx) の【】プレースホルダ8件＝運営者名・連絡先・料金・権利帰属・保存期間・賠償上限・管轄・更新日）→ 弁護士レビュー → ドラフトバナー削除。
