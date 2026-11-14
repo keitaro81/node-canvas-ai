@@ -2,9 +2,12 @@
 // ⚠️ スーパーユーザー面: 他人のアカウント作成・全チーム横断を行う。呼び出しは必ず isOperator で allowlist ゲートすること。
 // 認可（誰が運営か）は環境変数 ADMIN_USER_IDS（user_id のカンマ区切り）。マイグレーション不要。
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { logMfaEvent, resetUserMfa } from '../_auth'
+import { MFA_REQUIRED_CODE } from '../../src/lib/auth/mfaGate'
 
 export interface AdminManageBody {
-  action: 'provision' | 'list'
+  action: 'provision' | 'list' | 'mfa_reset'
+  email?: string      // mfa_reset の対象（メールアドレス）
   teamName?: string   // provision
   ownerEmail?: string // provision
   quotaImage?: number // provision（既定100）
@@ -31,19 +34,31 @@ function normQuota(v: unknown, fallback: number): number {
   return Math.floor(n)
 }
 
-/** 運営ゲート込みのディスパッチャ。userId は検証済み JWT の uid、adminIdsEnv は ADMIN_USER_IDS。 */
+/** 運営コンソールは 2 段階認証を済ませた運営だけが使える（2026-11-14）。他人のアカウントを作り、2 段階認証を外せる面なので */
+export const ADMIN_MFA_MESSAGE = '運営コンソールを使うには 2 段階認証が必要です。Account で認証アプリを登録し（登録済みならログインし直してコードを入力し）、もう一度開いてください'
+
+/** 呼び出し者の保証レベル（入口が JWT から渡す） */
+export interface AdminManageCtx {
+  aal: 'aal1' | 'aal2'
+}
+
+/** 運営ゲート込みのディスパッチャ。userId は検証済み JWT の uid、adminIdsEnv は ADMIN_USER_IDS、ctx.aal は JWT の保証レベル。 */
 export async function adminManage(
   admin: any,
   userId: string | null,
   adminIdsEnv: string | undefined,
   body: AdminManageBody,
+  ctx: AdminManageCtx,
 ): Promise<AdminResult> {
   if (!isOperator(userId, adminIdsEnv)) return { status: 403, body: { error: 'Forbidden' } }
+  if (ctx?.aal !== 'aal2') return { status: 403, body: { error: ADMIN_MFA_MESSAGE, code: MFA_REQUIRED_CODE } }
   switch (body?.action) {
     case 'provision':
       return provisionBranch(admin, body)
     case 'list':
       return listBranches(admin)
+    case 'mfa_reset':
+      return resetMfaByEmail(admin, userId, body.email)
     default:
       return { status: 400, body: { error: 'Unknown action' } }
   }
@@ -156,4 +171,35 @@ async function listBranches(admin: any): Promise<AdminResult> {
 function currentPeriodJst(): string {
   const jst = new Date(Date.now() + 9 * 60 * 60 * 1000)
   return jst.toISOString().slice(0, 7)
+}
+
+// ── mfa_reset: メールアドレスで利用者を探し、認証アプリの登録を消す（オーナーが全員なくした場合など・本人確認は運用で）──
+async function resetMfaByEmail(admin: any, operatorId: string | null, emailRaw: string | undefined): Promise<AdminResult> {
+  const email = (emailRaw ?? '').trim().toLowerCase()
+  if (!EMAIL_RE.test(email)) return { status: 400, body: { error: 'メールアドレスの形式が正しくありません' } }
+  const target = await findUserByEmail(admin, email)
+  if (!target) return { status: 404, body: { error: 'そのメールアドレスの利用者は見つかりません' } }
+  let removed: number
+  try {
+    removed = await resetUserMfa(admin, target.id)
+  } catch (e) {
+    return { status: 500, body: { error: `リセットに失敗しました: ${e instanceof Error ? e.message : String(e)}` } }
+  }
+  const { data: mem } = await admin.from('team_members').select('team_id').eq('user_id', target.id).maybeSingle()
+  await logMfaEvent(admin, { actor_id: operatorId, target_user_id: target.id, team_id: mem?.team_id ?? null, action: 'reset_by_operator', detail: { removed } })
+  return { status: 200, body: { reset: true, removed, email } }
+}
+
+// メールアドレスから利用者を探す（Auth の管理 API に検索が無いので一覧をめくる。利用者数は数百の想定）
+async function findUserByEmail(admin: any, email: string): Promise<{ id: string } | null> {
+  const perPage = 200
+  for (let page = 1; page <= 25; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
+    if (error) return null
+    const users = (data?.users ?? []) as Array<{ id: string; email?: string | null }>
+    const hit = users.find((u) => (u.email ?? '').toLowerCase() === email)
+    if (hit) return { id: hit.id }
+    if (users.length < perPage) return null
+  }
+  return null
 }

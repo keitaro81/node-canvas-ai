@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { createHmac } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -63,6 +64,40 @@ async function createTeam(name) {
 }
 async function addMember(teamId, userId, role) {
   await rest('team_members', { method: 'POST', body: JSON.stringify({ team_id: teamId, user_id: userId, role }) })
+}
+
+// ── TOTP（RFC 6238・SHA-1・30 秒・6 桁）: テストの中で認証アプリの代わりにコードを作る ──
+function base32Decode(str) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits = ''
+  for (const ch of str.replace(/=+$/, '').replace(/\s+/g, '').toUpperCase()) {
+    const v = alphabet.indexOf(ch)
+    if (v < 0) throw new Error(`base32: unexpected character ${ch}`)
+    bits += v.toString(2).padStart(5, '0')
+  }
+  const bytes = []
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2))
+  return Buffer.from(bytes)
+}
+function totp(secret, now = Date.now()) {
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(now / 1000 / 30)))
+  const h = createHmac('sha1', base32Decode(secret)).update(counter).digest()
+  const o = h[h.length - 1] & 0x0f
+  const n = ((h[o] & 0x7f) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]
+  return String(n % 1_000_000).padStart(6, '0')
+}
+// ユーザーの JWT で Supabase Auth を呼ぶ（要素の登録・確認）
+const userAuth = (path, jwt, body) => fetch(`${URL_BASE}/auth/v1/${path}`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) })
+/** 認証アプリを登録して確認まで済ませ、aal2 のアクセストークンを返す */
+async function enrollTotp(jwt, name) {
+  const en = await (await userAuth('factors', jwt, { factor_type: 'totp', friendly_name: name, issuer: 'itest' })).json()
+  if (!en?.id || !en?.totp?.secret) throw new Error(`enroll failed: ${JSON.stringify(en).slice(0, 200)}`)
+  const ch = await (await userAuth(`factors/${en.id}/challenge`, jwt)).json()
+  if (!ch?.id) throw new Error(`challenge failed: ${JSON.stringify(ch).slice(0, 200)}`)
+  const vr = await (await userAuth(`factors/${en.id}/verify`, jwt, { challenge_id: ch.id, code: totp(en.totp.secret) })).json()
+  if (!vr?.access_token) throw new Error(`verify failed: ${JSON.stringify(vr).slice(0, 200)}`)
+  return { factorId: en.id, aal2: vr.access_token }
 }
 
 // ── アサート ──
@@ -369,6 +404,116 @@ async function main() {
       }
     }
   }
+  // ───────────────────────────────────────────────
+  // Group I: 2 段階認証（0023）— 要素を持つ人・必須のチームの人は、aal1 のままではデータに触れない
+  // ───────────────────────────────────────────────
+  console.log('Group I: 2 段階認証（0023 mfa_gate・Edge の確認）')
+  // Auth サーバーの決まり（0023 とは無関係なので常に確かめる）: 認証アプリを登録済みの人の「パスワードだけ」のセッションでは、
+  // 要素の追加・削除、パスワードの変更ができない。ここが崩れると、パスワードを盗んだ人が自分の認証アプリを足して 2 段階目を抜けられる
+  {
+    const emI0 = `${TAG}-i0@example.com`
+    const i0 = await createUser(emI0, pw); created.users.push(i0)
+    const e0 = await enrollTotp(await jwtFor(emI0, pw), 'itest-0')
+    const pwOnly = await jwtFor(emI0, pw)
+    const uh = { apikey: ANON, Authorization: `Bearer ${pwOnly}`, 'Content-Type': 'application/json' }
+    const addTry = await fetch(`${URL_BASE}/auth/v1/factors`, { method: 'POST', headers: uh, body: JSON.stringify({ factor_type: 'totp', friendly_name: 'itest-attacker' }) })
+    const delTry = await fetch(`${URL_BASE}/auth/v1/factors/${e0.factorId}`, { method: 'DELETE', headers: uh })
+    const pwTry = await fetch(`${URL_BASE}/auth/v1/user`, { method: 'PUT', headers: uh, body: JSON.stringify({ password: `${pw}-x` }) })
+    check('Auth: パスワードだけ（aal1）では、認証アプリを足せない・消せない・パスワードを変えられない', addTry.status >= 400 && delTry.status >= 400 && pwTry.status >= 400, `${addTry.status} ${delTry.status} ${pwTry.status}`)
+    const fs0 = await (await auth(`admin/users/${i0}/factors`)).json()
+    check('Auth: 試したあとも、登録は元の 1 つのまま', Array.isArray(fs0) && fs0.length === 1 && fs0[0].status === 'verified', JSON.stringify(fs0).slice(0, 160))
+  }
+  {
+    const probe = await rest('rpc/team_requires_mfa', { method: 'POST', body: JSON.stringify({ p_user_id: aId }) })
+    if (probe.status !== 200) {
+      console.log('  ⚠️ SKIP: team_requires_mfa が無い（migration 0023 未適用）')
+    } else {
+      const uGet = (path, jwt) => fetch(`${URL_BASE}/rest/v1/${path}`, { headers: { apikey: ANON, Authorization: `Bearer ${jwt}` } })
+      const uRpc = (fn, jwt, body = {}) => fetch(`${URL_BASE}/rest/v1/rpc/${fn}`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const manageAs = (jwt, body) => fetch(`${APP_URL}/api/team/manage`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` }, body: JSON.stringify(body) })
+
+      const emI1 = `${TAG}-i1@example.com`, emI2 = `${TAG}-i2@example.com`, emI3 = `${TAG}-i3@example.com`
+      const i1 = await createUser(emI1, pw); created.users.push(i1)   // オーナー
+      const i2 = await createUser(emI2, pw); created.users.push(i2)   // メンバー（必須にした後で初めて Edge を呼ぶ）
+      const i3 = await createUser(emI3, pw); created.users.push(i3)   // メンバー（必須にする前に Edge を呼ぶ役。Edge は必須フラグを人ごとに 30 秒覚えるので i2 と分ける）
+      const teamI = await createTeam(`${TAG} I`); created.teams.push(teamI)
+      await addMember(teamI, i1, 'owner')
+      await addMember(teamI, i2, 'member')
+      await addMember(teamI, i3, 'member')
+      const projI = await (await rest('projects', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ user_id: i1, name: `${TAG} pjI` }) })).json()
+      created.projects.push(projI[0].id)
+
+      // 1) 登録前: aal1 でいつもどおり見える
+      const i1aal1 = await jwtFor(emI1, pw)
+      const before = await (await uGet(`projects?select=id&id=eq.${projI[0].id}`, i1aal1)).json()
+      check('登録前は、aal1 でも自分のプロジェクトが見える（今の利用者は変わらない）', Array.isArray(before) && before.length === 1, JSON.stringify(before).slice(0, 120))
+
+      // 2) 認証アプリを登録 → 同じ人の aal1 のトークンでは見えなくなり、aal2 では見える
+      const e1 = await enrollTotp(i1aal1, 'itest-1')
+      const afterAal1 = await (await uGet(`projects?select=id&id=eq.${projI[0].id}`, i1aal1)).json()
+      check('登録後、aal1 のトークンでは 0 行（RLS の mfa_gate）', Array.isArray(afterAal1) && afterAal1.length === 0, JSON.stringify(afterAal1).slice(0, 120))
+      const afterAal2 = await (await uGet(`projects?select=id&id=eq.${projI[0].id}`, e1.aal2)).json()
+      check('aal2 のトークンでは見える（1 行）', Array.isArray(afterAal2) && afterAal2.length === 1, JSON.stringify(afterAal2).slice(0, 120))
+      const st1 = await (await uRpc('mfa_status', i1aal1)).json()
+      check('mfa_status は aal1 のままでも呼べて、登録済みと返す', st1?.has_factor === true && st1?.aal === 'aal1' && st1?.required_by_team === false, JSON.stringify(st1).slice(0, 160))
+      // RLS を通らない（security definer の）RPC も同じ条件: 本日の利用数は aal1 では null、aal2 では返る
+      const limAal1 = await (await uRpc('team_batch_limits', i1aal1)).json()
+      const limAal2 = await (await uRpc('team_batch_limits', e1.aal2)).json()
+      check('RLS を通らない RPC（team_batch_limits）も aal1 では返さず、aal2 では返す', limAal1 === null && typeof limAal2?.daily_limit === 'number', `${JSON.stringify(limAal1)} / ${JSON.stringify(limAal2).slice(0, 80)}`)
+      // 書き込みも通らない（restrictive の with check）。万一通ってしまった行は、下で必ず消す
+      const blockedName = `${TAG} blocked`
+      const ins = await fetch(`${URL_BASE}/rest/v1/projects`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${i1aal1}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify({ user_id: i1, name: blockedName }) })
+      check('aal1 のトークンでは書き込みも通らない（projects への INSERT が 403）', ins.status === 403, String(ins.status))
+      await rest(`projects?name=eq.${encodeURIComponent(blockedName)}`, { method: 'DELETE' })
+
+      // 3) Edge（service role で動く入口）: aal1 は 403 + code mfa_required、aal2 は通る
+      const listAal2 = await manageAs(e1.aal2, { action: 'list' })
+      const listAal2Body = await listAal2.json().catch(() => ({}))
+      if (listAal2.status !== 200 || !('requireMfa' in listAal2Body)) {
+        console.log('  ⚠️ SKIP（Edge）: team/manage が 2 段階認証に未対応（この版がまだデプロイされていない）')
+      } else {
+        const listAal1 = await manageAs(i1aal1, { action: 'list' })
+        const listAal1Body = await listAal1.json().catch(() => ({}))
+        check('Edge: 要素を持つ人の aal1 は 403 + code mfa_required（gate = challenge）', listAal1.status === 403 && listAal1Body.code === 'mfa_required' && listAal1Body.gate === 'challenge', `${listAal1.status} ${JSON.stringify(listAal1Body).slice(0, 160)}`)
+        const flags = (listAal2Body.members ?? []).map((m) => `${m.email}:${m.mfa}`).sort()
+        check('Edge: aal2 は通り、一覧にメンバーごとの状態が出る', listAal2Body.requireMfa === false && flags.join(',') === [`${emI1}:true`, `${emI2}:false`, `${emI3}:false`].sort().join(','), flags.join(','))
+
+        // 4) チームで必須にする（aal2 のオーナーだけ）→ 未登録のメンバーは aal1 のままでは使えない
+        const i2aal1 = await jwtFor(emI2, pw)
+        const memberTry = await manageAs(await jwtFor(emI3, pw), { action: 'mfa_require', value: true })
+        check('メンバーは必須を切り替えられない（403）', memberTry.status === 403, String(memberTry.status))
+        const on = await manageAs(e1.aal2, { action: 'mfa_require', value: true })
+        check('aal2 のオーナーは必須にできる（200）', on.status === 200, `${on.status} ${JSON.stringify(await on.clone().json().catch(() => ({}))).slice(0, 160)}`)
+        const st2 = await (await uRpc('mfa_status', i2aal1)).json()
+        check('未登録のメンバー: mfa_status が「チームで必須・未登録」', st2?.required_by_team === true && st2?.has_factor === false, JSON.stringify(st2).slice(0, 160))
+        const tmRows = await (await uGet(`team_members?select=user_id&user_id=eq.${i2}`, i2aal1)).json()
+        check('未登録のメンバー: aal1 では自分の所属も読めない（0 行）', Array.isArray(tmRows) && tmRows.length === 0, JSON.stringify(tmRows).slice(0, 120))
+        const i2list = await manageAs(i2aal1, { action: 'list' })
+        const i2listBody = await i2list.json().catch(() => ({}))
+        check('Edge: 必須のチームの未登録メンバーは 403 + code mfa_required（gate = enroll）', i2list.status === 403 && i2listBody.code === 'mfa_required' && i2listBody.gate === 'enroll', `${i2list.status} ${JSON.stringify(i2listBody).slice(0, 160)}`)
+
+        // 5) メンバーが登録すると使える。オーナーがリセットすると登録が消える
+        const e2 = await enrollTotp(i2aal1, 'itest-2')
+        const tmRows2 = await (await uGet(`team_members?select=user_id&user_id=eq.${i2}`, e2.aal2)).json()
+        check('メンバーが登録して aal2 になると、所属が読める（1 行）', Array.isArray(tmRows2) && tmRows2.length === 1, JSON.stringify(tmRows2).slice(0, 120))
+        const i1relogin = await jwtFor(emI1, pw)   // パスワードだけでログインし直したオーナー（aal1）
+        const offAal1 = await manageAs(i1relogin, { action: 'mfa_require', value: false })
+        check('パスワードだけ（aal1）のオーナーは、必須を外せない（403）', offAal1.status === 403, String(offAal1.status))
+        const resetAal1 = await manageAs(i1relogin, { action: 'mfa_reset', userId: i2 })
+        check('パスワードだけ（aal1）のオーナーは、メンバーをリセットできない（403）', resetAal1.status === 403, String(resetAal1.status))
+        const reset = await manageAs(e1.aal2, { action: 'mfa_reset', userId: i2 })
+        const resetBody = await reset.json().catch(() => ({}))
+        check('aal2 のオーナーは、メンバーの 2 段階認証をリセットできる（1 件）', reset.status === 200 && resetBody.removed === 1, `${reset.status} ${JSON.stringify(resetBody).slice(0, 160)}`)
+        const ov = await (await rest('rpc/team_mfa_overview', { method: 'POST', body: JSON.stringify({ p_team_id: teamI }) })).json()
+        const i2row = Array.isArray(ov) ? ov.find((r) => r.user_id === i2) : null
+        check('リセット後、メンバーの登録は無い', i2row?.has_factor === false, JSON.stringify(ov).slice(0, 200))
+        const ev = await (await rest(`mfa_events?select=action,actor_id,target_user_id&team_id=eq.${teamI}&order=id.asc`)).json()
+        check('必須の切り替えとリセットが記録されている', Array.isArray(ev) && ev.map((x) => x.action).join(',') === 'require_on,reset_by_owner' && ev[1].actor_id === i1 && ev[1].target_user_id === i2, JSON.stringify(ev).slice(0, 240))
+        await rest(`mfa_events?team_id=eq.${teamI}`, { method: 'DELETE' })
+      }
+    }
+  }
+
 }
 
 async function cleanup() {

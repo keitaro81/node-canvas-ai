@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 import { withSentry } from '../_sentry'
 import { signMediaServer } from './_signMediaLogic'
+import { callerOf, mfaBlock } from '../_auth'
 
 // L2 テナント分離: 署名は service role の本エンドポイントのみが行う（0009 で blanket SELECT を drop）。
 // 呼び出し者 JWT を検証し、アクセス権つき署名ロジックは _signMediaLogic に集約
@@ -43,6 +44,9 @@ async function handler(req: Request): Promise<Response> {
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey)
+  // 2 段階認証が必要なのに済んでいないセッションは通さない（2026-11-14・規則は src/lib/auth/mfaGate.ts）
+  const blocked = await mfaBlock(admin, callerOf(user, token))
+  if (blocked) return jsonResponse(blocked.body, blocked.status)
   const result = await signMediaServer(admin, user.id, body)
   return jsonResponse(result.body, result.status)
 }

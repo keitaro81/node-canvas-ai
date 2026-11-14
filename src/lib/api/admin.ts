@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { noteMfaResponse } from '../auth/mfaSignal'
 
 // 運営（オペレーター）専用 API クライアント。/api/admin/manage（dev は /dev-proxy/admin-manage）経由。
 // サーバー側で ADMIN_USER_IDS allowlist によりゲートされる。非運営には 403。
@@ -30,7 +31,8 @@ export interface ProvisionResult {
 }
 
 interface AdminBody {
-  action: 'provision' | 'list'
+  action: 'provision' | 'list' | 'mfa_reset'
+  email?: string
   teamName?: string
   ownerEmail?: string
   quotaImage?: number
@@ -49,6 +51,7 @@ async function adminApi(body: AdminBody): Promise<{ ok: boolean; status: number;
   })
   let data: Record<string, unknown> = {}
   try { data = (await res.json()) as Record<string, unknown> } catch { /* 空応答は無視 */ }
+  noteMfaResponse(res.status, data)
   return { ok: res.ok, status: res.status, data }
 }
 
@@ -60,11 +63,19 @@ function errOf(data: Record<string, unknown>, fallback: string): string {
 export async function listAdminBranches(): Promise<AdminBranchList> {
   const r = await adminApi({ action: 'list' })
   if (!r.ok) {
-    const e = new Error(errOf(r.data, 'チーム一覧の取得に失敗しました')) as Error & { status?: number }
+    const e = new Error(errOf(r.data, 'チーム一覧の取得に失敗しました')) as Error & { status?: number; code?: string }
     e.status = r.status
+    if (typeof r.data.code === 'string') e.code = r.data.code   // 'mfa_required' = 運営コンソールは 2 段階認証が必須
     throw e
   }
   return r.data as unknown as AdminBranchList
+}
+
+/** 利用者の 2 段階認証をリセット（認証アプリの登録を消す・運営のみ）。消した数を返す。 */
+export async function adminResetMfa(email: string): Promise<{ removed: number; email: string }> {
+  const r = await adminApi({ action: 'mfa_reset', email })
+  if (!r.ok) throw new Error(errOf(r.data, 'リセットに失敗しました'))
+  return { removed: Number(r.data.removed ?? 0), email: String(r.data.email ?? email) }
 }
 
 /** チーム＋owner アカウントを作成（運営のみ）。 */

@@ -15,6 +15,7 @@ import { adminManage, type AdminManageBody } from './api/admin/_adminLogic'
 import { falProxyCore, FAL_TARGET_URL_HEADER } from './api/fal/_proxyLogic'
 import { batchCreate, batchSubmit, batchReconcile, batchCancel, batchDelete, batchRetryFailed, batchRerunItems, batchSource } from './api/batch/_batchLogic'
 import { isOperator } from './api/admin/_adminLogic'
+import { callerOf, mfaBlock } from './api/_auth'
 
 /**
  * ローカル開発専用: 本番(Vercel)の Edge 関数を代替する Vite Dev Server ミドルウェア群。
@@ -102,6 +103,7 @@ function devImageProxyPlugin(): Plugin {
           const token = bearer(req); if (!token) throw new Error('No token')
           const { data: { user } } = await admin.auth.getUser(token)
           if (!user) throw new Error('Unauthorized')
+          const blocked = await mfaBlock(admin, callerOf(user, token)); if (blocked) { send(res, blocked.status, blocked.body); return }   // 2 段階認証（Edge と同じ）
           const body = await readJson(req) as { generationId?: string; workflowId?: string }
           const result = await deleteGenerationServer(admin, user.id, body)
           send(res, result.status, result.body)
@@ -119,6 +121,7 @@ function devImageProxyPlugin(): Plugin {
           const token = bearer(req); if (!token) throw new Error('No token')
           const { data: { user } } = await admin.auth.getUser(token)
           if (!user) throw new Error('Unauthorized')
+          const blocked = await mfaBlock(admin, callerOf(user, token)); if (blocked) { send(res, blocked.status, blocked.body); return }   // 2 段階認証（Edge と同じ）
           const body = await readJson(req) as { workflowId?: string; urls?: unknown; ownUrls?: unknown }
           const result = await signMediaServer(admin, user.id, body)
           send(res, result.status, result.body)
@@ -136,13 +139,17 @@ function devImageProxyPlugin(): Plugin {
           const body = await readJson(req) as TeamManageBody
           // preview / signup（invite-gated signup）は未認証で可。それ以外は JWT 検証
           let userId: string | null = null
+          let aal: 'aal1' | 'aal2' | null = null
           if (actionNeedsAuth(body?.action)) {
             const token = bearer(req); if (!token) throw new Error('No token')
             const { data: { user } } = await admin.auth.getUser(token)
             if (!user) throw new Error('Unauthorized')
+            const caller = callerOf(user, token)
+            const blocked = await mfaBlock(admin, caller); if (blocked) { send(res, blocked.status, blocked.body); return }   // 2 段階認証（Edge と同じ）
             userId = user.id
+            aal = caller.aal
           }
-          const result = await teamManage(admin, userId, body)
+          const result = await teamManage(admin, userId, body, aal ? { aal } : undefined)
           send(res, result.status, result.body)
         } catch (err) {
           console.error('[dev-team-manage] error:', err)
@@ -159,7 +166,7 @@ function devImageProxyPlugin(): Plugin {
           const { data: { user } } = await admin.auth.getUser(token)
           if (!user) throw new Error('Unauthorized')
           const body = await readJson(req) as AdminManageBody
-          const result = await adminManage(admin, user.id, adminIds, body)
+          const result = await adminManage(admin, user.id, adminIds, body, { aal: callerOf(user, token).aal })
           send(res, result.status, result.body)
         } catch (err) {
           console.error('[dev-admin-manage] error:', err)
@@ -209,6 +216,7 @@ function devImageProxyPlugin(): Plugin {
           const token = bearer(req); if (!token) { send(res, 403, { error: 'Forbidden' }); return }
           const { data: { user } } = await admin.auth.getUser(token)
           if (!user) { send(res, 403, { error: 'Forbidden' }); return }
+          const blocked = await mfaBlock(admin, callerOf(user, token)); if (blocked) { send(res, blocked.status, blocked.body); return }   // 2 段階認証（Edge と同じ）
           const body = await readJson(req)
           const opts = { falKey, webhookBaseUrl: batchWebhookBase, isAdmin: isOperator(user.id, adminIds) }
           const fns: Record<string, (a: unknown, u: string, o: typeof opts, b: unknown) => Promise<{ status: number; body: object }>> = {
@@ -237,6 +245,7 @@ function devImageProxyPlugin(): Plugin {
           if (!token) { send(res, 403, { error: 'Forbidden' }); return }
           const { data: { user } } = await admin.auth.getUser(token)
           if (!user) { send(res, 403, { error: 'Forbidden' }); return }
+          const blocked = await mfaBlock(admin, callerOf(user, token)); if (blocked) { send(res, blocked.status, blocked.body); return }   // 2 段階認証（Edge と同じ）
           const method = req.method ?? 'GET'
           const target = req.headers[FAL_TARGET_URL_HEADER]
           const out = await falProxyCore({

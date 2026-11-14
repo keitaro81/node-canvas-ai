@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { CircleNotch, Copy, Check, Crown, Trash, ArrowsClockwise, SignOut, PencilSimple } from '@phosphor-icons/react'
+import { CircleNotch, Copy, Check, Crown, Trash, ArrowsClockwise, SignOut, PencilSimple, ShieldCheck } from '@phosphor-icons/react'
 import {
   getTeamInfo,
   createInvite,
@@ -8,8 +8,11 @@ import {
   leaveTeam,
   renameTeam,
   inviteUrl,
+  setTeamRequireMfa,
+  resetMemberMfa,
   type TeamInfo,
 } from '../../lib/api/team'
+import { useMfaStore } from '../../stores/mfaStore'
 
 // 招待リンクの有効期限表示（now はレンダー中の Date.now() を避けるため呼び出し側の state で固定）
 function formatExpiry(iso: string, now: number): string {
@@ -49,6 +52,8 @@ export function TeamSettingsPage() {
   const [nameDraft, setNameDraft] = useState('')
   // 期限の残り日数計算用（レンダー中の Date.now() を避ける）
   const [now] = useState(() => Date.now())
+  // 2 段階認証の設定（必須の切り替え・メンバーのリセット）は、本人が 2 段階認証を済ませているオーナーだけ（サーバーでも確かめる）
+  const myMfaReady = useMfaStore((s) => s.aal === 'aal2' && s.factors.length > 0)
 
   const load = useCallback(async () => {
     try {
@@ -233,6 +238,47 @@ export function TeamSettingsPage() {
               </section>
             )}
 
+            {/* 2 段階認証（データベースの更新 0023 が済んでいる環境だけ出す） */}
+            {typeof info.requireMfa === 'boolean' && (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-[13px] font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                  <ShieldCheck size={15} weight={info.requireMfa ? 'fill' : 'regular'} style={{ color: info.requireMfa ? '#22C55E' : 'var(--text-tertiary)' }} />
+                  2 段階認証{info.requireMfa ? '（このチームは必須）' : ''}
+                </h2>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                  {info.requireMfa
+                    ? 'メンバーは、ログインのときに認証アプリの 6 桁のコードを入力します（Google でログインする人も同じ）。未登録の人は、登録するまでこのチームのデータを使えません。'
+                    : '必須にすると、メンバー全員がログインのときに認証アプリの 6 桁のコードを求められます（Google でログインする人も同じ）。未登録の人には登録の画面が出て、登録が済むまでこのチームのデータを使えません。'}
+                </p>
+                {isOwner && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const next = !info.requireMfa
+                        const msg = next
+                          // 切り替えはすぐ効く（開いたままの画面でも、未登録の人の保存・生成はその場から通らなくなる）ので、先に伝えてもらう
+                          ? 'このチームの 2 段階認証を必須にしますか？\n\n未登録のメンバーは、切り替えた直後から、認証アプリを登録するまで保存や生成ができなくなります（作業中の人は、保存前の変更が失われることがあります）。先にメンバーへ知らせておくことをおすすめします。'
+                          : 'このチームの 2 段階認証の必須を解除しますか？\n登録済みのメンバーは、引き続きコードの入力が必要です（各自が Account で外せます）。'
+                        if (confirm(msg)) void run(async () => { await setTeamRequireMfa(next); await useMfaStore.getState().refresh(true) })
+                      }}
+                      disabled={busy || !myMfaReady}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12px] font-medium self-start disabled:opacity-50"
+                      style={info.requireMfa
+                        ? { background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }
+                        : { background: 'var(--accent)', color: '#fff' }}
+                    >
+                      {info.requireMfa ? '必須を解除する' : 'このチームで必須にする'}
+                    </button>
+                    {!myMfaReady && (
+                      <p className="text-[11px]" style={{ color: '#F59E0B' }}>
+                        切り替えやメンバーのリセットを行うには、まずあなた自身が Account で 2 段階認証を有効にしてください。
+                      </p>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
+
             {/* 使用状況（今月・チーム合計） */}
             {info.quota && (
               <section className="flex flex-col gap-3">
@@ -281,6 +327,21 @@ export function TeamSettingsPage() {
                       {m.role === 'owner' && <Crown size={11} weight="fill" />}
                       {m.role === 'owner' ? 'オーナー' : 'メンバー'}
                     </span>
+                    {/* 2 段階認証の状態（0023 適用済みの環境だけ） */}
+                    {typeof m.mfa === 'boolean' && (
+                      <span
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium shrink-0"
+                        style={m.mfa
+                          ? { background: 'rgba(34,197,94,0.12)', color: '#22C55E' }
+                          : info.requireMfa
+                          ? { background: 'rgba(245,158,11,0.12)', color: '#F59E0B' }
+                          : { background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}
+                        title={m.mfa ? '認証アプリを登録済み' : info.requireMfa ? '認証アプリが未登録（登録するまで使えません）' : '認証アプリが未登録'}
+                      >
+                        <ShieldCheck size={11} weight={m.mfa ? 'fill' : 'regular'} />
+                        {m.mfa ? '2 段階認証' : '未設定'}
+                      </span>
+                    )}
                     {/* owner の操作（自分以外） */}
                     {isOwner && !m.isMe && (
                       <div className="flex items-center gap-1 shrink-0">
@@ -293,6 +354,20 @@ export function TeamSettingsPage() {
                         >
                           {m.role === 'owner' ? 'メンバーに' : 'オーナーに'}
                         </button>
+                        {m.mfa === true && (
+                          <button
+                            onClick={() => {
+                              const msg = `${m.email ?? 'このメンバー'} の 2 段階認証をリセットしますか？\n認証アプリの登録が消え、次のログインはパスワード（または Google）だけになります。${info.requireMfa ? 'このチームは必須なので、その後に登録し直しになります。' : ''}`
+                              if (confirm(msg)) void run(() => resetMemberMfa(m.userId))
+                            }}
+                            disabled={busy || !myMfaReady}
+                            className="px-2 py-1 rounded-lg text-[11px] disabled:opacity-50"
+                            style={{ background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-secondary)' }}
+                            title={myMfaReady ? '認証アプリを使えなくなったメンバーの登録を消す' : 'リセットするには、あなた自身の 2 段階認証が必要です'}
+                          >
+                            2 段階認証をリセット
+                          </button>
+                        )}
                         <button
                           onClick={() => { if (confirm(`${m.email ?? 'このメンバー'} をチームから削除しますか？`)) void run(() => removeMember(m.userId)) }}
                           disabled={busy}

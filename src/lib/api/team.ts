@@ -1,4 +1,6 @@
 import { supabase } from '../supabase'
+import { noteMfaResponse, recheckMfa } from '../auth/mfaSignal'
+import { clearJoinDone } from '../team/joinDone'
 
 // チーム管理 API クライアント。書込（invite/join/leave/remove/role）と一覧取得は
 // サーバー（/api/team/manage, dev は /dev-proxy/team-manage）経由。設計: docs/specs/team-management-mvp.md
@@ -10,6 +12,8 @@ export interface TeamMember {
   isMe: boolean
   usedImage: number
   usedVideo: number
+  /** 認証アプリを登録済みか（null / 無し = 分からない: データベースの更新 0023 が未適用） */
+  mfa?: boolean | null
 }
 
 export interface TeamInfo {
@@ -20,12 +24,15 @@ export interface TeamInfo {
   usage: { period: string; usedImage: number; usedVideo: number } | null
   members: TeamMember[]
   invite: { token: string; expiresAt: string } | null
+  /** このチームは 2 段階認証が必須か（null / 無し = 0023 が未適用。欄を出さない） */
+  requireMfa?: boolean | null
 }
 
 interface ManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators' | 'mfa_require' | 'mfa_reset'
   token?: string
   userId?: string
+  value?: boolean
   role?: 'owner' | 'member'
   email?: string
   password?: string
@@ -53,6 +60,7 @@ async function manage(body: ManageBody): Promise<{ ok: boolean; status: number; 
   } catch {
     // 空応答は無視
   }
+  noteMfaResponse(res.status, data)   // 2 段階認証が必要と断られたら、判定を取り直す
   return { ok: res.ok, status: res.status, data }
 }
 
@@ -78,6 +86,7 @@ export async function createInvite(): Promise<{ token: string; expiresAt: string
 export async function joinTeam(token: string): Promise<{ teamId: string; teamName: string | null }> {
   const r = await manage({ action: 'join', token })
   if (!r.ok) throw new Error(errOf(r.data, '参加に失敗しました'))
+  recheckMfa()   // 参加したチームが 2 段階認証を必須にしていれば、ここで登録の画面に替わる
   return { teamId: r.data.teamId as string, teamName: (r.data.teamName as string) ?? null }
 }
 
@@ -107,6 +116,8 @@ export async function signupAndJoin(
 export async function leaveTeam(): Promise<void> {
   const r = await manage({ action: 'leave' })
   if (!r.ok) throw new Error(errOf(r.data, '離脱に失敗しました'))
+  clearJoinDone()   // 同じ招待リンクを開き直したときに「参加しました」と出さない
+  recheckMfa()
 }
 
 /** owner: メンバーを削除（新個人チームへ戻す）。 */
@@ -137,6 +148,18 @@ export async function getTeamWorkflowCreators(): Promise<Record<string, Workflow
   const r = await manage({ action: 'creators' })
   if (!r.ok) throw new Error(errOf(r.data, '作成者情報の取得に失敗しました'))
   return (r.data.creators as Record<string, WorkflowCreator>) ?? {}
+}
+
+/** owner: このチームの 2 段階認証を必須にする / 外す（操作する本人が 2 段階認証を済ませていること）。 */
+export async function setTeamRequireMfa(value: boolean): Promise<void> {
+  const r = await manage({ action: 'mfa_require', value })
+  if (!r.ok) throw new Error(errOf(r.data, '設定の変更に失敗しました'))
+}
+
+/** owner: メンバーの 2 段階認証をリセット（認証アプリの登録を消す。端末をなくしたとき）。 */
+export async function resetMemberMfa(userId: string): Promise<void> {
+  const r = await manage({ action: 'mfa_reset', userId })
+  if (!r.ok) throw new Error(errOf(r.data, 'リセットに失敗しました'))
 }
 
 /** 招待リンクのフル URL を組み立てる。 */

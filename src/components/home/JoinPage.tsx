@@ -4,6 +4,7 @@ import { CircleNotch, UsersThree, CheckCircle, XCircle } from '@phosphor-icons/r
 import { joinTeam, previewInvite, signupAndJoin } from '../../lib/api/team'
 import { useAuth } from '../../hooks/useAuth'
 import { supabase } from '../../lib/supabase'
+import { markJoinDone, readJoinDone } from '../../lib/team/joinDone'
 
 // 招待リンクの着地ページ（/join/:token）。AuthGuard の公開パス（未ログインでも表示される）。
 // - ログイン済み: opt-in 確認 →「参加する」で join。
@@ -14,9 +15,9 @@ export function JoinPage() {
   const { user, loading: authLoading } = useAuth()
 
   // token 無しは最初から error（effect 内の同期 setState を避けるため初期値で導出）
-  const [state, setState] = useState<'loading' | 'confirm' | 'joining' | 'done' | 'error'>(() => (token ? 'loading' : 'error'))
+  const [state, setState] = useState<'loading' | 'confirm' | 'joining' | 'done' | 'error'>(() => (!token ? 'error' : readJoinDone(token) ? 'done' : 'loading'))
   const [message, setMessage] = useState<string | null>(() => (token ? null : '無効な招待リンクです'))
-  const [teamName, setTeamName] = useState<string | null>(null)
+  const [teamName, setTeamName] = useState<string | null>(() => readJoinDone(token)?.teamName ?? null)
 
   // 未ログイン時のフォーム（signup=アカウント作成 / login=既存アカウント）
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
@@ -27,7 +28,8 @@ export function JoinPage() {
 
   // マウント時に招待を検証してチーム名を表示（無効リンクは参加ボタンを押す前に判明・未ログイン可）
   useEffect(() => {
-    if (!token) return
+    // 参加が済んだ直後に開き直したとき（2 段階認証の登録・コード入力の画面をはさんだ後）は、「参加しました」のまま
+    if (!token || readJoinDone(token)) return
     previewInvite(token)
       .then((r) => {
         setTeamName(r.teamName)
@@ -44,6 +46,7 @@ export function JoinPage() {
     setState('joining')
     try {
       const r = await joinTeam(token)
+      markJoinDone(token, r.teamName)
       setTeamName(r.teamName)
       setState('done')
     } catch (e) {
@@ -69,6 +72,7 @@ export function JoinPage() {
     setSubmitting(true)
     try {
       const r = await signupAndJoin(token, email.trim(), password)
+      markJoinDone(token, r.teamName)
       setTeamName(r.teamName)
       // 作成した資格情報でそのままログイン（失敗してもアカウント作成+参加は成立している）
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })

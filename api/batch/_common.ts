@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { isOperator } from '../admin/_adminLogic'
 import type { BatchOpts } from './_batchLogic'
 import { cleanEnv } from '../../src/lib/env'
+import { callerOf, mfaBlock, type Caller } from '../_auth'
 
 export function jsonResponse(data: object, status: number): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
@@ -23,14 +24,14 @@ export function readEnv(): BatchEnv | null {
   return { supabaseUrl, anonKey, serviceRoleKey, falKey, webhookBaseUrl, adminIds: process.env.ADMIN_USER_IDS }
 }
 
-/** Authorization: Bearer <JWT> を検証して userId を返す（無効なら null）。 */
-export async function authUserId(req: Request, env: BatchEnv): Promise<string | null> {
+/** Authorization: Bearer <JWT> を検証して呼び出し者（userId・保証レベル・要素の有無）を返す（無効なら null）。 */
+export async function authCaller(req: Request, env: BatchEnv): Promise<Caller | null> {
   const authHeader = req.headers.get('authorization')
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!token) return null
   const userSupabase = createClient(env.supabaseUrl, env.anonKey, { global: { headers: { Authorization: `Bearer ${token}` } } })
   const { data: { user }, error } = await userSupabase.auth.getUser(token)
-  return error || !user ? null : user.id
+  return error || !user ? null : callerOf(user, token)
 }
 
 export function batchOpts(env: BatchEnv, userId: string | null): BatchOpts {
@@ -48,11 +49,15 @@ export function authedPost(run: (admin: unknown, userId: string, opts: BatchOpts
     if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
     const env = readEnv()
     if (!env) return jsonResponse({ error: 'Server configuration error' }, 500)
-    const userId = await authUserId(req, env)
-    if (!userId) return jsonResponse({ error: 'Forbidden' }, 403)
+    const caller = await authCaller(req, env)
+    if (!caller) return jsonResponse({ error: 'Forbidden' }, 403)
+    const admin = adminClient(env)
+    // 2 段階認証が必要なのに済んでいないセッションは通さない（2026-11-14・規則は src/lib/auth/mfaGate.ts）
+    const blocked = await mfaBlock(admin, caller)
+    if (blocked) return jsonResponse(blocked.body, blocked.status)
     let body: unknown
     try { body = await req.json() } catch { body = {} }
-    const result = await run(adminClient(env), userId, batchOpts(env, userId), body)
+    const result = await run(admin, caller.userId, batchOpts(env, caller.userId), body)
     return jsonResponse(result.body, result.status)
   }
 }

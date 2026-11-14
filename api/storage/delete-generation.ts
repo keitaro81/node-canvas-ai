@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 import { withSentry } from '../_sentry'
 import { deleteGenerationServer } from './_deleteGenerationLogic'
+import { callerOf, mfaBlock } from '../_auth'
 
 // 生成物の削除（1件 or ワークフロー配下一括）Edge エンドポイント。所有者チェック込みの
 // ロジックは _deleteGenerationLogic に集約（vite dev /dev-proxy/delete-generation と共用）。
@@ -42,6 +43,9 @@ async function handler(req: Request): Promise<Response> {
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey)
+  // 2 段階認証が必要なのに済んでいないセッションは通さない（2026-11-14・規則は src/lib/auth/mfaGate.ts）
+  const blocked = await mfaBlock(admin, callerOf(user, token))
+  if (blocked) return jsonResponse(blocked.body, blocked.status)
   const result = await deleteGenerationServer(admin, user.id, body)
   return jsonResponse(result.body, result.status)
 }

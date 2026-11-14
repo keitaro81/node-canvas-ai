@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { noteMfaResponse } from '../auth/mfaSignal'
 
 const IMAGE_BUCKET = 'generated-images'
 const VIDEO_BUCKET = 'generated-videos'
@@ -71,6 +72,7 @@ export async function uploadImageFromUrl(sourceUrl: string, nodeId: string): Pro
 
   if (!res.ok) {
     const err = await res.json() as { error?: string }
+    noteMfaResponse(res.status, err)
     throw new Error(err.error ?? 'Image upload failed')
   }
 
@@ -196,7 +198,10 @@ export async function signMediaRequest(body: {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ workflowId: body.workflowId ?? undefined, urls, ownUrls, batchPaths }),
     })
-    if (!res.ok) return {}
+    if (!res.ok) {
+      if (res.status === 403) noteMfaResponse(403, await res.json().catch(() => null))
+      return {}
+    }
     const data = await res.json() as { map?: Record<string, string> }
     return data.map ?? {}
   } catch {

@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 import { withSentry } from '../_sentry'
 import { falProxyCore, jsonResponse, FAL_TARGET_URL_HEADER } from './_proxyLogic'
+import { callerOf, mfaBlock } from '../_auth'
 
 // fal.ai プロキシ（Edge）。JWT を検証し、allowlist・クォータ・転送は _proxyLogic（vite dev /dev-proxy/fal と共用）。
 // フロントは fal 鍵を一切持たない（本番/開発とも proxy 経由）。
@@ -29,19 +30,24 @@ async function handler(req: Request): Promise<Response> {
 
   // JWT 検証 → userId
   let userId: string | null = null
+  let factors: Array<{ status?: string | null }> | null = null
   try {
     const verifyRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey },
     })
     if (!verifyRes.ok) return jsonResponse({ error: 'Forbidden' }, 403)
-    const user = await verifyRes.json() as { id?: string }
+    const user = await verifyRes.json() as { id?: string; factors?: Array<{ status?: string | null }> | null }
     userId = user?.id ?? null
+    factors = user?.factors ?? null
   } catch {
     return jsonResponse({ error: 'Auth verification failed' }, 500)
   }
   if (!userId) return jsonResponse({ error: 'Forbidden' }, 403)
 
   const admin = createClient(supabaseUrl, serviceRoleKey)
+  // 2 段階認証が必要なのに済んでいないセッションは通さない（2026-11-14・規則は src/lib/auth/mfaGate.ts）
+  const blocked = await mfaBlock(admin, callerOf({ id: userId, factors }, token))
+  if (blocked) return jsonResponse(blocked.body, blocked.status)
   return falProxyCore({
     admin,
     userId,

@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 import { withSentry } from '../_sentry'
 import { saveImageServer } from './_saveImageLogic'
+import { callerOf, mfaBlock } from '../_auth'
 
 // fal の一時URLをサーバー側で取得し自前バケットへ保存する Edge エンドポイント。
 // ロジックは _saveImageLogic に集約（vite dev /dev-proxy/save-image と共用）。
@@ -31,8 +32,8 @@ async function handler(req: Request): Promise<Response> {
   const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   })
-  const { error: authError } = await userSupabase.auth.getUser(token)
-  if (authError) return jsonResponse({ error: 'Forbidden' }, 403)
+  const { data: { user }, error: authError } = await userSupabase.auth.getUser(token)
+  if (authError || !user) return jsonResponse({ error: 'Forbidden' }, 403)
 
   let body: { sourceUrl?: string; nodeId?: string }
   try {
@@ -42,6 +43,9 @@ async function handler(req: Request): Promise<Response> {
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey)
+  // 2 段階認証が必要なのに済んでいないセッションは通さない（2026-11-14・規則は src/lib/auth/mfaGate.ts）
+  const blocked = await mfaBlock(admin, callerOf(user, token))
+  if (blocked) return jsonResponse(blocked.body, blocked.status)
   const result = await saveImageServer(admin, body)
   return jsonResponse(result.body, result.status)
 }

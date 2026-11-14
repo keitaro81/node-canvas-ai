@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 import { withSentry } from '../_sentry'
 import { teamManage, actionNeedsAuth, type TeamManageBody } from './_teamLogic'
+import { callerOf, mfaBlock, type Caller } from '../_auth'
 
 // チーム管理エンドポイント。JWT を検証→service role で teamManage を実行。
 // action: invite / join / leave / remove / role / list（認可は各 action 内）。
@@ -32,7 +33,7 @@ async function handler(req: Request): Promise<Response> {
   }
 
   // preview / signup（invite-gated signup）は未認証で可。それ以外は JWT 検証 → userId
-  let userId: string | null = null
+  let caller: Caller | null = null
   if (actionNeedsAuth(body?.action)) {
     const authHeader = req.headers.get('authorization')
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
@@ -42,10 +43,15 @@ async function handler(req: Request): Promise<Response> {
     })
     const { data: { user }, error: authError } = await userSupabase.auth.getUser(token)
     if (authError || !user) return jsonResponse({ error: 'Forbidden' }, 403)
-    userId = user.id
+    caller = callerOf(user, token)
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey)
-  const result = await teamManage(admin, userId, body)
+  if (caller) {
+    // 2 段階認証が必要なのに済んでいないセッションは通さない（2026-11-14・規則は src/lib/auth/mfaGate.ts）
+    const blocked = await mfaBlock(admin, caller)
+    if (blocked) return jsonResponse(blocked.body, blocked.status)
+  }
+  const result = await teamManage(admin, caller?.userId ?? null, body, caller ? { aal: caller.aal } : undefined)
   return jsonResponse(result.body, result.status)
 }
