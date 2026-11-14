@@ -3,13 +3,15 @@
 // 返り値 { status, body } を呼び出し側がそのまま HTTP 応答にする。
 // 設計: docs/specs/team-management-mvp.md §6
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { MFA_AAL2_NEEDED_MESSAGE, clearTeamMfaCache, logMfaEvent, resetUserMfa } from '../_auth'
 
 type Role = 'owner' | 'member'
 
 export interface TeamManageBody {
-  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators'
+  action: 'invite' | 'join' | 'preview' | 'signup' | 'leave' | 'remove' | 'role' | 'list' | 'rename' | 'creators' | 'mfa_require' | 'mfa_reset'
   token?: string // join, preview, signup
-  userId?: string // remove, role の対象
+  userId?: string // remove, role, mfa_reset の対象
+  value?: boolean // mfa_require（true = このチームは 2 段階認証を必須にする）
   role?: Role // role
   email?: string // signup
   password?: string // signup
@@ -38,6 +40,11 @@ function currentPeriodJst(): string {
 export interface TeamManageResult {
   status: number
   body: Record<string, unknown>
+}
+
+/** 呼び出し者の保証レベル（入口が JWT から渡す）。2 段階認証の設定を変える操作は aal2（本人が 2 段階目を通している）が要る */
+export interface TeamManageCtx {
+  aal: 'aal1' | 'aal2'
 }
 
 // caller の所属（1ユーザー1チーム前提＝単一行）
@@ -89,7 +96,7 @@ async function moveToNewPersonalTeam(admin: any, userId: string): Promise<void> 
   }
 }
 
-export async function teamManage(admin: any, callerId: string | null, body: TeamManageBody): Promise<TeamManageResult> {
+export async function teamManage(admin: any, callerId: string | null, body: TeamManageBody, ctx?: TeamManageCtx): Promise<TeamManageResult> {
   const action = body?.action
   // 未認証で呼べるのは preview / signup のみ
   if (action === 'preview') return previewInvite(admin, body.token)
@@ -112,6 +119,10 @@ export async function teamManage(admin: any, callerId: string | null, body: Team
       return renameTeam(admin, callerId, body.name)
     case 'creators':
       return teamCreators(admin, callerId)
+    case 'mfa_require':
+      return setRequireMfa(admin, callerId, body.value, ctx)
+    case 'mfa_reset':
+      return resetMemberMfa(admin, callerId, body.userId, ctx)
     default:
       return { status: 400, body: { error: 'Unknown action' } }
   }
@@ -268,6 +279,7 @@ async function join(admin: any, callerId: string, token?: string): Promise<TeamM
     if (remaining === 0) await admin.from('teams').delete().eq('id', oldTeam)
   }
 
+  clearTeamMfaCache(callerId)   // 所属が変わった: 新しいチームの「2 段階認証が必須か」をすぐ見る
   const { data: t } = await admin.from('teams').select('name').eq('id', targetTeam).maybeSingle()
   return { status: 200, body: { teamId: targetTeam, teamName: t?.name } }
 }
@@ -283,6 +295,7 @@ async function leave(admin: any, callerId: string): Promise<TeamManageResult> {
     if (owners <= 1) return { status: 409, body: { error: '最後のオーナーです。先に他メンバーをオーナーにしてください' } }
   }
   await moveToNewPersonalTeam(admin, callerId)
+  clearTeamMfaCache(callerId)
   return { status: 200, body: { left: true } }
 }
 
@@ -295,6 +308,7 @@ async function removeMember(admin: any, callerId: string, targetUserId?: string)
   const { data: tgt } = await admin.from('team_members').select('team_id').eq('user_id', targetUserId).maybeSingle()
   if (!tgt || tgt.team_id !== m.team_id) return { status: 404, body: { error: 'そのメンバーは見つかりません' } }
   await moveToNewPersonalTeam(admin, targetUserId)
+  clearTeamMfaCache(targetUserId)
   return { status: 200, body: { removed: true } }
 }
 
@@ -337,6 +351,9 @@ async function listMembers(admin: any, callerId: string): Promise<TeamManageResu
     else if (r.kind === 'video') { u.video += r.count ?? 0; usedVideo += r.count ?? 0 }
   }
 
+  // 2 段階認証の状態（0023 の RPC。未適用の環境では null = 不明）
+  const mfaByMember = await mfaOverview(admin, m.team_id)
+
   const members: Array<Record<string, unknown>> = []
   for (const r of rows ?? []) {
     const { data: u } = await admin.auth.admin.getUserById(r.user_id)
@@ -347,14 +364,11 @@ async function listMembers(admin: any, callerId: string): Promise<TeamManageResu
       isMe: r.user_id === callerId,
       usedImage: byMember[r.user_id]?.image ?? 0,
       usedVideo: byMember[r.user_id]?.video ?? 0,
+      mfa: mfaByMember ? mfaByMember[r.user_id] === true : null,
     })
   }
 
-  const { data: team } = await admin
-    .from('teams')
-    .select('name, quota_image_monthly, quota_video_monthly')
-    .eq('id', m.team_id)
-    .maybeSingle()
+  const team = await teamRow(admin, m.team_id)
 
   // owner のみ現在のアクティブ招待リンクを返す
   let invite: { token: string; expiresAt: string } | null = null
@@ -381,6 +395,61 @@ async function listMembers(admin: any, callerId: string): Promise<TeamManageResu
       usage: { period, usedImage, usedVideo },
       members,
       invite,
+      requireMfa: team?.require_mfa ?? null,   // null = 0023 未適用（画面は欄を出さない）
     },
   }
+}
+
+// ────────────────────────────────────────────
+// 2 段階認証（2026-11-14・設計 docs/specs/two-factor-auth.md）
+// ────────────────────────────────────────────
+
+// チームの行。require_mfa は 0023 で足した列なので、未適用の環境では列なしで引き直す（一覧を壊さない）
+async function teamRow(admin: any, teamId: string): Promise<{ name: string | null; quota_image_monthly: number; quota_video_monthly: number; require_mfa: boolean | null } | null> {
+  const withFlag = await admin.from('teams').select('name, quota_image_monthly, quota_video_monthly, require_mfa').eq('id', teamId).maybeSingle()
+  if (!withFlag.error) return withFlag.data ? { ...withFlag.data, require_mfa: withFlag.data.require_mfa === true } : null
+  const plain = await admin.from('teams').select('name, quota_image_monthly, quota_video_monthly').eq('id', teamId).maybeSingle()
+  return plain.data ? { ...plain.data, require_mfa: null } : null
+}
+
+// メンバーごとの「認証アプリを登録済みか」（0023 の team_mfa_overview。未適用なら null = 不明）
+async function mfaOverview(admin: any, teamId: string): Promise<Record<string, boolean> | null> {
+  const { data, error } = await admin.rpc('team_mfa_overview', { p_team_id: teamId })
+  if (error || !Array.isArray(data)) return null
+  const map: Record<string, boolean> = {}
+  for (const r of data as Array<{ user_id: string; has_factor: boolean }>) map[r.user_id] = r.has_factor === true
+  return map
+}
+
+// ── mfa_require: owner がチームの 2 段階認証を必須にする / 外す（操作する本人が 2 段階認証済みであること）──
+async function setRequireMfa(admin: any, callerId: string, value: boolean | undefined, ctx?: TeamManageCtx): Promise<TeamManageResult> {
+  if (typeof value !== 'boolean') return { status: 400, body: { error: '不正なリクエストです' } }
+  const m = await myMembership(admin, callerId)
+  if (!m || m.role !== 'owner') return { status: 403, body: { error: 'オーナーのみ変更できます' } }
+  if (ctx?.aal !== 'aal2') return { status: 403, body: { error: MFA_AAL2_NEEDED_MESSAGE, code: 'mfa_aal2_needed' } }
+  const { error } = await admin.from('teams').update({ require_mfa: value }).eq('id', m.team_id)
+  if (error) return { status: 500, body: { error: `設定を保存できませんでした（データベースの更新 0023 が未適用の可能性があります）: ${error.message ?? ''}` } }
+  clearTeamMfaCache()
+  await logMfaEvent(admin, { actor_id: callerId, target_user_id: null, team_id: m.team_id, action: value ? 'require_on' : 'require_off' })
+  return { status: 200, body: { requireMfa: value } }
+}
+
+// ── mfa_reset: owner が同じチームのメンバーの認証アプリの登録を消す（端末をなくしたとき）──
+// 自分自身は対象外（Account から変える）。操作する本人が 2 段階認証済みであること（パスワードだけ盗まれたオーナーのアカウントから外されないように）
+async function resetMemberMfa(admin: any, callerId: string, targetUserId: string | undefined, ctx?: TeamManageCtx): Promise<TeamManageResult> {
+  if (!targetUserId) return { status: 400, body: { error: 'userId がありません' } }
+  const m = await myMembership(admin, callerId)
+  if (!m || m.role !== 'owner') return { status: 403, body: { error: 'オーナーのみリセットできます' } }
+  if (targetUserId === callerId) return { status: 400, body: { error: '自分の 2 段階認証は Account から変更してください' } }
+  if (ctx?.aal !== 'aal2') return { status: 403, body: { error: MFA_AAL2_NEEDED_MESSAGE, code: 'mfa_aal2_needed' } }
+  const { data: tgt } = await admin.from('team_members').select('team_id').eq('user_id', targetUserId).maybeSingle()
+  if (!tgt || tgt.team_id !== m.team_id) return { status: 404, body: { error: 'そのメンバーは見つかりません' } }
+  let removed: number
+  try {
+    removed = await resetUserMfa(admin, targetUserId)
+  } catch (e) {
+    return { status: 500, body: { error: `リセットに失敗しました: ${e instanceof Error ? e.message : String(e)}` } }
+  }
+  await logMfaEvent(admin, { actor_id: callerId, target_user_id: targetUserId, team_id: m.team_id, action: 'reset_by_owner', detail: { removed } })
+  return { status: 200, body: { reset: true, removed } }
 }

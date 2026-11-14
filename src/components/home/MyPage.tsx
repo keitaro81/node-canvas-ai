@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { showToast } from '../../hooks/useToast'
 import { supabase } from '../../lib/supabase'
+import { MfaSettingsSection } from './MfaSettingsSection'
 
 function isOAuthUser(user: ReturnType<typeof useAuth>['user']): boolean {
   if (!user) return false
@@ -41,7 +42,11 @@ export function MyPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSaving, setIsSaving] = useState(false)
-  const [isRecoveryMode, setIsRecoveryMode] = useState(false)
+  const [recoveryEventSeen, setIsRecoveryMode] = useState(false)
+  // 再設定のリンクから来た印はストアにもある（2 段階認証のコード入力をはさむと、この画面が開く前にイベントが済んでいるため）
+  const passwordRecovery = useAuthStore((s) => s.passwordRecovery)
+  const clearPasswordRecovery = useAuthStore((s) => s.clearPasswordRecovery)
+  const isRecoveryMode = recoveryEventSeen || passwordRecovery
   const [isSendingReset, setIsSendingReset] = useState(false)
 
   const isOAuth = isOAuthUser(user)
@@ -88,9 +93,13 @@ export function MyPage() {
       showToast('パスワードを変更しました', 'success')
       setNewPassword('')
       setConfirmPassword('')
+      setIsRecoveryMode(false)
+      clearPasswordRecovery()
     } catch (err) {
       const msg = (err as Error).message ?? ''
-      const localizedMsg = msg.includes('different from the old password')
+      const localizedMsg = (err as { code?: string }).code === 'insufficient_aal'
+        ? 'パスワードの変更には 2 段階認証のコード入力が必要です。ログインし直して、コードを入力してからお試しください'
+        : msg.includes('different from the old password')
         ? '現在と異なるパスワードを入力してください'
         : msg || 'パスワードの変更に失敗しました'
       showToast(localizedMsg, 'error')
@@ -150,6 +159,9 @@ export function MyPage() {
           )}
         </div>
       </section>
+
+      {/* 2 段階認証（Google でログインする人も設定できる） */}
+      <MfaSettingsSection />
 
       {/* Password section */}
       {!isOAuth && (

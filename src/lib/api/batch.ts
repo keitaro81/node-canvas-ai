@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import type { BatchItem, NodeData } from '../../types/nodes'
 import type { Edge, Node } from '@xyflow/react'
 import { toCanonicalRef } from './storage'
+import { noteMfaResponse } from '../auth/mfaSignal'
 
 const base = () => (import.meta.env.DEV ? '/dev-proxy/batch' : '/api/batch')
 
@@ -16,6 +17,7 @@ async function call<T>(action: string, body: unknown): Promise<T> {
     body: JSON.stringify(body ?? {}),
   })
   const json = await res.json().catch(() => ({})) as Record<string, unknown>
+  noteMfaResponse(res.status, json)   // 2 段階認証が必要と断られたら、判定を取り直す
   if (!res.ok) {
     const msg = typeof json.message === 'string' ? json.message : typeof json.error === 'string' ? json.error : `batch ${action} failed (${res.status})`
     throw Object.assign(new Error(msg), { code: json.error, status: res.status, details: json })

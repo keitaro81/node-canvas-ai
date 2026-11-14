@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { noteMfaResponse } from '../auth/mfaSignal'
 import { toCanonicalRef } from './storage'
 import { signGenerationRows, signUrlRecord } from './signMedia'
 import { isOwnOrTeamShared } from '../library/generationVisibility'
@@ -216,6 +217,7 @@ async function callDeleteEndpoint(body: { generationId?: string; workflowId?: st
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as { error?: string }
+    noteMfaResponse(res.status, err)
     throw new Error(err.error ?? `Delete failed (${res.status})`)
   }
   const data = await res.json() as { deleted: number }

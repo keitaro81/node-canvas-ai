@@ -76,6 +76,12 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
   2. **invite-gated signup**: チームの招待リンク経由で、未アカウントの人がその場でアカウント作成→自動参加（§8）。
 - **fal プロキシ**: Supabase JWT を検証してからサーバー側 `FAL_KEY` で転送（§6）。
 - **sign-media / save-image / delete-generation / team-manage(list等)**: いずれも Edge 側で JWT 検証。例外は `team-manage` の `preview`/`signup`（未認証で可）と dev の `save-image`（クライアントが token を送らない設計のため dev のみ未認証）。
+- **2 段階認証（MFA・2026-11-14・設計 `docs/specs/two-factor-auth.md`）**: Supabase Auth 標準の TOTP。規則は 1 つ（本人が検証済みの要素を持つ or 所属チームが `teams.require_mfa` → JWT の `aal` が `aal2` でなければデータに触れない）で、純関数 `src/lib/auth/mfaGate.ts` を画面と Edge で共用する。
+  - **DB（0023）**: `public.mfa_satisfied()` ＋ RLS のある全テーブルと `storage.objects` に restrictive ポリシー `mfa_gate`。RLS を通らない RPC は本体に同じ条件。**新しいテーブルに RLS を付けたら `mfa_gate` も足す**（0023 の (7) の形。忘れるとそのテーブルだけ 1 段階目のトークンで読める）。**security definer の RPC を足したら `mfa_satisfied()` の確認を入れる**。行ごとに呼ばれる判定関数（`can_view_batch_job` など）には入れない（一覧が遅くなる）。
+  - **Edge**: `api/_auth.ts` の `mfaBlock(admin, callerOf(user, token))` を JWT 検証の直後に呼ぶ（403 ＋ `code: 'mfa_required'` ＋ `gate`）。**入口を足したら必ず呼ぶ**（`vite.config.ts` の dev ミドルウェアも）。運営（`adminManage`）は aal2 必須。チームの必須の切り替え・メンバーのリセット（`teamManage` の `mfa_require` / `mfa_reset`）はオーナー本人が aal2 のときだけ。操作は `mfa_events` に記録（service role だけが読める）。
+  - **画面**: `AuthGuard` が `mfaStore.status`（unknown / ok / challenge / enroll）を見て `MfaChallengeScreen` / `MfaEnrollScreen` を出す（表示だけ。強制はサーバー側）。API のラッパーは 403 `mfa_required` を `noteMfaResponse` に渡し、判定を取り直す。設定は Account の `MfaSettingsSection`（登録の部品は `MfaEnrollPanel`）。
+  - **はまりどころ**: supabase-js はコード入力直後のトークンを Realtime に渡さない（SIGNED_IN / TOKEN_REFRESHED だけ）ので、`authStore` が `MFA_CHALLENGE_VERIFIED` で `supabase.realtime.setAuth` を呼んでいる。要素を消すと、その要素で通したセッションは aal1 に戻る（Auth サーバーの挙動）。dev で確認するときは、ファイルの保存（HMR）でストアが作り直され、登録の途中の画面が閉じる。
+  - **戻し方**: 0023 の末尾。DB 側の強制を止めるのは `mfa_satisfied()` を常に true に置き換える 1 文。
 
 ## 5. データモデル（本番実測 2026-07-05）
 
@@ -238,6 +244,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 | 0013 | ReviewGrid: `batch_jobs.layout_overrides`＋RPC `set_batch_job_layout`・`batch_outputs.kind`（full/thumb）＋一意 (item,variant,hash,kind)・`record_batch_output` 5 引数版 |
 | 0014 | ジョブと投入元ワークフローの連動: `batch_jobs.workflow_id`（投入時に本人 or チーム共有のワークフローだけ記録） |
 | 0016 | ジョブの閲覧ルール: `can_view_batch_job(_as)`（作成者 / チーム owner / 共有ワークフローのメンバー）で batch_* の SELECT・storage の `<team>/<job>/` パス・`review_batch_item`・`record_batch_output` を判定。`set_batch_job_layout` は作成者のみ。`team_batch_limits()` でチーム全体の本日枚数/進行中数 |
+| 0023 | **2 段階認証の強制**: `teams.require_mfa`・`mfa_satisfied()` / `mfa_status()` / `team_requires_mfa()` / `team_mfa_overview()`・`mfa_events`・RLS のある全テーブルと `storage.objects` に restrictive の `mfa_gate`・RLS を通らない RPC（確認結果 / 出力の記録 / レイアウト保存 / 編集ロック / 本日の利用数 / ライブラリの最終利用）に同じ条件。自己確認つきの 1 トランザクション。適用しただけでは誰も止まらない（0017〜0022 は §10 の各項を参照） |
 
 ## 12. テスト
 
@@ -247,6 +254,7 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 - `npm run test:batch` — 撮影後工程の一括実行の受入（実 DB/実 Edge/実 fal。既定は本番=Webhook 経路、`APP_URL=http://localhost:5173` で dev=照合経路）。投入→完了→冪等→失敗分の再実行→NG のみ再実行（設定差し替え）→権限→同時ジョブ上限→削除まで。一時ユーザー/チームを作り finally で削除。fal のコストが数セントかかる。
 - **本番テストの運用（2026-10-04・Disk IO 対策）**: 本番 DB は Micro（以前は Nano でスワップ常用→Disk IO 予算の通知）。受入テストは最小限に: `test:batch` は既定 5 枚（`ITEMS=20` は負荷確認時のみ）、`test:batch:chain` は連鎖のサーバー変更時のみ、`test:integration` はデプロイ 1 回につき 1 回。UI 確認の一時ジョブも最小限（作ったら必ず削除）。アプリ側は `batch_jobs` の Realtime 購読を「ジョブ管理画面を開いている間 or 進行中ジョブがある間」に限定（`batchStore.watch/unwatch`・`useWatchBatchJobs`・`shouldSubscribeJobs`）。
 - `npm run test:integration` — 実DB/実Edge に対するセキュリティ回帰（L2クロステナント署名遮断・team/manage認可・sign-mediaクロステナント）。**一時データを作り finally で必ず削除**。生成APIは叩かない（コストなし）。リリース前チェック向け。
+  - **Group I（2 段階認証・2026-11-14）**: テスト内で TOTP を計算して一時ユーザーに認証アプリを登録し、aal1 のトークンでは 0 行・書き込み不可・RPC も返さない・Edge は 403 `mfa_required`、aal2 では通ることを確かめる。チーム必須 ＋ 未登録（gate = enroll）、必須の切り替えとリセットは aal2 のオーナーだけ、`mfa_events` の記録も見る。0023 が未適用・この版が未デプロイの環境では SKIP と出る。
 
 ## 13. デプロイと環境
 

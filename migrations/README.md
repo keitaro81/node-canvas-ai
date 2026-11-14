@@ -32,3 +32,6 @@
 - `0019_batch_jobs_kind_video_limit.sql` — 商品動画の日次上限を別枠に: batch_jobs.kind・teams.daily_video_limit（20）・team_batch_limits() 更新。staging → 本番の順に適用（2026-10-17）
 - `0020_library.sql` — ライブラリ: library_items（個人＋チーム共有・最終利用から 30 日で自動削除・ピン留め）・library_touch()・generations.pinned。staging → 本番の順に適用（適用済み 2026-10-18。`drop policy if exists` で Supabase の「破壊的操作」警告が出るが安全）
 - `0021_library_models.sql` — ライブラリのモデル（人物）登録: library_models（名前・役割ごとの素材 id・個人/チーム共有）。staging → 本番の順に適用
+- `0022_generations_visibility.sql` — 生成物のチーム共有: generations.visibility（private / team）・RLS（同じチームは閲覧可・更新は持ち主だけ）。staging → 本番の順に適用（適用済み 2026-11-08）
+- `0023_mfa.sql` — 2 段階認証の強制（設計 `docs/specs/two-factor-auth.md`）: teams.require_mfa・`mfa_satisfied()` / `mfa_status()` / `team_requires_mfa()` / `team_mfa_overview()`・mfa_events・RLS のある全テーブルと storage.objects に restrictive の `mfa_gate` ポリシー・RLS を通らない RPC（review_batch_item / record_batch_output / set_batch_job_layout / acquire_workflow_edit_lock / team_batch_limits / library_touch）の本体に同じ条件（行ごとに呼ばれる can_view_batch_job / can_edit_workflow は変えない）。**begin〜commit の 1 トランザクション**で、途中の自己確認に失敗すると全体が取り消される。適用しただけでは誰も止まらない（要素なし・必須なしのユーザーは常に true）。staging → 本番の順に SQL Editor でファイル全体を実行し、末尾の「確認」を実行する。戻し方もファイル末尾（DB 側の強制を止めるのは `mfa_satisfied()` を常に true に置き換える 1 文）。**適用済み（2026-11-14）**
+

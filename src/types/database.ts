@@ -238,6 +238,10 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      mfa_status: {
+        Args: Record<string, never>
+        Returns: Json
+      }
       can_edit_workflow: {
         Args: { p_workflow_id: string }
         Returns: boolean

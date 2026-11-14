@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { CircleNotch, Copy, Check, Buildings, Plus, ArrowLeft } from '@phosphor-icons/react'
-import { listAdminBranches, provisionBranch, type AdminBranchList, type ProvisionResult } from '../../lib/api/admin'
+import { adminResetMfa, listAdminBranches, provisionBranch, type AdminBranchList, type ProvisionResult } from '../../lib/api/admin'
 
 // 運営（オペレーター）専用コンソール（Tier 1）。ADMIN_USER_IDS に載る運営のみアクセス可（サーバーで 403）。
 // 通常ナビには出さない独立ルート（/admin）。チームセットアップ＋全チーム一覧。
@@ -28,7 +28,13 @@ export function AdminPage() {
   const [list, setList] = useState<AdminBranchList | null>(null)
   const [loading, setLoading] = useState(true)
   const [denied, setDenied] = useState(false)
+  // 運営コンソールは 2 段階認証を済ませた運営だけ（サーバーが 403 + code 'mfa_required' を返す）
+  const [mfaNeeded, setMfaNeeded] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // 2 段階認証のリセット
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetting, setResetting] = useState(false)
+  const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   // フォーム
   const [teamName, setTeamName] = useState('')
@@ -44,10 +50,12 @@ export function AdminPage() {
     try {
       setList(await listAdminBranches())
       setDenied(false)
+      setMfaNeeded(null)
       setError(null)
     } catch (e) {
-      const err = e as Error & { status?: number }
-      if (err.status === 403) setDenied(true)
+      const err = e as Error & { status?: number; code?: string }
+      if (err.code === 'mfa_required') setMfaNeeded(err.message)
+      else if (err.status === 403) setDenied(true)
       else setError(err.message)
     } finally {
       setLoading(false)
@@ -74,12 +82,42 @@ export function AdminPage() {
     }
   }
 
+  async function handleMfaReset(e: React.FormEvent) {
+    e.preventDefault()
+    const email = resetEmail.trim()
+    if (!email) return
+    if (!confirm(`${email} の 2 段階認証をリセットしますか？\n認証アプリの登録がすべて消えます。本人確認が済んでいることを確かめてください。`)) return
+    setResetting(true)
+    setResetMsg(null)
+    try {
+      const r = await adminResetMfa(email)
+      setResetMsg({ ok: true, text: r.removed > 0 ? `${r.email} の認証アプリの登録を ${r.removed} 件消しました` : `${r.email} には登録済みの認証アプリがありませんでした` })
+      setResetEmail('')
+    } catch (err) {
+      setResetMsg({ ok: false, text: (err as Error).message })
+    } finally {
+      setResetting(false)
+    }
+  }
+
   const inputStyle: React.CSSProperties = { background: 'var(--bg-canvas)', border: '1px solid var(--border)', color: 'var(--text-primary)' }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen" style={{ background: 'var(--bg-canvas)' }}>
         <CircleNotch size={28} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
+      </div>
+    )
+  }
+
+  if (mfaNeeded) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen gap-4 px-6" style={{ background: 'var(--bg-canvas)' }}>
+        <p className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>2 段階認証が必要です</p>
+        <p className="text-[13px] text-center max-w-[460px] leading-relaxed [text-wrap:balance]" style={{ color: 'var(--text-secondary)' }}>{mfaNeeded}</p>
+        <button onClick={() => navigate('/account')} className="px-4 py-2 rounded-lg text-[13px] font-medium" style={{ background: 'var(--accent)', color: '#fff' }}>
+          Account を開く
+        </button>
       </div>
     )
   }
@@ -164,6 +202,29 @@ export function AdminPage() {
               </button>
             </div>
           )}
+        </section>
+
+        {/* 2 段階認証のリセット（オーナーが全員使えなくなった場合など。メンバーは、そのチームのオーナーがチーム設定からリセットできる） */}
+        <section className="rounded-xl p-5 mb-6" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <h2 className="text-[13px] font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>2 段階認証のリセット</h2>
+          <p className="text-[12px] mb-3 leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+            認証アプリを使えなくなった利用者の登録を消します。本人確認をしてから実行してください。操作は記録されます。
+          </p>
+          <form onSubmit={handleMfaReset} className="flex items-center gap-2">
+            <input
+              type="email"
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              placeholder="user@example.com"
+              className="flex-1 max-w-[320px] rounded-lg px-3 py-2 text-[13px] outline-none"
+              style={inputStyle}
+            />
+            <button type="submit" disabled={resetting || !resetEmail.trim()} className="px-3.5 py-2 rounded-lg text-[12px] font-medium disabled:opacity-50"
+              style={{ background: 'transparent', border: '1px solid var(--border-active)', color: 'var(--text-primary)' }}>
+              {resetting ? '処理中...' : 'リセット'}
+            </button>
+          </form>
+          {resetMsg && <p className="text-[12px] mt-2" style={{ color: resetMsg.ok ? 'var(--text-secondary)' : 'var(--accent-error)' }}>{resetMsg.text}</p>}
         </section>
 
         {/* チーム一覧 */}

@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' }
 import { createClient } from '@supabase/supabase-js'
 import { withSentry } from '../_sentry'
 import { adminManage, type AdminManageBody } from './_adminLogic'
+import { callerOf } from '../_auth'
 
 // 運営専用の管理エンドポイント。JWT を検証 → 運営 allowlist(ADMIN_USER_IDS) をゲート → 共有コアへ。
 // ロジックは _adminLogic に集約（vite dev /dev-proxy/admin-manage と共用）。
@@ -42,6 +43,6 @@ async function handler(req: Request): Promise<Response> {
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey)
-  const result = await adminManage(admin, user.id, process.env.ADMIN_USER_IDS, body)
+  const result = await adminManage(admin, user.id, process.env.ADMIN_USER_IDS, body, { aal: callerOf(user, token).aal })
   return jsonResponse(result.body, result.status)
 }
