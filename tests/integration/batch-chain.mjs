@@ -59,7 +59,7 @@ const snapshotRetouchThenCutout = () => ({
   nodes: [
     { id: 'bi', type: 'batchInputNode', data: { type: 'batchInput', params: {} } },
     { id: 'tp1', type: 'textPromptNode', data: { type: 'textPrompt', params: { prompt: RETOUCH_PROMPT } } },
-    { id: 'retouch', type: 'imageGenerationNode', data: { type: 'imageGen', label: 'レタッチ', params: { editModel: 'fal-ai/nano-banana-2', aspectRatio: 'auto', resolution: '1K' } } },
+    { id: 'retouch', type: 'imageGenerationNode', data: { type: 'imageGen', label: 'レタッチ', params: { editModel: 'google/nano-banana-2.1', aspectRatio: 'auto', resolution: '1K' } } },
     { id: 'disp', type: 'imageDisplayNode', data: { type: 'imageDisplay' } },
     { id: 'rb', type: 'removeBackgroundNode', data: { type: 'removeBackground', params: RB } },
     { id: 'pl', type: 'productLayoutNode', data: { type: 'productLayout', params: { variantName: 'ec_white' } } },
@@ -79,7 +79,7 @@ const snapshotCutoutThenCompose = () => ({
     { id: 'rb', type: 'removeBackgroundNode', data: { type: 'removeBackground', params: RB } },
     { id: 'pl', type: 'productLayoutNode', data: { type: 'productLayout', params: { variantName: 'ec_white' } } },
     { id: 'tp2', type: 'textPromptNode', data: { type: 'textPrompt', params: { prompt: COMPOSE_PROMPT } } },
-    { id: 'compose', type: 'imageGenerationNode', data: { type: 'imageGen', label: '合成', params: { editModel: 'fal-ai/nano-banana-2', aspectRatio: '1:1', resolution: '1K' } } },
+    { id: 'compose', type: 'imageGenerationNode', data: { type: 'imageGen', label: '合成', params: { editModel: 'google/nano-banana-2.1', aspectRatio: '1:1', resolution: '1K' } } },
   ],
   edges: [
     { source: 'bi', sourceHandle: 'out-image-image', target: 'rb', targetHandle: 'in-image-image' },

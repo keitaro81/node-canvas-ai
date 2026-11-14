@@ -14,14 +14,16 @@ export const BG_REMOVAL_PREFIXES = ['fal-ai/bria/background/remove', 'fal-ai/bir
 // 呼び出しを許可するモデルパスのプレフィックス。`<prefix>` 完全一致 or `<prefix>/...`（/edit・/requests/<id> 等を含む）
 export const ALLOWED_MODEL_PREFIXES = [
   // 画像生成
-  'fal-ai/nano-banana-2',
+  'google/nano-banana-2.1',      // 既定の画像生成・編集・試着（2026-11-14〜）
+  'fal-ai/nano-banana-2',        // 旧（進行中の依頼の確認・古い一括処理の照合のために残す）
   'fal-ai/nano-banana-pro',
   'fal-ai/flux-2',
   'black-forest-labs/flux-schnell',
   'black-forest-labs/flux-dev',
   'black-forest-labs/flux-1.1-pro',
   'fal-ai/recraft/v4',
-  'openai/gpt-image-2',
+  'openai/gpt-image-2.6',        // flare / sunburst の text-to-image・edit（2026-11-14〜）
+  'openai/gpt-image-2',          // 旧（同上）
   // 動画生成
   'fal-ai/ltx-2.3',
   'fal-ai/kling-video',

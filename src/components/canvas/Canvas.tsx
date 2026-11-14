@@ -65,6 +65,7 @@ import { hasParallelGenerationNodes } from '../capsule/capsuleUtils'
 import { mergeAppShapeOf } from '../../lib/apps/mergeApp'
 import { showToast } from '../../hooks/useToast'
 import { useTheme } from '../../hooks/useTheme'
+import { NB_MODEL } from '../../lib/ai/imageGenModels'
 
 const nodeTypes: NodeTypes = {
   baseNode: TextNode, // fallback
@@ -199,7 +200,7 @@ const IMAGE_GEN_DEFAULT_DATA = {
   type: 'imageGen' as const,
   label: 'Image Generation',
   params: {
-    model: 'fal-ai/nano-banana-2',
+    model: NB_MODEL,
     aspectRatio: '1:1',
     resolution: '1K',
     seed: '',

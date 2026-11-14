@@ -26,7 +26,7 @@ describe('planTasks（写しから AI 処理を抽出）', () => {
   }
   it('Batch Input 直結の Remove Background はアイテムごと、背景入力に行き着くジョブごとの Image Generation は 1 件（結果ノード経由でも）', () => {
     const { tasks, warnings } = planTasks(snapshot)
-    expect(tasks.map((t) => `${t.nodeId}:${t.scope}:${t.endpoint}`)).toEqual(['rb:item:fal-ai/birefnet/v2', 'ig:job:fal-ai/nano-banana-2'])
+    expect(tasks.map((t) => `${t.nodeId}:${t.scope}:${t.endpoint}`)).toEqual(['rb:item:fal-ai/birefnet/v2', 'ig:job:google/nano-banana-2.1'])   // 写しは旧 id（fal-ai/nano-banana-2）でも、投入先は今のモデル
     expect(tasks[0].input).toMatchObject({ model: 'General Use (Light)', operating_resolution: '2048x2048', refine_foreground: false, mask_only: false })   // 常に透過画像も保存（2026-11-01）
     expect('image_url' in tasks[0].input).toBe(false)
     expect(tasks[1].input).toEqual({ prompt: 'studio background', aspect_ratio: '9:16', resolution: '1K' })   // プロンプトは Text Prompt から
@@ -170,7 +170,7 @@ describe('planTasks（フェーズ C: AI 処理 2 段までの連鎖）', () => 
     }
     const { tasks, warnings } = planTasks(snap)
     expect(warnings).toEqual([])
-    expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}:${t.dependsOn ?? '-'}:${t.endpoint}`)).toEqual(['gen:imageEdit:1:-:fal-ai/nano-banana-2/edit', 'rb:cutout:2:gen:fal-ai/birefnet/v2'])
+    expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}:${t.dependsOn ?? '-'}:${t.endpoint}`)).toEqual(['gen:imageEdit:1:-:google/nano-banana-2.1/edit', 'rb:cutout:2:gen:fal-ai/birefnet/v2'])
     expect(tasks[0].input).toEqual({ prompt: 'soft retouch', aspect_ratio: 'auto', resolution: '1K' })
     expect(tasks[0].label).toBe('レタッチ')
     expect(tasks[1].dualOutput).toBe(true)   // 後段の有無に関わらず透過画像も保存（2026-11-01・常に dual）
@@ -197,7 +197,7 @@ describe('planTasks（フェーズ C: AI 処理 2 段までの連鎖）', () => 
     expect(tasks.map((t) => `${t.nodeId}:${t.kind}:${t.stage}:${t.dependsOn ?? '-'}`)).toEqual(['rb:cutout:1:-', 'comp:imageEdit:2:rb'])
     expect(tasks[0].dualOutput).toBe(true)
     expect(tasks[0].input.mask_only).toBe(false)
-    expect(tasks[1].endpoint).toBe('openai/gpt-image-2/edit')
+    expect(tasks[1].endpoint).toBe('openai/gpt-image-2.6/flare/edit')   // 写しの openai/gpt-image-2 は GPT Image 2.6（標準）へ
     expect(tasks[1].input).toEqual({ prompt: 'on a model in a studio', image_size: 'auto' })
   })
   it('3 段目は対象外（警告）。プロンプト無しの編集も対象外。② 並列は 1 段目として両方入る', () => {

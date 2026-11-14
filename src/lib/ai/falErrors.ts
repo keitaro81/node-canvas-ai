@@ -36,3 +36,16 @@ export function falErrorInfo(error: unknown): FalErrorInfo {
   if (e.status === 422) return { kind: 'policy', raw, message: '入力内容がモデルのポリシーに違反しているため生成できませんでした' }   // 理由が読めない 422 は従来どおり
   return { kind: 'other', raw, message: raw || '生成に失敗しました' }
 }
+
+/** 結果を取り出せる期限が過ぎたときの文 */
+export const RESULT_EXPIRED_MESSAGE = '生成から時間が経ったため、結果を取り出せませんでした。もう一度生成してください'
+
+/**
+ * 再読み込み後の復旧（前に投げた依頼の結果を取りに行く）で失敗したときの文。
+ * 結果の取得が 404（Request not found）なら、fal 側の結果が消えている。fal の既定の保持を過ぎたときのほか、
+ * 入出力を保存しない指定（環境変数 FAL_STORE_IO=0・api/fal/_privacy.ts）にしていると完了から約 1 時間で消える（2026-11-14 メモ 83）
+ */
+export function recoveryErrorMessage(error: unknown): string {
+  if ((error as { status?: unknown } | null)?.status === 404) return RESULT_EXPIRED_MESSAGE
+  return falErrorInfo(error).message
+}

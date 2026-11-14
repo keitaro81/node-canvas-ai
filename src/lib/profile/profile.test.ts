@@ -8,7 +8,7 @@ const sample: PostProductionProfile = {
   format: PROFILE_FORMAT, version: 1, name: 'sample', exportedAt: '2026-10-03T00:00:00.000Z',
   input: { skuPattern: '^([A-Z0-9-]+)_', sortOrder: 'filename' },
   cutout: { engine: 'birefnet', birefnetModel: 'General Use (Light)', birefnetResolution: '2048x2048', alphaThreshold: 8, featherPx: 0, defringe: true, defringePx: 2 },   // 縁の色被り除去（2026-11-08 メモ 72）
-  backgrounds: [{ key: 'bg_1', model: 'fal-ai/nano-banana-2', prompt: 'beige studio backdrop', aspectRatio: '9:16', resolution: '1K', seed: null }],
+  backgrounds: [{ key: 'bg_1', model: 'google/nano-banana-2.1', prompt: 'beige studio backdrop', aspectRatio: '9:16', resolution: '1K', seed: null }],
   variants: [
     { ...DEFAULT_LAYOUT_PARAMS, variantName: 'ec_white', background: null },
     { ...DEFAULT_LAYOUT_PARAMS, variantName: 'sns_story', width: 1080, height: 1920, backgroundKind: 'image', backgroundFit: 'cover', shadowKind: 'contact', background: 'bg_1' },
@@ -46,7 +46,7 @@ describe('プロファイル: 空のグラフに読み込む → 書き出すと
     expect(r.profile.variants[0].width).toBe(500)
     expect(r.profile.variants[0].height).toBe(DEFAULT_LAYOUT_PARAMS.height)
     expect(r.profile.variants[1].background).toBeNull()
-    expect(r.profile.backgrounds).toEqual([{ key: 'bg_1', model: 'fal-ai/nano-banana-2', prompt: 'x', aspectRatio: '1:1', resolution: '1K', seed: null }])
+    expect(r.profile.backgrounds).toEqual([{ key: 'bg_1', model: 'google/nano-banana-2.1', prompt: 'x', aspectRatio: '1:1', resolution: '1K', seed: null }])   // 既定 = 今の Nano Banana
     expect(r.warnings.length).toBeGreaterThanOrEqual(3)
   })
   it('形式違い・新しい版は拒否', () => {
@@ -64,7 +64,7 @@ describe('プロファイル: 既存のグラフに当てる', () => {
       { id: 'pl1', type: 'productLayoutNode', position: { x: 800, y: 0 }, data: { type: 'productLayout', params: { ...DEFAULT_LAYOUT_PARAMS, variantName: 'ec_white', width: 999 }, layout: { path: 'keep' } } },
       { id: 'pl2', type: 'productLayoutNode', position: { x: 800, y: 700 }, data: { type: 'productLayout', params: { ...DEFAULT_LAYOUT_PARAMS, variantName: 'old_variant' } } },
       { id: 'tp', type: 'textPromptNode', position: { x: 0, y: 900 }, data: { type: 'textPrompt', params: { prompt: 'beige studio backdrop' } } },
-      { id: 'gen', type: 'imageGenerationNode', position: { x: 400, y: 900 }, data: { type: 'imageGen', params: { model: 'fal-ai/nano-banana-2', executionScope: 'item' } } },
+      { id: 'gen', type: 'imageGenerationNode', position: { x: 400, y: 900 }, data: { type: 'imageGen', params: { model: 'fal-ai/nano-banana-2', executionScope: 'item' } } },   // 旧 id で保存されたノード（今の Nano Banana として使い回される）
       { id: 'ex', type: 'exportNode', position: { x: 1200, y: 0 }, data: { type: 'export', params: { format: 'png' } } },
     ],
     edges: [

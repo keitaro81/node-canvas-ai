@@ -1,10 +1,12 @@
-// 試着（Try-On・2026-11-01・設計 docs/specs/library-tryon.md §7）: Nano Banana 2 edit に渡す試着用の既定プロンプト。
+// 試着（Try-On・2026-11-01・設計 docs/specs/library-tryon.md §7）: Nano Banana（2026-11-14 から 2.1）の edit に渡す試着用の既定プロンプト。
 // 試作で分かったこと: 「2 枚目の服だけを着せ、それ以外（人物・ポーズ・インナー・ボトム・バッグ）は出さない。1 枚目はそのまま」と明記しないと、
 // 着用写真の人物のポーズ・インナー・小物まで写し取る。ユーザーは「服の説明・補足」（任意・日本語可 → 生成時に英訳）だけ書く。
 // サーバー（一括実行・2b-3）でも同じ文を使えるよう、ブラウザに依存しない純関数にしておく。
 import { CUT_ROLES, type CutRole } from '../video/productVideo'
+import { NB_MODEL } from '../ai/imageGenModels'
 
-export const TRY_ON_MODEL = 'fal-ai/nano-banana-2'
+// エンジンは既定の Nano Banana（2.1）。BEAMS の服での比較（2026-11-14）で、2 と同等以上・料金は約半分だった
+export const TRY_ON_MODEL = NB_MODEL
 // ノードのハンドル名（BaseNode の規約 in-<port>-<id> / out-<port>-<id>。出力は Image Generation と同じ id にして Image Display の fallback も効くように）
 export const TRY_ON_MODEL_HANDLE = 'in-image-model'
 export const TRY_ON_GARMENT_HANDLE = 'in-image-garment'

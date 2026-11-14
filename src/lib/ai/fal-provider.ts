@@ -1,5 +1,6 @@
 import { fal } from './fal-client'
 import type { AIProvider, GenerationRequest, GenerationResult } from './types'
+import { IMAGE_MODEL_LABELS, NB_MODEL } from './imageGenModels'
 
 // flux-schnell / flux-dev は image_size プリセット名を使う
 const RATIO_TO_IMAGE_SIZE: Record<string, string> = {
@@ -79,7 +80,7 @@ export const falProvider: AIProvider = {
       { id: 'black-forest-labs/flux-dev',       name: 'FLUX Dev',            type: 'image' as const },
       { id: 'black-forest-labs/flux-1.1-pro',   name: 'FLUX 1.1 Pro',        type: 'image' as const },
       { id: 'fal-ai/flux-2',              name: 'FLUX.2',         type: 'image' as const },
-      { id: 'fal-ai/nano-banana-2',        name: 'Nano Banana 2',   type: 'image' as const },
+      { id: NB_MODEL,                      name: IMAGE_MODEL_LABELS[NB_MODEL],   type: 'image' as const },
       { id: 'fal-ai/nano-banana-pro',     name: 'Nano Banana Pro', type: 'image' as const },
     ]
   },

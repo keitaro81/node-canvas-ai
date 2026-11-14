@@ -3,6 +3,7 @@
 // 完了/失敗の反映は必ず finalizeTask() → RPC apply_batch_task_result（Step 1・冪等）を通す。
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { appRootOf, isAllowedTarget } from '../fal/_allowlist'
+import { falPrivacyHeaders, isFalSubmit } from '../fal/_privacy'
 import { buildEngineRequest, normalizeCutoutParams, pickEngineResult } from '../../src/lib/cutout/engines'
 import type { CutoutEngine } from '../../src/types/nodes'
 import { estimatePlannedTaskCost, estimateTaskCost } from './_pricing'
@@ -142,10 +143,16 @@ export function resultPath(task: { team_id: string; job_id: string; item_id: str
 // ───────────────────────── fal HTTP ─────────────────────────
 
 async function falFetch(falKey: string, method: string, url: string, body?: unknown): Promise<Response> {
-  if (!isAllowedTarget(new URL(url))) throw new Error(`fal target not allowed: ${url}`)
+  const target = new URL(url)
+  if (!isAllowedTarget(target)) throw new Error(`fal target not allowed: ${url}`)
   return fetch(url, {
     method,
-    headers: { Authorization: `Key ${falKey}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    headers: {
+      Authorization: `Key ${falKey}`,
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      // 投入には「生成物のファイルは期限つき」を付ける（メモ 83・api/fal/_privacy.ts。FAL_STORE_IO=0 なら入出力も保存しない）
+      ...(isFalSubmit(method, target) ? falPrivacyHeaders() : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
 }

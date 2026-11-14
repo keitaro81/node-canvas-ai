@@ -293,7 +293,7 @@ export interface VideoMergeNodeData {
   appRun?: { id: number; startedAt: string; since: Record<string, string[]> } | null   // 生成 App の「今回の実行」（そろったら結合。画面を開き直しても残る・2026-11-08 メモ 71）
 }
 
-/** Try-On ノード（2026-11-01・設計 docs/specs/library-tryon.md §4.1 / §7）: モデル画像 + 服の画像 → 着用画像（Nano Banana 2 edit・試着用の既定プロンプト）。
+/** Try-On ノード（2026-11-01・設計 docs/specs/library-tryon.md §4.1 / §7）: モデル画像 + 服の画像 → 着用画像（Nano Banana edit・試着用の既定プロンプト）。
  *  モデルはつなぐか、ノード内の「モデル」でライブラリのモデルと向きを選ぶ（配線があれば配線が優先）。結果は右に作る Image Display と、このノードの output（最新）に出す */
 export interface TryOnModelRef {
   itemId: string            // library_items.id

@@ -5,7 +5,11 @@ import { classifyGeneration } from './_proxyLogic'
 // fal エンドポイント allowlist の回帰テスト。
 // ⚠️ 「既存で使っている全モデル」が許可されることをここで固定する（漏れると本番の生成が 400 で止まる）。
 const EXISTING_ENDPOINTS = [
-  // 画像
+  // 画像（2026-11-14〜: 既定は Nano Banana 2.1・GPT Image は 2.6 の flare / sunburst）
+  'google/nano-banana-2.1', 'google/nano-banana-2.1/edit',
+  'openai/gpt-image-2.6/flare/text-to-image', 'openai/gpt-image-2.6/flare/edit',
+  'openai/gpt-image-2.6/sunburst/text-to-image', 'openai/gpt-image-2.6/sunburst/edit',
+  // 旧モデル（進行中の依頼の確認・古い一括処理の照合のために残してある）
   'fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro', 'fal-ai/flux-2',
   'black-forest-labs/flux-schnell', 'black-forest-labs/flux-dev', 'black-forest-labs/flux-1.1-pro',
   'fal-ai/recraft/v4/text-to-image', 'fal-ai/recraft/v4/pro/text-to-image',
@@ -74,6 +78,9 @@ describe('isAllowedTarget', () => {
   it('未登録モデル・プレフィックスの誤マッチ・外部ホストは拒否', () => {
     expect(isAllowedTarget(q('fal-ai/some-random-model'))).toBe(false)
     expect(isAllowedTarget(q('fal-ai/nano-banana-2x'))).toBe(false)      // 'nano-banana-2' + '/' でないので拒否
+    expect(isAllowedTarget(q('google/nano-banana-2.1x'))).toBe(false)
+    expect(isAllowedTarget(q('google/some-other-model'))).toBe(false)
+    expect(isAllowedTarget(q('openai/gpt-image-2.60/flare/edit'))).toBe(false)
     expect(isAllowedTarget(q('fal-ai/flux-2-evil'))).toBe(false)
     expect(isAllowedTarget(new URL('https://evil.example.com/fal-ai/flux-2'))).toBe(false)
     expect(isAllowedTarget(new URL('https://queue.fal.run.evil.com/fal-ai/flux-2'))).toBe(false)
@@ -83,6 +90,8 @@ describe('isAllowedTarget', () => {
 describe('classifyGeneration（クォータ分類）', () => {
   it('画像/動画の submit は課金対象', () => {
     expect(classifyGeneration('POST', q('fal-ai/nano-banana-2'))).toBe('image')
+    expect(classifyGeneration('POST', q('google/nano-banana-2.1/edit'))).toBe('image')
+    expect(classifyGeneration('POST', q('openai/gpt-image-2.6/sunburst/edit'))).toBe('image')
     expect(classifyGeneration('POST', q('fal-ai/ltx-2.3/text-to-video/fast'))).toBe('video')
     expect(classifyGeneration('POST', new URL('https://fal.run/fal-ai/flux-2'))).toBe('image')
   })

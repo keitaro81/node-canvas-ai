@@ -27,7 +27,7 @@ Flora AIにインスパイアされた、ノードベースのAI画像・動画�
 
 ```ts
 // 画像生成
-fal.subscribe('fal-ai/nano-banana-2', { input: { prompt, ... } })
+fal.subscribe('google/nano-banana-2.1', { input: { prompt, ... } })
 
 // 動画生成
 fal.subscribe('fal-ai/ltx-2.3/text-to-video/fast', { input: { ... } })
@@ -46,6 +46,8 @@ fal.subscribe('fal-ai/any-llm', { input: { model: 'anthropic/claude-haiku-5.5', 
 - `FAL_KEY` はサーバー側のみ（Vercel の env と `.env.local`）。クライアントには漏れない。
 - Edge と dev は同一コア `api/fal/_proxyLogic.ts`。呼び出せるモデルは `api/fal/_allowlist.ts` の allowlist で制限（**モデル追加時は必ず更新**。漏れると 400 "Target URL not allowed"）。
 - fal クライアントの設定は `src/lib/ai/fal-client.ts` の `configureFal()` で一元管理。
+- 画像モデルの id・選択肢・エンドポイントは `src/lib/ai/imageGenModels.ts` に一元化（既定 = Nano Banana 2.1・GPT Image は 2.6）。画面ごとにモデル id を書かない。
+- fal への生成の依頼には、生成物ファイルの期限の指定（既定 7 日）を必ず付ける（`api/fal/_privacy.ts` の `falPrivacyHeaders()`。プロキシ・一括処理・LLM の 3 つの入口で付けている。入口を足したら同じものを付ける）。入出力も fal の履歴に残さない指定は `FAL_STORE_IO=0` で足せるが、結果が約 1 時間で取り出せなくなるので既定では付けない。
 
 ### fal-ai/any-llm の有効なモデルID（2026年10月17日時点・422 のエラー文から取得）
 - `anthropic/claude-haiku-5.5`（`claude-haiku-4.5` は廃止済み → 422。保存済みの id は `src/lib/ai/llmModels.ts` の `normalizeLlmModel` で寄せる）

@@ -10,8 +10,22 @@ describe('pricing', () => {
     expect(estimatePlannedTaskCost('fal-ai/bria/background/remove')).toBe(0.018)
   })
   it('サブパス付きエンドポイントも前方一致で解決する', () => {
-    expect(pricingFor('fal-ai/nano-banana-2/edit')?.perRequestUsd).toBe(0.039)
+    expect(pricingFor('google/nano-banana-2.1/edit')?.perRequestUsd).toBe(0.044)
+    expect(pricingFor('fal-ai/nano-banana-2/edit')?.perRequestUsd).toBe(0.08)   // 旧モデル（古いタスクの実績用）
     expect(pricingFor('fal-ai/nano-banana-2x')).toBeNull()
+    // GPT Image 2.6 は 2 の表に誤って当たらない（'openai/gpt-image-2' + '/' でないので別の行）
+    expect(pricingFor('openai/gpt-image-2.6/flare/edit')?.perRequestUsd).toBe(0.19)
+    expect(pricingFor('openai/gpt-image-2.6/sunburst/text-to-image')?.perRequestUsd).toBe(0.19)
+    expect(pricingFor('openai/gpt-image-2/edit')?.perRequestUsd).toBe(0.05)
+  })
+  it('Nano Banana は解像度で単価が変わる（2.1: 1K $0.044 / 2K $0.063 / 4K $0.138）。解像度が分からなければ 1K の額', () => {
+    expect(estimateTaskCost('google/nano-banana-2.1/edit', null, { resolution: '2K' })).toBe(0.063)   // 試着の既定（2K）
+    expect(estimateTaskCost('google/nano-banana-2.1/edit', null, { resolution: '4K' })).toBe(0.138)
+    expect(estimateTaskCost('google/nano-banana-2.1', null, { resolution: '1K' })).toBe(0.044)
+    expect(estimateTaskCost('google/nano-banana-2.1', null, {})).toBe(0.044)
+    expect(estimatePlannedTaskCost('google/nano-banana-2.1/edit', { resolution: '2K' })).toBe(0.063)
+    expect(estimateTaskCost('fal-ai/nano-banana-2/edit', null, { resolution: '2K' })).toBe(0.12)      // 旧モデルの 2K
+    expect(estimateTaskCost('fal-ai/nano-banana-pro/edit', null, { resolution: '2K' })).toBe(0.15)    // 表に解像度別が無いものは固定の額
   })
 })
 

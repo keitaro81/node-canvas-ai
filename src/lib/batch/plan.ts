@@ -5,7 +5,7 @@
 // - 入口は Batch Input だけ（2026-11-01: Cut Set Input・旧 Product Video・動画の一括処理は廃止。旧 cut / set の参照は保存済みタスクの読み取り用に型だけ残す）
 // - 動画タスクが 1 つでもあれば、動画につながらない画像のタスクは対象外（2026-10-31 決定）
 import { buildEngineRequest, normalizeCutoutParams } from '../cutout/engines'
-import { buildImageEditRequest, buildTextToImageInput, editModelOf } from '../ai/imageGenModels'
+import { NB_MODEL, buildImageEditRequest, buildTextToImageInput, editModelOf, normalizeImageModel, textToImageEndpointOf } from '../ai/imageGenModels'
 import { backgroundSourcesOf, promptForGenerator } from './background'
 import { buildVideoInput, canStartFromImage, effectiveVideoSettings, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, retiredVideoModelOf, videoModelById } from '../ai/videoModels'
 import type { VideoGenerationRequest, VideoModelDefinition } from '../ai/types'
@@ -560,8 +560,8 @@ export function planTasks(snapshot: WorkflowSnapshot | null | undefined): { task
       warn(`背景の Image Generation（${label}）はプロンプトが空のため対象外です（プロンプトの欄に書くか、Text Prompt をつないでください）`)
       continue
     }
-    const model = typeof p.model === 'string' && p.model ? p.model : 'fal-ai/nano-banana-2'
-    tasks.push({ nodeId: genId, scope: 'job', endpoint: model, input: buildTextToImageInput(model, prompt, p), kind: 'imageGen', stage: 1, dependsOn: null, label, dualOutput: false, inputs: {}, terminal: false, video: null })
+    const model = normalizeImageModel(p.model) ?? NB_MODEL   // 前のモデルの id で保存された写しも、今のモデルで動かす
+    tasks.push({ nodeId: genId, scope: 'job', endpoint: textToImageEndpointOf(model), input: buildTextToImageInput(model, prompt, p), kind: 'imageGen', stage: 1, dependsOn: null, label, dualOutput: false, inputs: {}, terminal: false, video: null })
   }
   for (const node of nodes) {
     if (nodeKindOf(node) === 'imageGen' && node.data?.params?.executionScope === 'job' && !generators.has(node.id) && !perItemIds.has(node.id)) {

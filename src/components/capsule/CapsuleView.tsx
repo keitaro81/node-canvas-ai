@@ -25,19 +25,10 @@ import { cutSetRoleHandle, imageRoleOfSource, type SnapshotEdge, type SnapshotNo
 import { CUT_ROLE_LABEL } from '../../lib/video/productVideo'
 import { TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_RESOLUTIONS, normalizeTryOnParams } from '../../lib/tryon/prompt'
 import { imageUrlFromNodeData } from '../../lib/cutout/upstream'
+import { GPT_IMAGE_MODELS, NB_ASPECT_RATIOS, NB_ASPECT_RATIOS_DEFAULT, NB_EDIT_MODEL_OPTIONS, NB_RESOLUTIONS, RECRAFT_MODELS, T2I_MODEL_OPTIONS, normalizeImageModel, safeNbResolution } from '../../lib/ai/imageGenModels'
 
-const T2I_MODELS = [
-  { value: 'fal-ai/nano-banana-2',                label: 'Nano Banana 2' },
-  { value: 'fal-ai/nano-banana-pro',              label: 'Nano Banana Pro' },
-  { value: 'fal-ai/recraft/v4/text-to-image',     label: 'Recraft V4' },
-  { value: 'fal-ai/recraft/v4/pro/text-to-image', label: 'Recraft V4 Pro' },
-]
-
-const NB_ASPECT_RATIOS: Record<string, string[]> = {
-  'fal-ai/nano-banana-2':   ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16', '4:1', '1:4', '8:1', '1:8'],
-  'fal-ai/nano-banana-pro': ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'],
-}
-const NB_ASPECT_RATIOS_DEFAULT = NB_ASPECT_RATIOS['fal-ai/nano-banana-2']
+// App モードの画像モデルの選択肢（GPT Image は App の欄がサイズ指定に未対応のため出さない・これまでどおり）
+const CAPSULE_T2I_MODEL_OPTIONS = T2I_MODEL_OPTIONS.filter((m) => !GPT_IMAGE_MODELS.has(m.value))
 
 const RECRAFT_IMAGE_SIZES_CAPSULE = [
   { value: 'square_hd',      label: '1:1 HD' },
@@ -47,7 +38,7 @@ const RECRAFT_IMAGE_SIZES_CAPSULE = [
   { value: 'landscape_4_3',  label: '4:3' },
   { value: 'portrait_4_3',   label: '3:4' },
 ]
-const RECRAFT_MODEL_SET = new Set(['fal-ai/recraft/v4/text-to-image', 'fal-ai/recraft/v4/pro/text-to-image'])
+const RECRAFT_MODEL_SET = RECRAFT_MODELS
 
 const allVideoModels = falVideoProvider.getAvailableVideoModels()
 
@@ -747,10 +738,10 @@ export function FieldRenderer({ nodeId, field, source }: { nodeId: string; field
         <select
           className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
           style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-          value={value}
+          value={normalizeImageModel(value) ?? value}
           onChange={(e) => updateField(e.target.value)}
         >
-          {T2I_MODELS.map((m) => (
+          {CAPSULE_T2I_MODEL_OPTIONS.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </select>
@@ -760,7 +751,7 @@ export function FieldRenderer({ nodeId, field, source }: { nodeId: string; field
 
   // ImageGenerationNode: アスペクト比セレクト（モデル別）
   if (field.id === 'aspectRatio' && isImageGenNode) {
-    const activeModel = (params.editModel as string) || (params.model as string) || ''
+    const activeModel = normalizeImageModel((params.editModel as string) || (params.model as string)) ?? ''
     const isRecraft = RECRAFT_MODEL_SET.has(params.model as string)
     if (isRecraft) {
       return (
@@ -797,10 +788,6 @@ export function FieldRenderer({ nodeId, field, source }: { nodeId: string; field
   }
 
   // ImageGenerationNode: Edit Modelセレクト
-  const NB_EDIT_MODELS_CAPSULE = [
-    { value: 'fal-ai/nano-banana-2',   label: 'Nano Banana 2' },
-    { value: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
-  ]
   if (field.id === 'editModel' && isImageGenNode) {
     return (
       <div className="mb-3">
@@ -808,10 +795,10 @@ export function FieldRenderer({ nodeId, field, source }: { nodeId: string; field
         <select
           className="w-full rounded-md px-3 py-2 text-[12px] text-[var(--text-primary)] focus:outline-none appearance-none"
           style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border)' }}
-          value={value}
+          value={normalizeImageModel(value) ?? value}
           onChange={(e) => updateField(e.target.value)}
         >
-          {NB_EDIT_MODELS_CAPSULE.map((m) => (
+          {NB_EDIT_MODEL_OPTIONS.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </select>
@@ -820,19 +807,15 @@ export function FieldRenderer({ nodeId, field, source }: { nodeId: string; field
   }
 
   // ImageGenerationNode: Resolution ボタングループ
-  const NB_RESOLUTIONS_CAPSULE: Record<string, string[]> = {
-    'fal-ai/nano-banana-2':   ['0.5K', '1K', '2K', '4K'],
-    'fal-ai/nano-banana-pro': ['1K', '2K', '4K'],
-  }
   if (field.id === 'resolution' && isImageGenNode) {
-    const activeModel = (params.editModel as string) || (params.model as string) || ''
-    const resolutions = NB_RESOLUTIONS_CAPSULE[activeModel] ?? ['1K', '2K', '4K']
+    const activeModel = normalizeImageModel((params.editModel as string) || (params.model as string)) ?? ''
+    const resolutions = NB_RESOLUTIONS[activeModel] ?? ['1K', '2K', '4K']
     return (
       <div className="mb-3">
         <div className="text-[11px] text-[var(--text-secondary)] mb-1 font-medium">{label}</div>
         <div className="flex gap-1">
           {resolutions.map((r) => {
-            const active = (value || '1K') === r
+            const active = safeNbResolution(activeModel, value || '1K') === r   // 前のモデルの 0.5K は 1K として扱う
             return (
               <button
                 key={r}
