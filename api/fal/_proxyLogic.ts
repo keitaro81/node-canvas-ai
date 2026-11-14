@@ -3,6 +3,7 @@
 // 返り値は Web 標準の Response（Edge はそのまま返し、dev は node の res に写す）。
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { isAllowedTarget, isBgRemovalPath, modelPathOf } from './_allowlist'
+import { falPrivacyHeaders, isFalSubmit } from './_privacy'
 
 export const FAL_TARGET_URL_HEADER = 'x-fal-target-url'
 
@@ -88,6 +89,11 @@ export async function falProxyCore(input: FalProxyInput): Promise<Response> {
   forwardHeaders.set('Authorization', `Key ${falKey}`)
   if (contentType) forwardHeaders.set('Content-Type', contentType)
   if (accept) forwardHeaders.set('Accept', accept)
+  // 生成の依頼には「生成物のファイルは期限つき」を付ける（メモ 83・_privacy.ts。FAL_STORE_IO=0 なら入出力も保存しない）。
+  // クライアントが送ってきたヘッダーは転送しないので、ここで付けたものだけが fal に届く
+  if (isFalSubmit(method, parsed)) {
+    for (const [k, v] of Object.entries(falPrivacyHeaders())) forwardHeaders.set(k, v)
+  }
 
   const falRes = await fetch(targetUrl, {
     method,

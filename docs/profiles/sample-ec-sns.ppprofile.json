@@ -8,7 +8,7 @@
   "backgrounds": [
     {
       "key": "bg_sns",
-      "model": "fal-ai/nano-banana-2",
+      "model": "google/nano-banana-2.1",
       "prompt": "A clean product photography backdrop for fashion e-commerce: soft natural window light, warm light-beige seamless paper studio background with subtle gradient, no objects, no people, no text, empty scene",
       "aspectRatio": "9:16",
       "resolution": "1K",

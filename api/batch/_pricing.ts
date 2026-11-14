@@ -4,6 +4,7 @@
 
 export interface EndpointPricing {
   perRequestUsd?: number       // 1 リクエスト固定
+  perRequestUsdByResolution?: Record<string, number>       // 解像度ごとの 1 リクエスト単価（input.resolution・Nano Banana 系）。無い解像度は perRequestUsd
   perSecondUsd?: number        // 計算秒課金
   perVideoSecondUsd?: number   // 生成する動画の秒数課金（input.duration を使う）
   perVideoSecondUsdWithAudio?: number                      // 音声ありの動画秒課金（input.generate_audio が true のとき・Kling v3 Pro / o3 Pro）
@@ -30,10 +31,16 @@ const VIDEO_ENDPOINT_PRICING: Record<string, EndpointPricing> = Object.fromEntri
 export const ENDPOINT_PRICING: Record<string, EndpointPricing> = {
   'fal-ai/bria/background/remove': { perRequestUsd: 0.018 },
   'fal-ai/birefnet/v2': { perSecondUsd: 0.0008, assumedSeconds: 1.5 },
-  // 背景生成（Step 8）で使う画像生成の概算
-  'fal-ai/nano-banana-2': { perRequestUsd: 0.039 },
+  // 画像の生成・編集・試着。2026-11-14 に fal の料金ページへ合わせた
+  // Nano Banana 2.1（既定）: 入力 2 枚のとき 1K $0.044 / 2K $0.063 / 4K $0.138（入力が 1 枚増えるごとに約 $0.002）
+  'google/nano-banana-2.1': { perRequestUsd: 0.044, perRequestUsdByResolution: { '1K': 0.044, '2K': 0.063, '4K': 0.138 } },
+  // Nano Banana 2（旧・置き換え済み。古いタスクの実績用）: 1K $0.08・0.5K は 0.75 倍・2K は 1.5 倍・4K は 2 倍
+  'fal-ai/nano-banana-2': { perRequestUsd: 0.08, perRequestUsdByResolution: { '0.5K': 0.06, '1K': 0.08, '2K': 0.12, '4K': 0.16 } },
   'fal-ai/nano-banana-pro': { perRequestUsd: 0.15 },
-  'openai/gpt-image-2': { perRequestUsd: 0.05 },           // 概算（品質・サイズで変動。fal の料金ページで更新すること）
+  // GPT Image 2.6（flare / sunburst とも同じトークン単価: 画像の出力 $30 / 100 万トークン）。1 枚あたりは品質とサイズで変わり、
+  // fal のページに 1 枚の額が載っていないため概算（高品質・縦長 1 枚で 6,000 トークン強と見て約 $0.19）。請求額は fal のダッシュボードが正
+  'openai/gpt-image-2.6': { perRequestUsd: 0.19 },
+  'openai/gpt-image-2': { perRequestUsd: 0.05 },           // 旧・置き換え済み（概算）
   'fal-ai/flux-2': { perRequestUsd: 0.03 },
   'black-forest-labs/flux-schnell': { perRequestUsd: 0.003 },
   'black-forest-labs/flux-dev': { perRequestUsd: 0.025 },
@@ -54,7 +61,10 @@ export function pricingFor(endpoint: string): EndpointPricing | null {
 export function estimateTaskCost(endpoint: string, inferenceTimeSec?: number | null, input?: Record<string, unknown> | null): number {
   const p = pricingFor(endpoint)
   if (!p) return 0
-  if (p.perRequestUsd !== undefined) return round4(p.perRequestUsd)
+  if (p.perRequestUsd !== undefined) {
+    const byRes = typeof input?.resolution === 'string' ? p.perRequestUsdByResolution?.[input.resolution] : undefined
+    return round4(byRes ?? p.perRequestUsd)
+  }
   if (p.perVideoSecondUsd !== undefined) {
     const d = Number(input?.duration)
     const byRes = typeof input?.resolution === 'string' ? p.perVideoSecondUsdByResolution?.[input.resolution] : undefined

@@ -104,7 +104,7 @@ describe('planTasks: Try-On（2b-3・写真ごとの試着）', () => {
     expect(warnings).toEqual([])
     expect(tasks).toHaveLength(1)
     const t = tasks[0]
-    expect(t).toMatchObject({ nodeId: 't1', kind: 'imageEdit', stage: 1, endpoint: 'fal-ai/nano-banana-2/edit', dependsOn: null, inputs: { image: { kind: 'photo' }, model: { kind: 'asset', url: MODEL } } })
+    expect(t).toMatchObject({ nodeId: 't1', kind: 'imageEdit', stage: 1, endpoint: 'google/nano-banana-2.1/edit', dependsOn: null, inputs: { image: { kind: 'photo' }, model: { kind: 'asset', url: MODEL } } })
     expect(t.input).toMatchObject({ resolution: '1K', aspect_ratio: 'auto' })
     expect(String(t.input.prompt)).toMatch(/^Virtual try-on\. Put ONLY/)
     expect(String(t.input.prompt)).toMatch(/A knit cardigan\.$/)

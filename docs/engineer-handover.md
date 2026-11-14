@@ -113,9 +113,14 @@ docs/specs/, docs/ops/            # PRD・運用ランブック
 設定は [src/lib/ai/fal-client.ts](../src/lib/ai/fal-client.ts) の `configureFal()` に一元化。
 
 **現行モデル**（正典はコード）:
-- 画像 [fal-provider.ts](../src/lib/ai/fal-provider.ts): Nano Banana 2 / Nano Banana Pro / FLUX.2 / FLUX Schnell / Dev / 1.1 Pro
+- 画像: モデルの id・表示名・選択肢・エンドポイントは [imageGenModels.ts](../src/lib/ai/imageGenModels.ts) に一元化（2026-11-14）。既定 = **Nano Banana 2.1**（`google/nano-banana-2.1`・画像生成 / 編集 / 試着）、ほかに Nano Banana Pro / Recraft V4・V4 Pro / **GPT Image 2.6**（`openai/gpt-image-2.6/flare` = 標準・`…/sunburst` = 高精細。部分修正（マスクつき）は GPT Image だけ）。置き換えた旧 id（`fal-ai/nano-banana-2`・`openai/gpt-image-2`）は保存済みのワークフロー・プロファイル・一括処理の写しに残るので、**読むたびに `normalizeImageModel` で今の id に寄せる**（保存し直さない）。許可リストには旧 id も残す（進行中の依頼の確認・古い一括処理の照合のため）。**モデルを替えるとき**: `imageGenModels.ts` の定数と `REPLACED_IMAGE_MODELS`・`_allowlist.ts`・`api/batch/_pricing.ts` の 3 か所。GPT Image 2.6 のテキストから画像だけエンドポイントに `/text-to-image` が付く（`textToImageEndpointOf`）。Nano Banana 2.1 には解像度 0.5K が無い（`safeNbResolution` が 1K にする）
 - 動画 [fal-video-provider.ts](../src/lib/ai/fal-video-provider.ts): LTX-2.3 Fast/Pro（T2V・I2V）/ Kling v2.5-turbo Pro / Kling v3 Pro / Kling o3（I2V・V2V reference）
 - LLM: `fal-ai/any-llm` + `anthropic/claude-haiku-4.5`（既定）/ `claude-sonnet-4.5`
+
+**fal 側に生成物を置きっぱなしにしない（2026-11-14・[api/fal/_privacy.ts](../api/fal/_privacy.ts)）**: 生成の依頼（投入）には `X-Fal-Object-Lifecycle-Preference`（生成物のファイルを期限つきに。**既定 7 日**・環境変数 `FAL_MEDIA_TTL_SECONDS`・`off` で付けない）を付ける。入口は 3 つ（プロキシ `_proxyLogic.ts`・一括処理 `api/batch/_batchLogic.ts` の `falFetch`・LLM `_llm.ts`）で、**入口を足したら必ず付ける**（`_proxyLogic.test.ts` が 3 つとも確かめる）。生成物は完了の直後に自前の保存先（Supabase）へ写すので、fal 側のファイルは「取りに行くまでの猶予」だけあればよい。
+- **入出力（JSON: プロンプト・画像の URL）は fal の履歴に残る**（fal の既定）。これも残さない指定 `X-Fal-Store-IO: 0` は、環境変数 `FAL_STORE_IO=0` を足せば 3 つの入口すべてに付く。**既定では付けない**（ユーザー決定 2026-11-14「ファイルの期限だけ」）。
+- **付けたときの引き換え**: 結果（`…/requests/<id>`）も完了から約 1 時間で取り出せなくなる（実機: 46 分後は取得でき、90 分後は 404。指定なしは 135 分後も取得できた）。「生成中にタブを閉じて 1 時間以上あとに開き直した」ときの復旧ができなくなり、`RESULT_EXPIRED_MESSAGE`（`src/lib/ai/falErrors.ts`）を出して作り直しになる。失敗の理由を後から調べるとき（fal の履歴）も、依頼の一覧（id・状態）だけになり、422 の detail を読めるのは約 1 時間。
+- 復旧で結果の取得が 404 のときに `RESULT_EXPIRED_MESSAGE` を出す処理（`recoveryErrorMessage`）は、既定の設定でも入れてある（fal 側の結果が消えていた場合の案内）。一括処理の照合は元から 1 時間前提（`RESULT_EXPIRY_SEC`）。
 
 ## 7. テナント分離とメディア署名（L1 / L2）
 

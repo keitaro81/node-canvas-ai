@@ -8,6 +8,7 @@ import { normalizeLayoutParams } from '../layout/computeLayout'
 import { DEFAULT_EXPORT_PARAMS, normalizeExportParams } from '../export/naming'
 import { addLayoutNodeToCanvas, cutoutSourceNodeId, removeLayoutNodeFromCanvas, updateLayoutNodeParams, type CanvasEdge, type CanvasFull, type CanvasLike, type CanvasNode } from '../review/model'
 import { IMAGE_GEN_OUTPUT_HANDLE, LAYOUT_BACKGROUND_HANDLE, promptForGenerator, resolveBackgroundSource } from '../batch/background'
+import { NB_MODEL, normalizeImageModel } from '../ai/imageGenModels'
 
 export const PROFILE_FORMAT = 'node-canvas-ai/postproduction-profile'
 export const PROFILE_VERSION = 1
@@ -42,7 +43,7 @@ const H = {
   exportIn: (i: number) => `in-image-${i}`,
 }
 const COLOR = { image: '#8B5CF6', text: '#6366F1', cutout: '#14B8A6' }
-const DEFAULT_BG_MODEL = 'fal-ai/nano-banana-2'
+const DEFAULT_BG_MODEL = NB_MODEL
 
 type Data = Record<string, unknown>
 const nodesOf = (c: CanvasLike | null | undefined): CanvasNode[] => (Array.isArray(c?.nodes) ? c!.nodes! : [])
@@ -88,7 +89,7 @@ export function buildProfile(canvas: CanvasLike, name: string, now: Date = new D
           const seedNum = Number(gp.seed)
           backgrounds.push({
             key,
-            model: typeof gp.model === 'string' && gp.model ? gp.model : DEFAULT_BG_MODEL,
+            model: normalizeImageModel(gp.model) ?? DEFAULT_BG_MODEL,
             prompt: promptForGenerator(canvas, src.generatorNodeId),
             aspectRatio: typeof gp.aspectRatio === 'string' && gp.aspectRatio ? gp.aspectRatio : '1:1',
             resolution: typeof gp.resolution === 'string' && gp.resolution ? gp.resolution : '1K',
@@ -151,7 +152,7 @@ export function parseProfile(text: string): ParseResult {
     const seedNum = Number(o.seed)
     backgrounds.push({
       key,
-      model: typeof o.model === 'string' && o.model ? o.model : DEFAULT_BG_MODEL,
+      model: normalizeImageModel(o.model) ?? DEFAULT_BG_MODEL,
       prompt: typeof o.prompt === 'string' ? o.prompt : '',
       aspectRatio: typeof o.aspectRatio === 'string' && o.aspectRatio ? o.aspectRatio : '1:1',
       resolution: typeof o.resolution === 'string' && o.resolution ? o.resolution : '1K',
@@ -276,7 +277,7 @@ export function planProfileImport(canvas: CanvasLike, profile: PostProductionPro
   for (const key of Array.from(new Set(usedKeys))) {
     const bg = profile.backgrounds.find((b) => b.key === key)
     if (!bg) continue
-    const reuse = nodesOf(original).find((n) => typeOf(n) === 'imageGen' && (paramsOf(n).model ?? DEFAULT_BG_MODEL) === bg.model && promptForGenerator(original, n.id) === bg.prompt)
+    const reuse = nodesOf(original).find((n) => typeOf(n) === 'imageGen' && (normalizeImageModel(paramsOf(n).model) ?? DEFAULT_BG_MODEL) === (normalizeImageModel(bg.model) ?? DEFAULT_BG_MODEL) && promptForGenerator(original, n.id) === bg.prompt)
     if (reuse) { generatorByKey.set(key, reuse.id); setParams(reuse.id, { ...paramsOf(reuse), executionScope: 'job', backgroundKey: key, aspectRatio: bg.aspectRatio, resolution: bg.resolution, seed: bg.seed === null ? '' : String(bg.seed) }); continue }
     const baseY = Math.max(0, ...next.nodes.map((n) => (n.position?.y ?? 0) + 400)) + bgRow * 460
     const textId = idGen('textPrompt'), genId = idGen('imageGen')

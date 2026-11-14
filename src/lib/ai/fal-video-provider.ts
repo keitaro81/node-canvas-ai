@@ -1,5 +1,5 @@
 import { fal } from './fal-client';
-import { falErrorInfo } from './falErrors'
+import { falErrorInfo, recoveryErrorMessage } from './falErrors'
 import { VIDEO_MODELS, buildVideoInput, resolveAspectRatio, resolveSafeDuration, resolveSafeFps, videoEndpointFor } from './videoModels';
 import type {
   VideoProvider,
@@ -154,7 +154,7 @@ export class FalVideoProvider implements VideoProvider {
       };
     } catch (error) {
       const info = falErrorInfo(error)
-      return { id: requestId, status: 'failed', error: info.message || 'Video recovery failed', errorKind: info.kind };
+      return { id: requestId, status: 'failed', error: recoveryErrorMessage(error) || 'Video recovery failed', errorKind: info.kind };
     }
   }
 

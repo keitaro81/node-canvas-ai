@@ -69,7 +69,7 @@ const snapshotFor = () => ({
     ...(WITH_BG ? [
       { id: 'pl-sns', type: 'productLayoutNode', data: { type: 'productLayout', params: { variantName: 'sns_story', width: 1080, height: 1920, backgroundKind: 'image', backgroundFit: 'cover' } } },
       { id: 'tp', type: 'textPromptNode', data: { type: 'textPrompt', params: { prompt: 'A clean product photography backdrop: soft natural light, warm light-beige seamless paper studio background, no objects, no people, no text' } } },
-      { id: 'bg', type: 'imageGenerationNode', data: { type: 'imageGen', params: { model: 'fal-ai/nano-banana-2', aspectRatio: '9:16', resolution: '1K', executionScope: 'job' } } },
+      { id: 'bg', type: 'imageGenerationNode', data: { type: 'imageGen', params: { model: 'google/nano-banana-2.1', aspectRatio: '9:16', resolution: '1K', executionScope: 'job' } } },
     ] : []),
   ],
   edges: [

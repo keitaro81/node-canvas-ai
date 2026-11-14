@@ -150,7 +150,7 @@ export function InpaintMaskModal({ imageUrl, initialPreviewDataUrl, onConfirm, o
       maskCtx.drawImage(canvas, 0, 0, naturalW, naturalH)
 
       // 描画済み → 白・不透明（編集箇所）、未描画 → 黒・不透明（保持箇所）
-      // fal.ai GPT-image-2 は SD 系と同じく白=編集・黒=保持の形式
+      // fal.ai の GPT Image（2.6 も同じ）は SD 系と同じく白=編集・黒=保持の形式
       const imgData = maskCtx.getImageData(0, 0, naturalW, naturalH)
       const d = imgData.data
       for (let i = 0; i < d.length; i += 4) {

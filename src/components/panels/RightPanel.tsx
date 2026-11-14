@@ -3,6 +3,7 @@ import { useCanvasStore } from '../../stores/canvasStore'
 import { NODE_ACCENT_COLORS } from '../../types/nodes'
 import type { VideoGenerationNodeData, ReferenceImageNodeData } from '../../types/nodes'
 import { falVideoProvider } from '../../lib/ai/provider-registry'
+import { IMAGE_MODEL_LABELS, NB_MODEL } from '../../lib/ai/imageGenModels'
 
 const VIDEO_MODELS = falVideoProvider.getAvailableVideoModels()
 
@@ -11,7 +12,7 @@ const IMAGE_MODELS = [
   { value: 'black-forest-labs/flux-dev',     label: 'FLUX Dev' },
   { value: 'black-forest-labs/flux-1.1-pro', label: 'FLUX 1.1 Pro' },
   { value: 'fal-ai/flux-2',                  label: 'FLUX.2' },
-  { value: 'fal-ai/nano-banana-2',            label: 'Nano Banana 2' },
+  { value: NB_MODEL,                          label: IMAGE_MODEL_LABELS[NB_MODEL] },
 ]
 const IMAGE_ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'] as const
 

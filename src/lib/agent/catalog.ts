@@ -12,7 +12,7 @@ import { DEFAULT_BATCH_INPUT_PARAMS, normalizeBatchInputParams } from '../batch/
 import { DEFAULT_TRY_ON_PARAMS, TRY_ON_GARMENT_HANDLE, TRY_ON_MODEL_HANDLE, TRY_ON_OUTPUT_HANDLE, TRY_ON_RESOLUTIONS, normalizeTryOnParams } from '../tryon/prompt'
 import { MODEL_ROLES } from '../library/modelRoles'
 import { VIDEO_MODELS, canStartFromImage } from '../ai/videoModels'
-import { NB_ASPECT_RATIOS_DEFAULT, NB_RESOLUTIONS } from '../ai/imageGenModels'
+import { GPT_IMAGE_HD_MODEL, GPT_IMAGE_MODEL, GPT_IMAGE_MODELS, NB_ASPECT_RATIOS_DEFAULT, NB_MODEL, NB_PRO_MODEL, NB_RESOLUTIONS, RECRAFT_MODEL, normalizeImageModel } from '../ai/imageGenModels'
 
 export const EXPORT_ITEM_INPUT = 'in-item-item'          // ExportNode の EXPORT_ITEM_HANDLE と同じ（コンポーネントを lib から import しない）
 export const EXPORT_IMAGE_SLOT_PREFIX = 'in-image-'      // in-image-0, in-image-1 …
@@ -40,7 +40,7 @@ export interface CatalogNode {
   build: (label: string, params: Record<string, unknown>) => Record<string, unknown>
 }
 
-const IMAGE_GEN_MODELS = ['fal-ai/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2', 'fal-ai/flux-2', 'fal-ai/recraft/v4/text-to-image'] as const
+const IMAGE_GEN_MODELS = [NB_MODEL, NB_PRO_MODEL, GPT_IMAGE_MODEL, GPT_IMAGE_HD_MODEL, 'fal-ai/flux-2', RECRAFT_MODEL] as const
 const VIDEO_MODEL_IDS = VIDEO_MODELS.filter(canStartFromImage).map((m) => m.id)
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d)
 const pick = <T extends string>(v: unknown, allowed: readonly T[], d: T): T => ((allowed as readonly string[]).includes(v as string) ? (v as T) : d)
@@ -92,14 +92,14 @@ export const NODE_CATALOG: CatalogNode[] = [
     inputs: [{ port: 'text', handle: IMAGE_GEN_TEXT_INPUT, kind: 'text', label: 'プロンプト' }, { port: 'image', handle: 'in-image', kind: 'image', label: '参照画像（複数可）', multi: { kind: 'imageGenRef', max: 10 }, acceptsCutout: true }],
     outputs: [{ port: 'image', handle: IMAGE_GEN_OUTPUT, kind: 'image', label: '生成画像' }],
     params: [
-      { key: 'model', type: 'enum', enum: IMAGE_GEN_MODELS, default: 'fal-ai/nano-banana-2', description: '生成モデル（既定の Nano Banana 2 が編集もできる）' },
+      { key: 'model', type: 'enum', enum: IMAGE_GEN_MODELS, default: NB_MODEL, description: '生成モデル（既定の Nano Banana 2.1 が編集もできる）' },
       { key: 'aspectRatio', type: 'enum', enum: NB_ASPECT_RATIOS_DEFAULT, default: '1:1', description: '比率' },
-      { key: 'resolution', type: 'enum', enum: NB_RESOLUTIONS['fal-ai/nano-banana-2'], default: '1K', description: '解像度' },
+      { key: 'resolution', type: 'enum', enum: NB_RESOLUTIONS[NB_MODEL], default: '1K', description: '解像度' },
       { key: 'executionScope', type: 'enum', enum: ['item', 'job'], default: 'item', description: '一括処理での動き方: item = 写真ごと、job = ジョブで 1 回（背景生成）' },
     ],
     build: (label, p) => {
-      const model = pick(p.model, IMAGE_GEN_MODELS, 'fal-ai/nano-banana-2')
-      return { type: 'imageGen', label, params: { model, editModel: model === 'fal-ai/nano-banana-pro' || model === 'openai/gpt-image-2' ? model : 'fal-ai/nano-banana-2', aspectRatio: pick(p.aspectRatio, NB_ASPECT_RATIOS_DEFAULT, '1:1'), resolution: pick(p.resolution, NB_RESOLUTIONS['fal-ai/nano-banana-2'], '1K'), seed: '', executionScope: pick(p.executionScope, ['item', 'job'] as const, 'item') }, status: 'idle' }
+      const model = pick(normalizeImageModel(p.model), IMAGE_GEN_MODELS, NB_MODEL)
+      return { type: 'imageGen', label, params: { model, editModel: model === NB_PRO_MODEL || GPT_IMAGE_MODELS.has(model) ? model : NB_MODEL, aspectRatio: pick(p.aspectRatio, NB_ASPECT_RATIOS_DEFAULT, '1:1'), resolution: pick(p.resolution, NB_RESOLUTIONS[NB_MODEL], '1K'), seed: '', executionScope: pick(p.executionScope, ['item', 'job'] as const, 'item') }, status: 'idle' }
     },
   },
   {

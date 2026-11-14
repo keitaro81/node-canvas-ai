@@ -51,6 +51,7 @@ import { DEFAULT_EXPORT_PARAMS } from '../../lib/export/naming'
 import type { NodeType } from '../../types/nodes'
 import type { WorkflowRow } from '../../lib/api/workflows'
 import { formatRelativeJa } from '../../lib/batch/dates'
+import { NB_MODEL } from '../../lib/ai/imageGenModels'
 
 // ─────────────────────────────────────────
 // ノードパレット定義
@@ -134,7 +135,7 @@ function buildNodeData(type: NodeType, label: string): Record<string, unknown> {
     return { label, videoUrl: null, uploadedVideoPreview: null }
   }
   if (type === 'imageGen') {
-    return { type: 'imageGen', label, params: { model: 'fal-ai/nano-banana-2', aspectRatio: '1:1', seed: '' }, status: 'idle' }
+    return { type: 'imageGen', label, params: { model: NB_MODEL, aspectRatio: '1:1', seed: '' }, status: 'idle' }
   }
   if (type === 'promptEnhancer') {
     return { type: 'promptEnhancer', label, params: {}, status: 'idle', inputText: '', outputText: '', model: DEFAULT_LLM_MODEL }

@@ -1,5 +1,5 @@
 // Try-On ノード（2026-11-01・設計 docs/specs/library-tryon.md §4.1 / §7）: モデル画像 + 服の画像 → 着用画像。
-// エンジンは Nano Banana 2 edit だけ（2b-1 の試作で最良・ユーザー決定「案 A」）。試着用の既定プロンプトはノードが持ち（src/lib/tryon/prompt.ts）、
+// エンジンは Nano Banana（2.1・2026-11-14 に 2 から切り替え）の edit だけ（2b-1 の試作で最良・ユーザー決定「案 A」）。試着用の既定プロンプトはノードが持ち（src/lib/tryon/prompt.ts）、
 // ユーザーは「服の説明・補足」（任意・日本語可 → 生成時に any-llm で英訳）だけ書く。
 // モデルは in-image-model につなぐ（Model ノードの向きポート / 参照画像のモデルタブ / Cut Set Input / 別の Try-On）。ノード内の「モデル」ボタンは 2026-11-01 に廃止（旧ワークフローの data.model は読む）。
 // 服は in-image-garment（Reference Image / Batch Input の写真 / Image Display / Remove Background の切り抜き）。
@@ -19,6 +19,7 @@ import { BatchMark } from './BatchMark'
 import { showToast } from '../../hooks/useToast'
 import { fal } from '../../lib/ai/fal-client'
 import { toCanonicalRef, uploadImageFromUrl } from '../../lib/api/storage'
+import { recoveryErrorMessage } from '../../lib/ai/falErrors'
 import { checkQuota, saveGeneration } from '../../lib/api/generations'
 import { patchWorkflowNodeOutput } from '../../lib/api/workflows'
 import { signLibraryUrl, touchLibraryItems } from '../../lib/api/library'
@@ -283,7 +284,7 @@ function TryOnNodeInner(props: NodeProps) {
           if (!out) throw new Error('着用画像が返りませんでした')
           finishResult(id, t.displayId, out, { recovered: true })
         } catch (e) {
-          const message = e instanceof Error ? e.message : String(e)
+          const message = recoveryErrorMessage(e)
           updateNode(t.displayId, { status: 'error', params: { error: message }, requestId: null, requestEndpoint: null } as Partial<NodeData>)
           updateNode(id, { status: 'error', progress: '', error: message } as Partial<NodeData>)
         }
@@ -356,7 +357,7 @@ function TryOnNodeInner(props: NodeProps) {
           title={!hasModel ? 'Model ノードか参照画像のモデルタブからモデルをつないでください' : !hasGarment ? '服の画像をつないでください' : 'Nano Banana 2 で着用画像を 1 枚作ります（約 $0.04）'}
         >
           {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-          {isRunning ? (nodeData.progress || '試着中…') : '試着（Nano Banana 2）'}
+          {isRunning ? (nodeData.progress || '試着中…') : '試着（Nano Banana 2.1）'}
         </button>
         {nodeData.status === 'error' && nodeData.error && <div className="text-[11px] break-words" style={{ color: '#EF4444' }}>{nodeData.error}</div>}
         <div className="text-[10px] leading-snug" style={{ color: 'var(--text-tertiary)' }}>服の写真と同じ向きのモデルをつなぐと側面・背面も作れます。結果は右の Image Display に出て、生成履歴とライブラリの生成画像にも入ります。Batch Input の写真をつなぐと一括実行で写真ごとに作れます。</div>
