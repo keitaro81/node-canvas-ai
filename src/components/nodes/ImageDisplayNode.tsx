@@ -36,7 +36,8 @@ export const ImageDisplayNode = memo(function ImageDisplayNode(props: NodeProps)
   const isGenerating = status === 'generating'
   const isError = status === 'error'
   const isDeleted = (data as { deleted?: boolean }).deleted === true
-  const errorMsg = data.params?.error as string | undefined
+  // 生成の失敗の理由（params.error）。読み込み直しで中断された生成は、読み込み時に data.errorMessage に理由が入る（workflowStore.loadWorkflow）
+  const errorMsg = (data.params?.error as string | undefined) || ((data as { errorMessage?: unknown }).errorMessage as string | undefined)
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()

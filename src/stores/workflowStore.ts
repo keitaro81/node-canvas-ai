@@ -94,6 +94,13 @@ export const selectCanEditNow = (s: Pick<WorkflowState, 'currentWorkflowTeamEdit
 // initializeDefaultProject の進行中 Promise（多重呼び出しの合流用）
 let defaultProjectInit: Promise<string> | null = null
 
+// 保存中に届いた保存の依頼（生成の依頼 id の保存・生成完了の保存・自動保存）。捨てると、その分は次に何か編集するまで保存されない。
+// 生成の依頼 id が保存されないままページを読み込み直すと、結果を取り戻せなくなる（2026-11-14 メモ 85: 依頼 id が自動保存の最中に届いた）。
+// いまの保存が終わったら、最新のキャンバスでもう 1 回だけ保存する（何回重なっても 1 回にまとめる）
+let saveRequestedWhileSaving = false
+// 未保存の変更の通し番号。保存の最中に入った変更を、その保存の完了で「保存済み」にしないために使う
+let changeSeq = 0
+
 /** いまのキャンバスを保存用の canvas_data にする（blob: URL を除き、署名 URL を canonical に戻す） */
 function localCanvasForSave(viewport?: CanvasViewport): Json {
   const { nodes, edges, capsuleGroupId } = useCanvasStore.getState()
@@ -233,31 +240,40 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   async saveCurrentWorkflow(viewport?: CanvasViewport): Promise<void> {
     const { currentWorkflowId, isSaving, currentWorkflowCanvasVersion } = get()
-    if (!currentWorkflowId || isSaving) return
+    if (!currentWorkflowId) return
+    // 保存中に来た依頼は捨てずに覚えておく（いまの保存の中身には入っていない変更があるかもしれない）。終わったらもう 1 回保存する
+    if (isSaving) { saveRequestedWhileSaving = true; return }
     if (!selectCanEditNow(get())) return   // 閲覧のみ（権限なし・ロック未取得）では保存しない
 
     set({ isSaving: true })
+    const seqAtStart = changeSeq
+    let blocked = false   // 衝突・ロック切れ・権限なし（ダイアログで選んでもらうので、続けて保存しない）
     try {
       // 版を確かめながら保存する。読み込んだ後に誰か（他の人・別のタブ・Jobs 画面）が保存していたら上書きせず、選んでもらう
       const saved = await updateWorkflowCanvasChecked(currentWorkflowId, localCanvasForSave(viewport), currentWorkflowCanvasVersion)
       if (!saved) {
+        blocked = true
         set({ saveBlocked: { kind: 'conflict' } })
         return
       }
       // サーバーの updated_at / 版を保持する（他の画面での更新を比較で検知するため）
       set({
-        hasUnsavedChanges: false,
+        hasUnsavedChanges: changeSeq !== seqAtStart,   // 保存の最中に入った変更は、まだ保存されていない
         lastSavedAt: saved.updated_at ? new Date(saved.updated_at) : new Date(),
         currentWorkflowCanvasVersion: (saved as { canvas_version?: number | null }).canvas_version ?? currentWorkflowCanvasVersion + 1,
       })
     } catch (err) {
       const kind = classifySaveError(err)
-      if (kind === 'lock') { set({ editing: false, saveBlocked: { kind: 'lock' } }); return }
-      if (kind === 'forbidden' || kind === 'settings') { set({ saveBlocked: { kind: 'forbidden' } }); return }
+      if (kind === 'lock') { blocked = true; set({ editing: false, saveBlocked: { kind: 'lock' } }); return }
+      if (kind === 'forbidden' || kind === 'settings') { blocked = true; set({ saveBlocked: { kind: 'forbidden' } }); return }
       console.warn('[saveCurrentWorkflow] 保存失敗:', err)
       showToast('保存に失敗しました。ネットワーク接続を確認してください。', 'error')
     } finally {
       set({ isSaving: false })
+      const queued = saveRequestedWhileSaving
+      saveRequestedWhileSaving = false
+      // 保存中に来た依頼の分を、最新のキャンバスで保存する。別のワークフローに移っていたら（読み込み中も）何もしない
+      if (queued && !blocked && !get().isLoadingWorkflow && get().currentWorkflowId === currentWorkflowId) void get().saveCurrentWorkflow()
     }
   },
 
@@ -322,6 +338,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   markUnsavedChanges(): void {
+    changeSeq++
     set({ hasUnsavedChanges: true })
   },
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useCanvasStore, type AppNode } from '../stores/canvasStore'
 import { useWorkflowStore, selectCanEditNow } from '../stores/workflowStore'
 import type { Edge } from '@xyflow/react'
@@ -53,43 +53,46 @@ function edgesContentChanged(prev: Edge[], curr: Edge[]): boolean {
 }
 
 /**
- * canvasStore の nodes/edges を監視し、変更があれば 3 秒後に自動保存する。
+ * canvasStore の nodes/edges を監視し、変更があれば 3 秒後に自動保存する。止める関数を返す。
  * ワークフローのロード中（isLoadingWorkflow）はスキップする。
  * ReactFlow 内部の寸法計測・選択状態の変化では保存をトリガーしない。
  */
+export function startAutoSave(debounceMs: number = DEBOUNCE_MS): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let prevNodes = useCanvasStore.getState().nodes
+  let prevEdges = useCanvasStore.getState().edges
+
+  const unsubscribe = useCanvasStore.subscribe(() => {
+    const { nodes, edges } = useCanvasStore.getState()
+
+    // 保存対象コンテンツに変化がなければスキップ
+    // （ReactFlow の measured / selected 更新などを除外）
+    const changed = nodesContentChanged(prevNodes, nodes) || edgesContentChanged(prevEdges, edges)
+    prevNodes = nodes
+    prevEdges = edges
+    if (!changed) return
+
+    const wf = useWorkflowStore.getState()
+    // 編集できるとき（編集権があり、ロックが要るならこのタブが持っている）だけ保存する。
+    // 保存の最中に入った変更も捨てない: その保存の中身には入っていないので、あらためて保存する（2026-11-14 メモ 85。
+    // 以前は保存中の変更を無視していたため、生成の依頼 id が保存の最中に届くと、次に何か編集するまで保存されなかった）
+    if (!wf.currentWorkflowId || wf.isLoadingWorkflow || !selectCanEditNow(wf)) return
+
+    useWorkflowStore.getState().markUnsavedChanges()
+
+    if (timer !== null) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      void useWorkflowStore.getState().saveCurrentWorkflow()
+    }, debounceMs)
+  })
+
+  return () => {
+    unsubscribe()
+    if (timer !== null) clearTimeout(timer)
+  }
+}
+
 export function useAutoSave() {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    let prevNodes = useCanvasStore.getState().nodes
-    let prevEdges = useCanvasStore.getState().edges
-
-    const unsubscribe = useCanvasStore.subscribe(() => {
-      const { nodes, edges } = useCanvasStore.getState()
-
-      // 保存対象コンテンツに変化がなければスキップ
-      // （ReactFlow の measured / selected 更新などを除外）
-      const changed = nodesContentChanged(prevNodes, nodes) || edgesContentChanged(prevEdges, edges)
-      prevNodes = nodes
-      prevEdges = edges
-      if (!changed) return
-
-      const wf = useWorkflowStore.getState()
-      // 編集できるとき（編集権があり、ロックが要るならこのタブが持っている）だけ保存する
-      if (!wf.currentWorkflowId || wf.isSaving || wf.isLoadingWorkflow || !selectCanEditNow(wf)) return
-
-      useWorkflowStore.getState().markUnsavedChanges()
-
-      if (timerRef.current !== null) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
-        useWorkflowStore.getState().saveCurrentWorkflow()
-      }, DEBOUNCE_MS)
-    })
-
-    return () => {
-      unsubscribe()
-      if (timerRef.current !== null) clearTimeout(timerRef.current)
-    }
-  }, [])
+  useEffect(() => startAutoSave(), [])
 }
